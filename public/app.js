@@ -114,6 +114,7 @@ function setLang(lang, { rerender = true } = {}) {
   document.documentElement.lang = state.lang;
   translateStatic();
   applyTheme();
+  if (rerender && !state.current) { renderMe(); return; } // noch nicht angemeldet: nur Startseite neu zeichnen
   if (rerender) {
     render();
     renderShop();
@@ -325,7 +326,7 @@ function renderMe() {
   // Sprachknopf oben nur, solange noch niemand ausgewählt ist (sonst in den Einstellungen)
   const quick = $('#lang-quick');
   quick.hidden = !!state.me;
-  quick.textContent = { de: '🇬🇧 English', en: '🇸🇪 Svenska', sv: '🇩🇪 Deutsch' }[state.lang];
+  quick.querySelectorAll('[data-flag]').forEach((b) => b.classList.toggle('on', b.dataset.flag === state.lang));
   document.querySelectorAll('#set-lang [data-lang]').forEach((b) => b.setAttribute('aria-checked', b.dataset.lang === state.lang));
   $('#settings').hidden = !state.me;
 }
@@ -950,7 +951,7 @@ document.addEventListener('click', async (e) => {
   }
 });
 
-$('#lang-quick').onclick = () => setLang({ de: 'en', en: 'sv', sv: 'de' }[state.lang]);
+$('#lang-quick').onclick = (e) => { const b = e.target.closest('[data-flag]'); if (b) setLang(b.dataset.flag); };
 $('#set-lang').addEventListener('click', async (e) => {
   const b = e.target.closest('[data-lang]');
   if (!b || b.dataset.lang === state.lang) return;

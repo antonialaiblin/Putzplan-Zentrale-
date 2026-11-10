@@ -326,6 +326,9 @@ html:not([lang="de"]) .only-de, html:not([lang="en"]) .only-en, html:not([lang="
 .settings .notify { border-top: 1px solid var(--line); padding: 10px 0; }
 .settings .notify h3 { margin: 0 0 6px; font-size: 1rem; }
 #lang-quick { white-space: nowrap; }
+.lang-flags { display: flex; gap: 4px; }
+.lang-flags button { font-size: 22px; line-height: 1; padding: 6px; border-radius: 10px; border: 2px solid transparent; background: transparent; opacity: .45; cursor: pointer; }
+.lang-flags button.on { opacity: 1; border-color: var(--accent); background: var(--accent-soft); }
 
 img.logo { padding: 0; object-fit: cover; }
 /* Profil & Fotos */
