@@ -159,7 +159,7 @@ const G = (name, w, m, d) => ({ w, m }[memberOf(name)?.gender] ?? d);
 
 // ---------------- Laden ----------------
 async function load() {
-  const data = await api('weeks?count=12');
+  const data = await api(`weeks?count=12&me=${encodeURIComponent(state.me || '')}`);
   state.people = data.people;
   state.members = data.members;
   state.absences = data.absences;
@@ -1136,8 +1136,8 @@ function extraTiles(w) {
   // Pinnwand
   const notes = state.board || [];
   out.board = `<div class="card __CLS__ board-card"><div class="board-head"><h3>📌 ${L('Pinnwand', 'Pinboard', 'Anslagstavla')}</h3>${state.editHome ? '' : `<button type="button" class="small" data-note-add>+ ${L('Zettel', 'Note', 'Lapp')}</button>`}</div>
-    <div class="cork">${notes.length ? notes.map((n) => `<div class="note ${n.color}" style="--tilt:${n.tilt || 0}deg"><span class="pin"></span><p>${esc(n.text).replace(/\n/g, '<br>')}</p>
-      <small>${n.by ? esc(n.by) : ''} · ${ago(n.at)}${state.editHome ? '' : ` <button type="button" class="note-del" data-note-del="${esc(n.id)}" aria-label="${L('Zettel abnehmen', 'Remove note', 'Ta ner lappen')}">✕</button>`}</small></div>`).join('')
+    <div class="cork">${notes.length ? notes.map((n) => `<div class="note ${n.photo ? 'polaroid' : n.color}" style="--tilt:${n.tilt || 0}deg"><span class="pin"></span>${n.photo ? `<a href="/api/board/photo/${esc(n.id)}" target="_blank" rel="noopener"><img src="/api/board/photo/${esc(n.id)}" alt="" loading="lazy"></a>` : ''}${n.text ? `<p>${esc(n.text).replace(/\n/g, '<br>')}</p>` : ''}
+      ${n.expires ? `<span class="note-exp">⏳ ${L('bis', 'until', 'till')} ${ddmm(n.expires)}</span>` : ''}<small>${n.by ? esc(n.by) : ''} · ${ago(n.at)}${state.editHome ? '' : ` <button type="button" class="note-del" data-note-del="${esc(n.id)}" aria-label="${L('Zettel abnehmen', 'Remove note', 'Ta ner lappen')}">✕</button>`}</small></div>`).join('')
     : `<p class="cork-empty">${L('Noch nichts angepinnt. Häng z.B. das WLAN-Passwort oder „Handwerker kommt Do“ auf.', 'Nothing pinned yet. Put up e.g. the Wi-Fi password or "plumber comes Thu".', 'Inget uppsatt än. Sätt t.ex. upp wifi-lösenordet eller "hantverkaren kommer tors".')}</p>`}</div></div>`;
   // Meine nächsten Dienste
   if (me) {
@@ -1194,7 +1194,22 @@ function openHomeAdd() {
 function openNoteDialog() {
   const dlg = $('#note-dialog');
   $('#note-text').value = '';
+  $('#note-expires').value = '';
+  $('#note-expires').min = state.today;
   let color = 'yellow';
+  let photo = null;
+  const showPhoto = () => {
+    $('#note-photo-preview').hidden = !photo;
+    $('#note-photo-preview').innerHTML = photo ? `<img src="${photo}" alt=""><button type="button" class="link small" id="note-photo-del">${L('Foto entfernen', 'Remove photo', 'Ta bort foto')}</button>` : '';
+    if (photo) $('#note-photo-del').onclick = () => { photo = null; $('#note-photo').value = ''; showPhoto(); };
+  };
+  showPhoto();
+  $('#note-photo-btn').onclick = () => $('#note-photo').click();
+  $('#note-photo').onchange = async (e) => {
+    const f = e.target.files[0];
+    if (!f) return;
+    try { photo = await resizeImage(f, 1000); showPhoto(); } catch { toast(L('Das Foto ist zu groß oder kein Bild.', 'The photo is too big or not an image.', 'Fotot är för stort eller ingen bild.')); }
+  };
   const mark = () => document.querySelectorAll('#note-colors [data-color]').forEach((b) => b.setAttribute('aria-checked', b.dataset.color === color));
   $('#note-colors').onclick = (e) => { const b = e.target.closest('[data-color]'); if (b) { color = b.dataset.color; mark(); } };
   mark();
@@ -1202,7 +1217,7 @@ function openNoteDialog() {
     if (e.submitter?.value !== 'ok') return;
     e.preventDefault();
     try {
-      state.board = (await api('board/add', { text: $('#note-text').value, color, by: state.me })).board;
+      state.board = (await api('board/add', { text: $('#note-text').value, color, photo, expires: $('#note-expires').value || null, by: state.me })).board;
       dlg.close();
       renderHome();
       toast(L('Angepinnt 📌 Alle bekommen Bescheid', 'Pinned 📌 Everyone gets notified', 'Uppsatt 📌 Alla får en notis'));
@@ -1358,19 +1373,20 @@ function renderSurveys() {
   }
   const one = (s) => {
     const mine = (s.votes || {})[state.me] || [];
-    const voters = Object.keys(s.votes || {});
+    const voters = s.voters || Object.keys(s.votes || {});
     const others = state.people.filter((p) => p !== s.by);
     const missing = others.filter((p) => !voters.includes(p));
     const isOpen = s.status === 'open';
     return `<div class="survey${isOpen ? '' : ' closed'}">
       <h3>${esc(s.question)}</h3>
-      <p class="muted small meta">${s.by ? `${L('von', 'from', `från`)} ${esc(s.by)} · ` : ''}${ago(s.at)} · ${missing.length ? `${L('fehlt noch', 'still missing', `saknas fortfarande`)}: ${missing.map(esc).join(', ')}` : L('alle haben abgestimmt ✓', 'everyone has answered ✓', `alla har svarat ✓`)}${isOpen ? '' : ` · ${L('beendet', 'closed', `avslutad`)}`}${s.multi ? ` · ${L('mehrere Antworten möglich', 'multiple answers', `flera svar`)}` : ''}</p>
+      <p class="muted small meta">${s.by ? `${L('von', 'from', `från`)} ${esc(s.by)} · ` : ''}${ago(s.at)} · ${missing.length ? `${L('fehlt noch', 'still missing', `saknas fortfarande`)}: ${missing.map(esc).join(', ')}` : L('alle haben abgestimmt ✓', 'everyone has answered ✓', `alla har svarat ✓`)}${isOpen ? '' : ` · ${L('beendet', 'closed', `avslutad`)}`}${s.multi ? ` · ${L('mehrere Antworten möglich', 'multiple answers', `flera svar`)}` : ''}${s.anon ? ` · 🕶️ ${L('anonym', 'anonymous', 'anonym')}` : ''}</p>
       ${s.options.map((o) => {
-        const who = voters.filter((n) => s.votes[n].includes(o.id));
-        const pct = voters.length ? Math.round((who.length / voters.length) * 100) : 0;
+        const who = s.anon ? [] : voters.filter((n) => (s.votes[n] || []).includes(o.id));
+        const n = s.counts ? s.counts[o.id] || 0 : who.length;
+        const pct = voters.length ? Math.round((n / voters.length) * 100) : 0;
         return `<button type="button" class="s-opt" ${isOpen && state.me ? `data-svote="${esc(s.id)}" data-sopt="${esc(o.id)}"` : 'disabled'} aria-pressed="${mine.includes(o.id)}">
           <span class="bar" style="width:${pct}%"></span><span class="t">${mine.includes(o.id) ? '✓ ' : ''}${esc(o.text)}</span>
-          <span class="who">${who.length} ${who.length ? `· ${who.map(esc).join(', ')}` : ''}</span></button>`;
+          <span class="who">${n} ${who.length ? `· ${who.map(esc).join(', ')}` : ''}</span></button>`;
       }).join('')}
       ${s.by === state.me || !s.by ? `<div class="row end"><button type="button" class="link small" data-sclose="${esc(s.id)}">${isOpen ? L('Umfrage beenden', 'Close poll', `Avsluta omröstning`) : L('Wieder öffnen', 'Reopen', `Öppna igen`)}</button>
         <button type="button" class="link small" data-sdel="${esc(s.id)}">${L('löschen', 'delete', `ta bort`)}</button></div>` : ''}
@@ -1396,7 +1412,7 @@ $('#survey-form').addEventListener('submit', async (e) => {
   e.preventDefault();
   const options = [...document.querySelectorAll('#survey-opts input')].map((i) => i.value.trim()).filter(Boolean);
   try {
-    const r = await api('surveys/add', { question: $('#survey-q').value, options, multi: $('#survey-multi').checked, by: state.me });
+    const r = await api('surveys/add', { question: $('#survey-q').value, options, multi: $('#survey-multi').checked, anon: $('#survey-anon').checked, by: state.me });
     state.surveys = r.surveys;
     $('#survey-form').hidden = true;
     renderSurveys();
@@ -1416,11 +1432,11 @@ $('#surveys').addEventListener('click', async (e) => {
       return;
     }
     const c = e.target.closest('[data-sclose]');
-    if (c) { state.surveys = (await api('surveys/close', { id: c.dataset.sclose })).surveys; renderSurveys(); return; }
+    if (c) { state.surveys = (await api('surveys/close', { id: c.dataset.sclose, me: state.me })).surveys; renderSurveys(); return; }
     const d = e.target.closest('[data-sdel]');
     if (d) {
       if (!confirm(L('Umfrage löschen?', 'Delete this poll?', `Ta bort omröstningen?`))) return;
-      state.surveys = (await api('surveys/delete', { id: d.dataset.sdel })).surveys;
+      state.surveys = (await api('surveys/delete', { id: d.dataset.sdel, me: state.me })).surveys;
       renderSurveys();
     }
   } catch (err) { toast(err.message); }
@@ -1517,6 +1533,18 @@ $('#leave-form').addEventListener('submit', (e) => {
 });
 
 // ---------------- Profil ----------------
+/** Bild verkleinern (längste Seite max px) und als JPEG-Daten-URL zurückgeben */
+async function resizeImage(file, max) {
+  const url = URL.createObjectURL(file);
+  try {
+    const img = await new Promise((ok, fail) => { const i = new Image(); i.onload = () => ok(i); i.onerror = fail; i.src = url; });
+    const k = Math.min(1, max / Math.max(img.naturalWidth, img.naturalHeight));
+    const c = document.createElement('canvas');
+    c.width = Math.round(img.naturalWidth * k); c.height = Math.round(img.naturalHeight * k);
+    c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+    return c.toDataURL('image/jpeg', 0.8);
+  } finally { URL.revokeObjectURL(url); }
+}
 /** Bild verkleinern (quadratisch, 320 px) und als JPEG-Daten-URL zurückgeben */
 async function resizePhoto(file) {
   const url = URL.createObjectURL(file);

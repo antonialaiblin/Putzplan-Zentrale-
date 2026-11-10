@@ -209,7 +209,17 @@ export class Putzplan extends DurableObject {
     return list;
   }
   async board() {
-    return (await this.ctx.storage.get('board')) || [];
+    const today = berlinNow().day;
+    return ((await this.ctx.storage.get('board')) || []).filter((n) => !n.expires || n.expires >= today);
+  }
+  /** Umfragen für eine Person: bei anonymen Umfragen sieht man nur die eigene Stimme und die Anzahl */
+  async surveysFor(me, list) {
+    return (list || await this.surveys()).slice(-40).map((s) => {
+      const voters = Object.keys(s.votes || {});
+      const counts = Object.fromEntries(s.options.map((o) => [o.id, voters.filter((n) => s.votes[n].includes(o.id)).length]));
+      if (!s.anon) return { ...s, voters, counts };
+      return { ...s, votes: me && s.votes[me] ? { [me]: s.votes[me] } : {}, voters, counts };
+    });
   }
   async addExpense(e) {
     // Schlüssel nach Zeit sortierbar
@@ -265,7 +275,7 @@ export class Putzplan extends DurableObject {
       const from = validMonday(url.searchParams.get('from')) ? url.searchParams.get('from') : addDays(current, -7);
       const count = Math.min(Math.max(Number(url.searchParams.get('count')) || 12, 1), 30);
       const weeks = await this.weeks([...Array(count)].map((_, i) => addDays(from, i * 7)));
-      return json({ people: PEOPLE, members: await this.members(), absences: await this.absences(), events: await this.events(), polls: await this.polls(), surveys: await this.surveys(), swapRequests: await this.swapRequests(), board: await this.board(), cleanerContact: await this.cleanerContact(), current, today: berlinNow().day, weeks });
+      return json({ people: PEOPLE, members: await this.members(), absences: await this.absences(), events: await this.events(), polls: await this.polls(), surveys: await this.surveysFor(url.searchParams.get('me')), swapRequests: await this.swapRequests(), board: await this.board(), cleanerContact: await this.cleanerContact(), current, today: berlinNow().day, weeks });
     }
 
     if (path === '/check' && request.method === 'POST') {
@@ -569,8 +579,8 @@ export class Putzplan extends DurableObject {
       await this.ctx.storage.put('members', list);
       return json({ ok: true, name, members: list });
     }
-    if (path.startsWith('/photo/') && request.method === 'GET') {
-      const data = await this.ctx.storage.get(`photo:${decodeURIComponent(path.slice(7))}`);
+    if ((path.startsWith('/photo/') || path.startsWith('/board/photo/')) && request.method === 'GET') {
+      const data = await this.ctx.storage.get(path.startsWith('/board/') ? `boardphoto:${decodeURIComponent(path.slice(13))}` : `photo:${decodeURIComponent(path.slice(7))}`);
       if (!data) return new Response('not found', { status: 404 });
       const [head, b64] = data.split(',');
       const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
@@ -745,14 +755,14 @@ export class Putzplan extends DurableObject {
     // ---------- Umfragen (Übersicht) ----------
     if (path.startsWith('/surveys/') && request.method === 'POST') {
       const list = await this.surveys();
-      const save = async () => { await this.ctx.storage.put('surveys', list.slice(-40)); return json({ surveys: list.slice(-40) }); };
+      const save = async () => { await this.ctx.storage.put('surveys', list.slice(-40)); return json({ surveys: await this.surveysFor(body.me || body.name || body.by, list) }); };
       const by = PEOPLE.includes(body.by) ? body.by : null;
       if (path === '/surveys/add') {
         const question = str(body.question, 200);
         const opts = (Array.isArray(body.options) ? body.options : []).map((o) => str(o, 80)).filter(Boolean).slice(0, 10);
         if (!question) return json({ error: 'Bitte eine Frage eingeben.' }, 400);
         if (opts.length < 2) return json({ error: 'Bitte mindestens zwei Antworten angeben.' }, 400);
-        const s = { id: rid(), question, options: opts.map((t) => ({ id: rid() + Math.random().toString(36).slice(2, 5), text: t })), multi: !!body.multi, by, votes: {}, status: 'open', at: Date.now() };
+        const s = { id: rid(), question, options: opts.map((t) => ({ id: rid() + Math.random().toString(36).slice(2, 5), text: t })), multi: !!body.multi, anon: !!body.anon, by, votes: {}, status: 'open', at: Date.now() };
         list.push(s);
         for (const p of PEOPLE) {
           if (p === by) continue;
@@ -777,6 +787,7 @@ export class Putzplan extends DurableObject {
           s.doneNotified = true;
           const result = (l) => s.options.map((o) => {
             const who = Object.entries(s.votes).filter(([, c]) => c.includes(o.id)).map(([n]) => n);
+            if (s.anon) return `${o.text}: ${who.length}`;
             return `${o.text}: ${who.length ? who.join(', ') : '–'}`;
           }).join(' · ');
           await this.pushToPerson(s.by, (l) => (l === 'en'
@@ -912,17 +923,28 @@ export class Putzplan extends DurableObject {
       let list = await this.board();
       if (path === '/board/add') {
         const text = str(body.text, 300);
-        if (!text) return json({ error: 'Bitte etwas auf den Zettel schreiben.' }, 400);
+        const photo = typeof body.photo === 'string' && /^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+/=]+$/.test(body.photo) && body.photo.length < 1_500_000 ? body.photo : null;
+        if (body.photo && !photo) return json({ error: 'Das Foto ist zu groß oder kein Bild.' }, 400);
+        if (!text && !photo) return json({ error: 'Bitte etwas auf den Zettel schreiben.' }, 400);
+        const expires = isDay(body.expires) ? body.expires : null;
+        if (expires && expires < berlinNow().day) return json({ error: 'Das Ablaufdatum liegt in der Vergangenheit.' }, 400);
         const color = ['yellow', 'pink', 'blue', 'green', 'orange'].includes(body.color) ? body.color : 'yellow';
         const by = PEOPLE.includes(body.by) ? body.by : null;
-        list.unshift({ id: rid(), text, color, by, at: Date.now(), tilt: Math.round((Math.random() * 6 - 3) * 10) / 10 });
+        const id = rid();
+        if (photo) await this.ctx.storage.put(`boardphoto:${id}`, photo);
+        list.unshift({ id, text, color, by, at: Date.now(), tilt: Math.round((Math.random() * 6 - 3) * 10) / 10, ...(expires ? { expires } : {}), ...(photo ? { photo: true } : {}) });
+        // Abgelaufene und zu alte Zettel samt Fotos wegräumen
+        const all = (await this.ctx.storage.get('board')) || [];
+        const keep = new Set(list.slice(0, 40).map((n) => n.id));
+        for (const n of all) if (n.photo && !keep.has(n.id)) await this.ctx.storage.delete(`boardphoto:${n.id}`);
         list = list.slice(0, 40);
         for (const p of PEOPLE) {
           if (p === by) continue;
-          await this.pushToPerson(p, (l) => ({ title: pick(l)(`📌 Neuer Zettel an der Pinnwand${by ? ` von ${by}` : ''}`, `📌 New note on the board${by ? ` from ${by}` : ''}`, `📌 Ny lapp på anslagstavlan${by ? ` från ${by}` : ''}`), body: text, url: '/#start' }));
+          await this.pushToPerson(p, (l) => ({ title: pick(l)(`📌 Neuer Zettel an der Pinnwand${by ? ` von ${by}` : ''}`, `📌 New note on the board${by ? ` from ${by}` : ''}`, `📌 Ny lapp på anslagstavlan${by ? ` från ${by}` : ''}`), body: text || pick(l)('📷 Foto', '📷 Photo', '📷 Foto'), url: '/#start' }));
         }
       } else if (path === '/board/delete') {
         list = list.filter((n) => n.id !== body.id);
+        await this.ctx.storage.delete(`boardphoto:${body.id}`);
       } else return json({ error: 'bad request' }, 400);
       await this.ctx.storage.put('board', list);
       return json({ board: list });
@@ -972,6 +994,13 @@ export class Putzplan extends DurableObject {
     const b = berlinNow(now);
     const done = [];
     await this.runRecurring(b.day);
+    // Abgelaufene Pinnwand-Zettel samt Fotos abnehmen
+    const allNotes = (await this.ctx.storage.get('board')) || [];
+    const gone = allNotes.filter((n) => n.expires && n.expires < b.day);
+    if (gone.length) {
+      for (const n of gone) if (n.photo) await this.ctx.storage.delete(`boardphoto:${n.id}`);
+      await this.ctx.storage.put('board', allNotes.filter((n) => !gone.includes(n)));
+    }
     if (b.dow === SCHEDULE.weekly.dow && b.hour >= SCHEDULE.weekly.hour) {
       const monday = addDays(b.day, 1);
       const flag = `sent:weekly:${monday}`;

@@ -276,6 +276,10 @@ export const EN = {
   "🌙 Dunkel": "🌙 Dark",
   "Es wurde gerade erst erinnert. Bitte später nochmal.": "Someone just sent a reminder. Please try again later.",
   "Bitte etwas auf den Zettel schreiben.": "Please write something on the note.",
+  "Das Ablaufdatum liegt in der Vergangenheit.": "The end date is in the past.",
+  "Anonym abstimmen (man sieht nur, wie viele was gewählt haben)": "Anonymous voting (you only see how many chose what)",
+  "📷 Foto anhängen": "📷 Add a photo",
+  "Hängt bis (optional, danach wird der Zettel automatisch abgenommen)": "Stays up until (optional, then the note comes down automatically)",
 };
 
 /** Svenska: deutscher Text → schwedisch */
@@ -530,6 +534,10 @@ export const SV = {
   "🌙 Dunkel": "🌙 Mörkt",
   "Es wurde gerade erst erinnert. Bitte später nochmal.": "Någon har precis påmint. Försök igen senare.",
   "Bitte etwas auf den Zettel schreiben.": "Skriv något på lappen.",
+  "Das Ablaufdatum liegt in der Vergangenheit.": "Slutdatumet har redan passerat.",
+  "Anonym abstimmen (man sieht nur, wie viele was gewählt haben)": "Anonym omröstning (man ser bara hur många som valde vad)",
+  "📷 Foto anhängen": "📷 Bifoga foto",
+  "Hängt bis (optional, danach wird der Zettel automatisch abgenommen)": "Sitter uppe till (valfritt, sedan tas lappen ner automatiskt)",
 };
 
 /** Text in die gewünschte Sprache bringen (unbekannte Texte bleiben, wie sie sind). */
