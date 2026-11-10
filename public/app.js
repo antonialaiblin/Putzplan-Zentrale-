@@ -84,7 +84,7 @@ function renderWeek() {
   let html = '';
   if (w.plannedCleaner) {
     html += `<div class="banner"><p>${w.ausfall
-      ? '⚠️ <strong>Putzkraft fällt aus.</strong> Diese Woche putzen wir selbst (Intensivputz).'
+      ? '⚠️ <strong>Putzkraft fällt aus.</strong> Diese Woche putzen wir selbst (Intensivputz). Ab nächster Woche ist der Plan eine Woche später dran.'
       : `🧹 <strong>Putzkraft kommt Mi ${ddmm(w.cleanerDay)}</strong> und putzt Bäder, Böden und Müll.`}</p>
       <button class="link" data-ausfall="${w.ausfall ? 0 : 1}">${w.ausfall ? 'Doch nicht ausgefallen' : 'Putzkraft fällt aus?'}</button></div>`;
   } else {
@@ -217,10 +217,18 @@ document.addEventListener('click', async (e) => {
   const ausfall = e.target.closest('[data-ausfall]');
   if (ausfall) {
     const value = ausfall.dataset.ausfall === '1';
-    if (value && !confirm('Putzkraft fällt diese Woche aus? Dann kommen die Extra-Aufgaben (Küche, Flure, Bäder) dazu.')) return;
-    const w = await api('ausfall', { monday: state.view, value });
-    state.weeks.set(w.monday, w);
-    render();
+    const msg = value
+      ? 'Putzkraft fällt diese Woche aus?\n\nDann putzen wir diese Woche selbst (Küche, Flure, Bäder), ab nächster Woche rutscht der ganze Plan um eine Woche, und alle bekommen sofort eine Nachricht.'
+      : 'Doch nicht ausgefallen? Der Plan rutscht dann wieder zurück.';
+    if (!confirm(msg)) return;
+    try {
+      await api('ausfall', { monday: state.view, value });
+      state.weeks.clear(); // alle folgenden Wochen ändern sich
+      await load();
+      await ensureWeek(state.view);
+      renderWeek();
+      toast(value ? 'Eingetragen, alle wurden benachrichtigt' : 'Zurückgenommen');
+    } catch (err) { toast(err.message); }
   }
 });
 

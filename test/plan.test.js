@@ -83,3 +83,29 @@ test('Nachrichten', () => {
   assert.match(f.Simon.body, /Pfand/);
   assert.equal(itemsFor(w2, 'Johanna').length, 0);
 });
+
+test('Putzkraft-Ausfall: Plan rutscht ab der Folgewoche um eine Woche', () => {
+  const aus = ['2026-11-16'];
+  const w16 = computeWeek('2026-11-16', { ausfall: true }, aus);
+  assert.equal(w16.cleaner, false);
+  assert.equal(person(w16, 'woche'), 'Leo');
+  // 23.11. ist jetzt wie vorher der 16.11. (Leo, Putzkraft kommt)
+  const w23 = computeWeek('2026-11-23', {}, aus);
+  assert.equal(person(w23, 'woche'), 'Leo');
+  assert.equal(w23.cleaner, true);
+  assert.equal(w23.cleanerDay, '2026-11-25');
+  const w30 = computeWeek('2026-11-30', {}, aus);
+  assert.equal(person(w30, 'woche'), 'Toni');
+  assert.equal(w30.cleaner, false);
+  // Wochen davor unverändert
+  assert.equal(person(computeWeek('2026-11-09', {}, aus), 'woche'), 'Simon');
+});
+
+test('Ausfall-Nachricht', async () => {
+  const { ausfallMessages } = await import('../src/messages.js');
+  const m = ausfallMessages(computeWeek('2026-11-16', { ausfall: true }, ['2026-11-16']));
+  assert.match(m.Leo.body, /Wochendienst inkl\. Küche/);
+  assert.match(m.Mo.body, /Vorderes Bad \+ extra Klo putzen/);
+  assert.match(m.Johanna.body, /ändert sich diese Woche nichts/);
+  assert.match(m.Leo.body, /Mi 18\.11\./);
+});

@@ -1,4 +1,4 @@
-import { PEOPLE, itemsFor } from './plan.js';
+import { PEOPLE, itemsFor, addDays } from './plan.js';
 
 const ddmm = (s) => `${s.slice(8, 10)}.${s.slice(5, 7)}.`;
 
@@ -34,6 +34,27 @@ export function fridayMessages(week) {
     msgs[person] = {
       title: 'Noch offen im Putzplan ⏰',
       body: `Hey ${person}, bis Sonntag noch zu erledigen: ${open.join(', ')}. Bitte auf der Seite abhaken, wenn's erledigt ist.`,
+    };
+  }
+  return msgs;
+}
+
+/** Sofort-Nachricht an alle, wenn jemand einträgt, dass die Putzkraft ausfällt. */
+export function ausfallMessages(week) {
+  const msgs = {};
+  const when = `am Mi ${ddmm(addDays(week.monday, 2))}`;
+  for (const person of PEOPLE) {
+    const mine = [];
+    for (const t of week.tasks) {
+      if (t.person !== person) continue;
+      if (t.key === 'woche') mine.push('Wochendienst inkl. Küche + Flure');
+      if (t.key.startsWith('bad-')) mine.push(`${t.title} putzen`);
+    }
+    msgs[person] = {
+      title: 'Putzkraft fällt aus ⚠️',
+      body: mine.length
+        ? `Hey ${person}, die Putzkraft kommt ${when} nicht. Diese Woche putzen wir selbst, du bist dran mit: ${mine.join(', ')}. Ab nächster Woche rutscht der Plan um eine Woche.`
+        : `Hey ${person}, die Putzkraft kommt ${when} nicht. Für dich ändert sich diese Woche nichts, aber ab nächster Woche rutscht der Plan um eine Woche.`,
     };
   }
   return msgs;

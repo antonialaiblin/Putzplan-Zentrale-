@@ -1,6 +1,6 @@
 import { DurableObject } from 'cloudflare:workers';
 import { PEOPLE, computeWeek, mondayOf, addDays, berlinNow } from './plan.js';
-import { weeklyMessages, fridayMessages } from './messages.js';
+import { weeklyMessages, fridayMessages, ausfallMessages } from './messages.js';
 import { generateVapidKeys, vapidPublicRaw, sendPush } from './webpush.js';
 import { balances, settle, parseEuro, SHOP_CATEGORIES } from './money.js';
 
@@ -24,7 +24,7 @@ export class Putzplan extends DurableObject {
     return (await this.ctx.storage.get(`ov:${monday}`)) || {};
   }
   async week(monday) {
-    const w = computeWeek(monday, await this.overrides(monday));
+    const w = computeWeek(monday, await this.overrides(monday), (await this.ctx.storage.get('ausfaelle')) || []);
     const checks = {};
     for (const [k, v] of await this.ctx.storage.list({ prefix: `check:${monday}:` })) {
       checks[k.slice(`check:${monday}:`.length)] = v;
@@ -109,8 +109,18 @@ export class Putzplan extends DurableObject {
       if (!validMonday(monday)) return json({ error: 'bad request' }, 400);
       const ov = await this.overrides(monday);
       ov.ausfall = !!value;
+      const list = new Set((await this.ctx.storage.get('ausfaelle')) || []);
+      if (ov.ausfall) list.add(monday); else list.delete(monday);
+      await this.ctx.storage.put('ausfaelle', [...list].sort());
       await this.ctx.storage.put(`ov:${monday}`, ov);
-      return json(await this.week(monday));
+      const week = await this.week(monday);
+      // Sofort alle benachrichtigen (nur beim ersten Eintragen, nicht beim Zurücknehmen)
+      const flag = `sent:ausfall:${monday}`;
+      if (ov.ausfall && !(await this.ctx.storage.get(flag))) {
+        await this.ctx.storage.put(flag, Date.now());
+        for (const [p, m] of Object.entries(ausfallMessages(week))) await this.pushToPerson(p, m);
+      }
+      return json(week);
     }
 
     if (path === '/vapid') {

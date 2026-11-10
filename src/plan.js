@@ -64,9 +64,13 @@ const BAD_UMFANG = 'Klo, Waschbecken, Dusche/Wanne, Spiegel, Boden saugen, Handt
  * Berechnet eine Woche.
  * @param {string} monday  "YYYY-MM-DD" eines Montags
  * @param {object} ov      Änderungen: { swaps: {"woche": "Leo", ...}, ausfall: true }
+ * @param {string[]} ausfaelle  Montage aller Wochen, in denen die Putzkraft ausgefallen ist
  */
-export function computeWeek(monday, ov = {}) {
-  const idx = weekIndex(monday);
+export function computeWeek(monday, ov = {}, ausfaelle = []) {
+  // Nach jedem Putzkraft-Ausfall rutscht der ganze Plan (inkl. Putzkraft-Rhythmus)
+  // ab der Folgewoche um eine Woche nach hinten.
+  const shift = ausfaelle.filter((m) => m < monday).length;
+  const idx = weekIndex(monday) - shift;
   const cyc = mod(idx, 10);
   const plannedCleaner = cyc % 2 === 1;
   const ausfall = plannedCleaner && !!ov.ausfall;
@@ -126,6 +130,7 @@ export function computeWeek(monday, ov = {}) {
     monday,
     sunday,
     cycleWeek: cyc + 1,
+    shift,
     plannedCleaner,
     ausfall,
     cleaner,
