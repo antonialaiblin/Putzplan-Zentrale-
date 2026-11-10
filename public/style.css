@@ -454,3 +454,6 @@ html[data-theme="dark"] .cork-empty { color: #f0e2cc; }
 .note-exp { display: inline-block; font-size: 11px; color: rgba(0,0,0,.6); background: rgba(255,255,255,.45); border-radius: 4px; padding: 1px 5px; margin-bottom: 4px; font-family: system-ui, sans-serif; }
 .note-photo { margin: 4px 0 10px; display: flex; flex-direction: column; align-items: flex-start; gap: 6px; }
 #note-photo-preview img { display: block; max-width: 160px; max-height: 160px; border-radius: 4px; box-shadow: 0 2px 5px rgba(0,0,0,.2); }
+
+/* Erst auswählen, wer man ist */
+body.no-me main > .tab, body.no-me .tabbar { display: none !important; }

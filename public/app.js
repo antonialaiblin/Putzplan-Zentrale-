@@ -210,6 +210,8 @@ function renderMe() {
   const joining = location.hash === '#beitreten' || state.joining;
   $('#join').hidden = !joining;
   pick.hidden = !!state.me || joining;
+  // Ohne Auswahl ist nur „Wer bist du?“ (bzw. Beitreten) zu sehen
+  document.body.classList.toggle('no-me', !state.me);
   $('#who-line').textContent = state.me ? L(`Hallo ${state.me} 👋`, `Hi ${state.me} 👋`, `Hej ${state.me} 👋`) : 'Mission Haussegen';
   $('#people-buttons').innerHTML = state.people.map((p) => `<button data-me="${esc(p)}">${avatar(p, 'sm')}${esc(p)}</button>`).join('');
   // Sprachknopf oben nur, solange noch niemand ausgewählt ist (sonst in den Einstellungen)
@@ -416,7 +418,9 @@ async function enablePush() {
 document.addEventListener('click', async (e) => {
   const meBtn = e.target.closest('[data-me]');
   if (meBtn && meBtn.closest('#people-buttons')) {
-    state.me = meBtn.dataset.me;
+    const who = meBtn.dataset.me;
+    if (!confirm(L(`Bist du ${who}? Das kannst du danach nicht mehr ändern.`, `Are you ${who}? You can't change this afterwards.`, `Är du ${who}? Det går inte att ändra efteråt.`))) return;
+    state.me = who;
     store.set('me', state.me);
     syncLang();
     render();
@@ -525,11 +529,6 @@ document.addEventListener('click', async (e) => {
   }
 });
 
-$('#change-me').onclick = () => {
-  state.me = null;
-  render();
-  window.scrollTo(0, 0);
-};
 $('#lang-quick').onclick = () => setLang({ de: 'en', en: 'sv', sv: 'de' }[state.lang]);
 $('#set-lang').addEventListener('click', async (e) => {
   const b = e.target.closest('[data-lang]');
