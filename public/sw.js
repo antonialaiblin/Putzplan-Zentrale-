@@ -20,7 +20,7 @@ self.addEventListener('notificationclick', (event) => {
   event.waitUntil((async () => {
     const all = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
     for (const c of all) {
-      if (c.url.startsWith(self.location.origin)) { await c.focus(); return; }
+      if (c.url.startsWith(self.location.origin)) { await c.focus(); if (c.url !== url && c.navigate) await c.navigate(url).catch(() => {}); return; }
     }
     await self.clients.openWindow(url);
   })());

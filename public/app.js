@@ -8,6 +8,9 @@ const store = {
   get(k) { try { return localStorage.getItem(k); } catch { return null; } },
   set(k, v) { try { localStorage.setItem(k, v); } catch { /* egal */ } },
 };
+const WD = ['So', 'Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa'];
+const wd = (s) => WD[new Date(`${s}T12:00:00Z`).getUTCDay()];
+const cleanerWhen = (w) => `${wd(w.cleanerDay)} ${ddmm(w.cleanerDay)}${w.cleanerTime ? ` um ${w.cleanerTime}` : ''}`;
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
 const state = {
@@ -43,6 +46,7 @@ async function load() {
   state.absences = data.absences;
   state.events = data.events || [];
   state.polls = data.polls || [];
+  state.cleanerContact = data.cleanerContact || null;
   state.today = data.today;
   state.current = data.current;
   if (state.me && !state.people.includes(state.me)) { state.me = null; store.set('me', ''); }
@@ -92,13 +96,20 @@ function renderWeek() {
   $('#week-range').textContent = `${ddmm(w.monday)} – ${ddmm(w.sunday)}`;
 
   let html = '';
+  const contact = state.cleanerContact;
+  const contactLine = `<p class="muted small">Zuständig für die Putzkraft: <strong>${contact ? esc(contact) : 'niemand'}</strong>
+    <button class="link" data-cleaner-contact>ändern</button></p>`;
   if (w.plannedCleaner) {
+    const isContact = state.me && state.me === contact;
     html += `<div class="banner"><p>${w.ausfall
       ? '⚠️ <strong>Putzkraft fällt aus.</strong> Diese Woche putzen wir selbst (Intensivputz). Ab nächster Woche ist der Plan eine Woche später dran.'
-      : `🧹 <strong>Putzkraft kommt Mi ${ddmm(w.cleanerDay)}</strong> und putzt Bäder, Böden und Müll.`}</p>
-      <button class="link" data-ausfall="${w.ausfall ? 0 : 1}">${w.ausfall ? 'Doch nicht ausgefallen' : 'Putzkraft fällt aus?'}</button></div>`;
+      : `🧹 <strong>Putzkraft kommt ${cleanerWhen(w)}</strong>${w.cleanerConfirmed ? ' ✓' : ' <span class="muted">(laut Plan, noch nicht bestätigt)</span>'} und putzt Bäder, Böden und Müll.`}</p>
+      ${isContact && !w.ausfall && !w.cleanerConfirmed ? '<p class="small"><strong>Du stimmst die Termine mit der Putzkraft ab:</strong> Kommt sie diese Woche? Dann trag bitte Tag und Uhrzeit ein.</p>' : ''}
+      <div class="row">${w.ausfall ? '' : `<button class="link" data-cleaner-visit>${w.cleanerConfirmed ? 'Termin ändern' : 'Tag & Uhrzeit eintragen'}</button>`}
+      <button class="link" data-ausfall="${w.ausfall ? 0 : 1}">${w.ausfall ? 'Doch nicht ausgefallen' : 'Putzkraft fällt aus?'}</button></div>
+      ${contactLine}</div>`;
   } else {
-    html += '<div class="banner"><p>🫧 <strong>Woche ohne Putzkraft.</strong> Wir putzen selbst.</p></div>';
+    html += `<div class="banner"><p>🫧 <strong>Woche ohne Putzkraft.</strong> Wir putzen selbst.</p>${contactLine}</div>`;
   }
 
   if (w.away && w.away.length) {
@@ -132,11 +143,12 @@ function renderUpcoming() {
     if (!w) continue;
     const p = (key) => {
       const t = w.tasks.find((x) => x.key === key);
+      if (!t || !t.person) return '–';
       const name = esc(t.person);
       return t.person === state.me ? `<span class="me">${name}</span>` : name;
     };
     rows.push(`<tr class="${i === 0 ? 'current' : ''}${w.cleaner ? ' pk' : ''}"><td>${ddmm(w.monday)}</td>
-      <td>${w.plannedCleaner ? (w.ausfall ? 'fällt aus' : `Mi`) : '–'}</td>
+      <td>${w.plannedCleaner ? (w.ausfall ? 'fällt aus' : wd(w.cleanerDay)) : '–'}</td>
       <td>${p('woche')}</td><td>${p('bad-vorne')}</td><td>${p('bad-hinten')}</td></tr>`);
   }
   $('#upcoming').innerHTML = rows.join('');
@@ -228,6 +240,8 @@ document.addEventListener('click', async (e) => {
   const swapBtn = e.target.closest('[data-swap]');
   if (swapBtn) { openSwap(swapBtn.dataset.swap); return; }
 
+  if (e.target.closest('[data-cleaner-visit]')) { openCleanerVisit(); return; }
+  if (e.target.closest('[data-cleaner-contact]')) { openCleanerContact(); return; }
   const ausfall = e.target.closest('[data-ausfall]');
   if (ausfall) {
     const value = ausfall.dataset.ausfall === '1';
@@ -295,6 +309,47 @@ function openSwap(taskKey) {
     dlg.close();
     render();
     toast('Getauscht');
+  };
+  dlg.showModal();
+}
+
+function openCleanerVisit() {
+  const w = state.weeks.get(state.view);
+  const dlg = $('#cleaner-dialog');
+  const d = $('#cleaner-date');
+  d.min = w.monday; d.max = w.sunday; d.value = w.cleanerDay;
+  $('#cleaner-time').value = w.cleanerTime || '';
+  $('#cleaner-week').textContent = `Woche ${ddmm(w.monday)} – ${ddmm(w.sunday)} – alle bekommen eine kurze Nachricht mit dem Termin.`;
+  $('#cleaner-form').onsubmit = async (e) => {
+    if (e.submitter?.value !== 'ok') return;
+    e.preventDefault();
+    try {
+      const nw = await api('cleaner/visit', { monday: w.monday, date: d.value, time: $('#cleaner-time').value, by: state.me });
+      state.weeks.set(nw.monday, nw);
+      dlg.close();
+      render();
+      toast('Eingetragen, alle wurden benachrichtigt');
+    } catch (err) { toast(err.message); }
+  };
+  dlg.showModal();
+}
+
+function openCleanerContact() {
+  const dlg = $('#swap-dialog');
+  $('#swap-title').textContent = 'Zuständig für die Putzkraft';
+  $('#swap-text').textContent = 'Wer stimmt die Termine mit der Putzkraft ab? Diese Person bekommt montags die Frage, ob und wann die Putzkraft kommt.';
+  $('#swap-people').innerHTML = state.people
+    .map((p) => `<button type="button" data-contact="${esc(p)}">${esc(p)}${p === state.cleanerContact ? ' (bisher)' : ''}</button>`).join('');
+  $('#swap-people').onclick = async (e) => {
+    const b = e.target.closest('[data-contact]');
+    if (!b) return;
+    try {
+      const r = await api('cleaner/contact', { name: b.dataset.contact });
+      state.cleanerContact = r.cleanerContact;
+      dlg.close();
+      render();
+      toast(`${r.cleanerContact} ist jetzt zuständig`);
+    } catch (err) { toast(err.message); }
   };
   dlg.showModal();
 }
@@ -639,7 +694,7 @@ function renderHome() {
     html += `<a class="card" href="#plan"><h3>Putzplan</h3>
       <p>Wochendienst: <strong>${esc(t('woche')?.person || '–')}</strong></p>
       <p>Bad vorne: ${esc(t('bad-vorne')?.person || '–')}</p><p>Bad hinten: ${esc(t('bad-hinten')?.person || '–')}</p>
-      <p class="muted">${w.cleaner ? `🧹 Putzkraft Mi ${ddmm(w.cleanerDay)}` : w.ausfall ? '⚠️ Putzkraft fällt aus' : 'Ohne Putzkraft'}</p></a>`;
+      <p class="muted">${w.cleaner ? `🧹 Putzkraft ${cleanerWhen(w)}${w.cleanerConfirmed ? ' ✓' : ''}` : w.ausfall ? '⚠️ Putzkraft fällt aus' : 'Ohne Putzkraft'}</p></a>`;
   }
   const sh = state.shop;
   html += `<a class="card" href="#einkauf"><h3>Einkauf</h3>${sh

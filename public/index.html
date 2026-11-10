@@ -231,6 +231,7 @@
         <li>Die Putzkraft kommt alle 2 Wochen mittwochs, putzt alle gemeinsamen Flächen inkl. Bäder, wischt alle Böden und leert den Müll. In den Wochen dazwischen putzen wir selbst (siehe <a href="#plan">Putzplan</a>).</li>
         <li>Saugen und wischen heißt immer: auch in den Ecken und unter bzw. hinter verschiebbaren Möbeln.</li>
         <li><strong>Fällt die Putzkraft aus,</strong> wird in dieser Woche auch von uns der Intensivputz übernommen. Der Plan rutscht dann ab der Folgewoche um eine Woche auf. Einfach im Putzplan „Putzkraft fällt aus?“ antippen.</li>
+        <li><strong>Termine mit der Putzkraft</strong> stimmt eine Person ab (im Putzplan unter „Zuständig für die Putzkraft“ änderbar). Sie bekommt montags früh eine Nachricht und trägt ein, wann die Putzkraft kommt. Alle anderen werden dann benachrichtigt.</li>
         <li>Getauscht werden darf jederzeit. Einfach in der WG-Gruppe Bescheid geben und im Putzplan auf „Tauschen“ tippen.</li>
         <li><strong>Kühlschrank:</strong> Jede*r putzt einmal im Monat die eigenen Fächer und wirft Abgelaufenes weg, bis zum letzten Sonntag des Monats.</li>
       </ul></details>
@@ -253,6 +254,19 @@
       <div class="people" id="swap-people"></div>
       <div class="row end">
         <button value="cancel" class="ghost">Abbrechen</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="cleaner-dialog">
+    <form method="dialog" id="cleaner-form">
+      <h2>Wann kommt die Putzkraft? 🧹</h2>
+      <p class="muted" id="cleaner-week"></p>
+      <label class="field"><span>Tag</span><input type="date" id="cleaner-date" required></label>
+      <label class="field"><span>Uhrzeit (optional)</span><input type="time" id="cleaner-time"></label>
+      <div class="row end">
+        <button value="cancel" class="ghost" formnovalidate>Abbrechen</button>
+        <button value="ok">Speichern</button>
       </div>
     </form>
   </dialog>

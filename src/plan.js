@@ -220,7 +220,10 @@ export function computeWeek(monday, ov = {}, ctx = {}) {
     plannedCleaner,
     ausfall,
     cleaner,
-    cleanerDay: plannedCleaner ? addDays(monday, 2) : null, // Mittwoch
+    // Standard Mittwoch; die/der Zuständige kann Tag und Uhrzeit für die Woche ändern
+    cleanerDay: plannedCleaner ? (ov.cleanerDate && ov.cleanerDate >= monday && ov.cleanerDate <= sunday ? ov.cleanerDate : addDays(monday, 2)) : null,
+    cleanerTime: plannedCleaner && ov.cleanerTime ? ov.cleanerTime : '',
+    cleanerConfirmed: plannedCleaner && !!ov.cleanerConfirmed,
     tasks,
   };
 }

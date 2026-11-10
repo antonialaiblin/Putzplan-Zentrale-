@@ -1,6 +1,6 @@
 import { DurableObject } from 'cloudflare:workers';
 import { computeWeek, simulate, mondayOf, addDays, berlinNow, INITIAL_MEMBERS, CYCLE_START } from './plan.js';
-import { weeklyMessages, fridayMessages, ausfallMessages } from './messages.js';
+import { weeklyMessages, fridayMessages, ausfallMessages, cleanerAskMessage, cleanerVisitMessages } from './messages.js';
 import { generateVapidKeys, vapidPublicRaw, sendPush } from './webpush.js';
 import { balancesByCurrency, peopleIn, parseSplitwise, computeParts, parseAmount, parseEuro, CURRENCIES, SHOP_CATEGORIES } from './money.js';
 
@@ -8,6 +8,7 @@ import { balancesByCurrency, peopleIn, parseSplitwise, computeParts, parseAmount
 export const SCHEDULE = {
   weekly: { dow: 6, hour: 19 }, // Sonntag 19 Uhr: Plan für die kommende Woche
   friday: { dow: 4, hour: 18 }, // Freitag 18 Uhr: Erinnerung an offene Aufgaben
+  cleanerAsk: { dow: 0, hour: 9 }, // Montag 9 Uhr: Zuständige:r gefragt, ob/wann die Putzkraft kommt
 };
 
 const fmtD = (d) => new Date(`${d}T12:00:00Z`).toLocaleDateString('de-DE', { weekday: 'short', day: '2-digit', month: '2-digit', timeZone: 'UTC' });
@@ -47,6 +48,13 @@ export class Putzplan extends DurableObject {
     return (await this.events())
       .filter((e) => e.type === 'urlaub')
       .flatMap((e) => e.participants.filter((p) => p.ok).map((p) => ({ id: e.id, person: p.name, from: e.from, to: e.to, note: e.title })));
+  }
+  /** Wer stimmt die Termine mit der Putzkraft ab? (Standard: Mo) */
+  async cleanerContact() {
+    const c = await this.ctx.storage.get('cleanerContact');
+    const names = await this.names();
+    if (c === undefined) return names.includes('Mo') ? 'Mo' : null;
+    return names.includes(c) ? c : null;
   }
   async polls() {
     return (await this.ctx.storage.get('polls')) || [];
@@ -131,7 +139,7 @@ export class Putzplan extends DurableObject {
       const from = validMonday(url.searchParams.get('from')) ? url.searchParams.get('from') : addDays(current, -7);
       const count = Math.min(Math.max(Number(url.searchParams.get('count')) || 12, 1), 30);
       const weeks = await this.weeks([...Array(count)].map((_, i) => addDays(from, i * 7)));
-      return json({ people: PEOPLE, members: await this.members(), absences: await this.absences(), events: await this.events(), polls: await this.polls(), current, today: berlinNow().day, weeks });
+      return json({ people: PEOPLE, members: await this.members(), absences: await this.absences(), events: await this.events(), polls: await this.polls(), cleanerContact: await this.cleanerContact(), current, today: berlinNow().day, weeks });
     }
 
     if (path === '/check' && request.method === 'POST') {
@@ -170,6 +178,28 @@ export class Putzplan extends DurableObject {
         await this.ctx.storage.put(flag, Date.now());
         for (const [p, m] of Object.entries(ausfallMessages(week))) await this.pushToPerson(p, m);
       }
+      return json(week);
+    }
+
+    if (path === '/cleaner/contact' && request.method === 'POST') {
+      await this.ctx.storage.put('cleanerContact', PEOPLE.includes(body.name) ? body.name : null);
+      return json({ cleanerContact: await this.cleanerContact() });
+    }
+
+    if (path === '/cleaner/visit' && request.method === 'POST') {
+      const { monday, date, time, by } = body;
+      if (!validMonday(monday)) return json({ error: 'bad request' }, 400);
+      if (!(typeof date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(date) && date >= monday && date <= addDays(monday, 6))) {
+        return json({ error: 'Bitte einen Tag in dieser Woche wählen.' }, 400);
+      }
+      const ov = await this.overrides(monday);
+      ov.cleanerDate = date;
+      ov.cleanerTime = typeof time === 'string' && /^\d{2}:\d{2}$/.test(time) ? time : '';
+      ov.cleanerConfirmed = true;
+      await this.ctx.storage.put(`ov:${monday}`, ov);
+      const week = await this.week(monday);
+      if (!week.plannedCleaner) return json({ error: 'In dieser Woche ist keine Putzkraft geplant.' }, 400);
+      for (const [p, m] of Object.entries(cleanerVisitMessages(week, PEOPLE.includes(by) ? by : null))) await this.pushToPerson(p, m);
       return json(week);
     }
 
@@ -459,6 +489,18 @@ export class Putzplan extends DurableObject {
         await this.ctx.storage.put(flag, Date.now());
         const msgs = fridayMessages(await this.week(monday));
         for (const [p, m] of Object.entries(msgs)) done.push([p, await this.pushToPerson(p, m)]);
+      }
+    }
+    if (b.dow === SCHEDULE.cleanerAsk.dow && b.hour >= SCHEDULE.cleanerAsk.hour) {
+      const monday = mondayOf(b.day);
+      const flag = `sent:cleanerAsk:${monday}`;
+      const contact = await this.cleanerContact();
+      if (contact && !(await this.ctx.storage.get(flag))) {
+        await this.ctx.storage.put(flag, Date.now());
+        const week = await this.week(monday);
+        if (week.plannedCleaner && !week.ausfall && !week.cleanerConfirmed) {
+          done.push([contact, await this.pushToPerson(contact, cleanerAskMessage(week, contact))]);
+        }
       }
     }
     return done;

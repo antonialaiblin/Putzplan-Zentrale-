@@ -141,3 +141,12 @@ test('Kürzer als eine ganze Woche weg: kein Überspringen', () => {
   const ctx = { absences: [{ person: 'Toni', from: '2026-11-23', to: '2026-11-28' }] }; // Mo–Sa
   assert.equal(person(computeWeek('2026-11-23', {}, ctx), 'woche'), 'Toni');
 });
+
+test('Putzkraft-Termin kann pro Woche verschoben werden', () => {
+  const w = computeWeek('2026-11-16', { cleanerDate: '2026-11-20', cleanerTime: '10:30', cleanerConfirmed: true });
+  assert.equal(w.plannedCleaner, true);
+  assert.equal(w.cleanerDay, '2026-11-20');
+  assert.equal(w.cleanerTime, '10:30');
+  // Datum außerhalb der Woche wird ignoriert
+  assert.equal(computeWeek('2026-11-16', { cleanerDate: '2026-11-30' }).cleanerDay, '2026-11-18');
+});

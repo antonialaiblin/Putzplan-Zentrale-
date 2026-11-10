@@ -1,6 +1,10 @@
 import { itemsFor, addDays } from './plan.js';
 
 const ddmm = (s) => `${s.slice(8, 10)}.${s.slice(5, 7)}.`;
+const WD = ['So', 'Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa'];
+/** "Do 13.11. um 10:00" */
+export const cleanerWhen = (week) =>
+  `${WD[new Date(`${week.cleanerDay}T12:00:00Z`).getUTCDay()]} ${ddmm(week.cleanerDay)}${week.cleanerTime ? ` um ${week.cleanerTime}` : ''}`;
 
 /** Sonntags-Nachricht pro Person für die kommende Woche. */
 export function weeklyMessages(week) {
@@ -17,7 +21,7 @@ export function weeklyMessages(week) {
       if (t.key === 'kuehlschrank') lines.push('Kühlschrankfach bis Sonntag');
     }
     if (!lines.length) continue;
-    const info = week.cleaner ? ` Putzkraft kommt Mi ${ddmm(week.cleanerDay)}.` : week.ausfall ? ' Putzkraft fällt aus, also Intensivputz.' : '';
+    const info = week.cleaner ? ` Putzkraft kommt ${cleanerWhen(week)}.` : week.ausfall ? ' Putzkraft fällt aus, also Intensivputz.' : '';
     msgs[person] = {
       title: `Putzplan ab Mo ${ddmm(week.monday)}`,
       body: `Hey ${person}, ab morgen bist du dran mit: ${lines.join(', ')}.${info}`,
@@ -42,7 +46,7 @@ export function fridayMessages(week) {
 /** Sofort-Nachricht an alle, wenn jemand einträgt, dass die Putzkraft ausfällt. */
 export function ausfallMessages(week) {
   const msgs = {};
-  const when = `am Mi ${ddmm(addDays(week.monday, 2))}`;
+  const when = `am ${cleanerWhen(week)}`;
   for (const person of week.people) {
     const mine = [];
     for (const t of week.tasks) {
@@ -55,6 +59,28 @@ export function ausfallMessages(week) {
       body: mine.length
         ? `Hey ${person}, die Putzkraft kommt ${when} nicht. Diese Woche putzen wir selbst, du bist dran mit: ${mine.join(', ')}. Ab nächster Woche rutscht der Plan um eine Woche.`
         : `Hey ${person}, die Putzkraft kommt ${when} nicht. Für dich ändert sich diese Woche nichts, aber ab nächster Woche rutscht der Plan um eine Woche.`,
+    };
+  }
+  return msgs;
+}
+
+/** Montags an die/den Putzkraft-Zuständige:n: Kommt sie diese Woche? */
+export function cleanerAskMessage(week, contact) {
+  return {
+    title: 'Kommt die Putzkraft diese Woche? 🧹',
+    body: `Hey ${contact}, laut Plan kommt die Putzkraft ${cleanerWhen(week)}. Stimmt das? Tipp hier, um Tag und Uhrzeit einzutragen oder einen Ausfall zu melden.`,
+    url: '/#plan',
+  };
+}
+/** An alle, wenn der Putzkraft-Termin eingetragen oder geändert wurde. */
+export function cleanerVisitMessages(week, by) {
+  const msgs = {};
+  for (const person of week.people) {
+    if (person === by) continue;
+    msgs[person] = {
+      title: 'Putzkraft-Termin 🧹',
+      body: `Die Putzkraft kommt diese Woche ${cleanerWhen(week)}${by ? ` (eingetragen von ${by})` : ''}.`,
+      url: '/#plan',
     };
   }
   return msgs;
