@@ -1484,7 +1484,7 @@ export class Putzplan extends DurableObject {
         list = list.slice(0, 40);
         for (const p of PEOPLE) {
           if (p === by) continue;
-          await this.pushCat('board', p, (l) => ({ title: pick(l)(`📌 Neuer Zettel an der Pinnwand${by ? ` von ${by}` : ''}`, `📌 New note on the board${by ? ` from ${by}` : ''}`, `📌 Ny lapp på anslagstavlan${by ? ` från ${by}` : ''}`), body: text || pick(l)('📷 Foto', '📷 Photo', '📷 Foto'), url: '/#start' }));
+          await this.pushCat('board', p, (l) => ({ title: pick(l)(`📌 Neuer Zettel an der Pinnwand${by ? ` von ${by}` : ''}`, `📌 New note on the board${by ? ` from ${by}` : ''}`, `📌 Ny lapp på anslagstavlan${by ? ` från ${by}` : ''}`), body: photo ? `📷 ${text || pick(l)('Foto', 'Photo', 'Foto')}` : text, url: '/#start' }));
         }
       } else if (path === '/board/delete') {
         list = list.filter((n) => n.id !== body.id);

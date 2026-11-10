@@ -1654,6 +1654,12 @@ function openNoteDialog() {
     $('#note-photo-preview').hidden = !photo;
     $('#note-photo-preview').innerHTML = photo ? `<img src="${photo}" alt=""><button type="button" class="link small" id="note-photo-del">${L('Foto entfernen', 'Remove photo', 'Ta bort foto')}</button>` : '';
     if (photo) $('#note-photo-del').onclick = () => { photo = null; $('#note-photo').value = ''; showPhoto(); };
+    // Mit Foto: Text wird zum Kommentar unter dem Polaroid
+    $('#note-text-label').textContent = photo ? L('💬 Kommentar zum Foto (optional)', '💬 Comment on the photo (optional)', '💬 Kommentar till fotot (valfritt)') : L('Was soll an die Pinnwand?', 'What should go on the board?', 'Vad ska upp på anslagstavlan?');
+    $('#note-text').placeholder = photo ? L('z.B. Unser WG-Abend 🎉', 'e.g. Our flat dinner 🎉', 't.ex. Vår kollektivkväll 🎉') : L('z.B. Handwerker kommt Donnerstag 10 Uhr', 'e.g. Plumber comes Thursday 10 am', 't.ex. Hantverkaren kommer torsdag kl. 10');
+    $('#note-photo-btn').textContent = photo ? L('📷 Anderes Foto', '📷 Other photo', '📷 Annat foto') : L('📷 Foto anhängen', '📷 Attach photo', '📷 Bifoga foto');
+    $('#note-colors').hidden = !!photo;
+    if (photo) setTimeout(() => $('#note-text').focus(), 50);
   };
   showPhoto();
   $('#note-photo-btn').onclick = () => $('#note-photo').click();
