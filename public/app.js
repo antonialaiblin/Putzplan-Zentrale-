@@ -860,7 +860,9 @@ document.addEventListener('click', async (e) => {
   if (state.editHome && e.target.closest('.tile-edit') && !e.target.closest('.tile-tools')) { e.preventDefault(); return; }
   if (e.target.closest('[data-home-edit]')) {
     if (!state.me) { toast(L('Wähle zuerst oben aus, wer du bist.', 'First choose who you are at the top.', `Välj först högst upp vem du är.`)); return; }
-    state.editHome = true; state.homeDraft = null; renderHome(); return;
+    state.editHome = true; state.homeDraft = null; renderHome();
+    document.querySelector('.dash')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    return;
   }
   if (e.target.closest('[data-home-done]')) { state.editHome = false; state.homeDraft = null; renderHome(); toast(L('Gespeichert', 'Saved', `Sparat`)); return; }
   if (e.target.closest('[data-home-add]')) { openHomeAdd(); return; }
@@ -1821,8 +1823,7 @@ function renderHome() {
   Object.assign(tiles, extraTiles(w));
   const layout = homeLayout();
   const editing = state.editHome;
-  let html = editing ? '' : `<div class="dash-top"><button type="button" class="edit-pill" data-home-edit>✏️ ${L('Übersicht anpassen', 'Customise overview', `Anpassa översikten`)}</button></div>`;
-  html += `<div class="dash${editing ? ' editing' : ''}">`;
+  let html = `<div class="dash${editing ? ' editing' : ''}">`;
   layout.forEach((x, i) => {
     let t = tiles[x.id];
     if (x.id.startsWith('sc:')) {
@@ -1847,7 +1848,9 @@ function renderHome() {
   html += '</div>';
   html += editing
     ? `<div class="row dash-edit-bar"><button type="button" class="ghost" data-home-add>${L('+ Kachel oder Kurzbefehl', '+ Tile or shortcut', `+ Ruta eller genväg`)}</button><button type="button" class="ghost" data-home-reset>${L('Zurücksetzen', 'Reset', `Återställ`)}</button><button type="button" data-home-done>${L('Fertig', 'Done', `Klar`)}</button></div>`
-    : `<div class="dash-edit-link"><button type="button" class="edit-big" data-home-edit>✏️ ${L('Übersicht anpassen: Kacheln verschieben, hinzufügen, entfernen', 'Customise overview: move, add, remove tiles', `Anpassa översikten: flytta, lägg till, ta bort rutor`)}</button></div>`;
+    : '';
+  // „Übersicht anpassen“ ganz unten, mittig
+  $('#home-edit-bottom').innerHTML = editing ? '' : `<button type="button" class="edit-pill" data-home-edit>✏️ ${L('Übersicht anpassen', 'Customise overview', `Anpassa översikten`)}</button>`;
   el.innerHTML = html;
 
   $('#members-list').innerHTML = (state.members || [])
