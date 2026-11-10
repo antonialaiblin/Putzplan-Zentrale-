@@ -31,7 +31,7 @@ const VTIMEZONE = [
 export const ICS_KINDS = ['putzkraft', 'dienste', 'urlaub', 'meeting', 'sonstiges', 'geburtstage'];
 export function buildIcs({ events, members, people, weeks, person, lang = 'de', origin = '', stamp, kinds = ICS_KINDS }) {
   const want = (k) => kinds.includes(k);
-  const L = (de, en) => (lang === 'en' ? en : de);
+  const L = (de, en, sv) => (lang === 'en' ? en : lang === 'sv' ? sv ?? en : de);
   const lines = [
     'BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//WG Zentrale//DE', 'CALSCALE:GREGORIAN', 'METHOD:PUBLISH',
     `X-WR-CALNAME:${esc(person ? `Zentrale (${person})` : 'Zentrale')}`, 'X-WR-TIMEZONE:Europe/Berlin',
@@ -57,12 +57,12 @@ export function buildIcs({ events, members, people, weeks, person, lang = 'de', 
     if (e.type === 'urlaub') {
       const who = e.participants.filter((p) => p.ok).map((p) => p.name);
       if (!who.length) continue;
-      ev(e.id, { day: e.from, to: e.to, summary: `🏖️ ${L('Urlaub', 'Holiday')}: ${who.join(', ')}${e.title ? ` (${e.title})` : ''}`, desc: e.note });
+      ev(e.id, { day: e.from, to: e.to, summary: `🏖️ ${L('Urlaub', 'Holiday', `Semester`)}: ${who.join(', ')}${e.title ? ` (${e.title})` : ''}`, desc: e.note });
     } else {
-      const title = e.type === 'meeting' && (!e.title || e.title === 'WG-Meeting') ? L('WG-Meeting', 'Flat meeting') : e.title || L('Termin', 'Appointment');
+      const title = e.type === 'meeting' && (!e.title || e.title === 'WG-Meeting') ? L('WG-Meeting', 'Flat meeting', `Husmöte`) : e.title || L('Termin', 'Appointment', `Tid`);
       const icon = e.type === 'meeting' ? '🗣️' : '📅';
       const topics = (e.topics || []).map((t) => `• ${t.text}`).join('\n');
-      const desc = [e.note, ppl.length && ppl.length < (people || []).length ? `${L('Wer', 'Who')}: ${ppl.join(', ')}` : '', topics ? `${L('Themen', 'Topics')}:\n${topics}` : ''].filter(Boolean).join('\n\n');
+      const desc = [e.note, ppl.length && ppl.length < (people || []).length ? `${L('Wer', 'Who', `Vem`)}: ${ppl.join(', ')}` : '', topics ? `${L('Themen', 'Topics', `Ämnen`)}:\n${topics}` : ''].filter(Boolean).join('\n\n');
       ev(e.id, { day: e.from, to: e.time ? e.from : e.to, time: e.time, end: e.time ? plusHour(e.time, e.type === 'meeting' ? 1 : 1) : '', summary: `${icon} ${title}`, desc });
     }
   }
@@ -72,7 +72,7 @@ export function buildIcs({ events, members, people, weeks, person, lang = 'de', 
     if (want('putzkraft') && w.cleaner && w.cleanerDay) {
       ev(`putzkraft-${w.monday}`, {
         day: w.cleanerDay, time: w.cleanerTime, end: w.cleanerTime ? plusHour(w.cleanerTime, 3) : '',
-        summary: `🧹 ${L('Putzkraft', 'Cleaner')}`,
+        summary: `🧹 ${L('Putzkraft', 'Cleaner', `Städhjälp`)}`,
       });
     }
     if (!person || !want('dienste')) continue;
@@ -92,7 +92,7 @@ export function buildIcs({ events, members, people, weeks, person, lang = 'de', 
     if (!m.birthday || !(people || []).includes(m.name)) continue;
     lines.push('BEGIN:VEVENT', `UID:geburtstag-${encodeURIComponent(m.name)}@zentrale`, `DTSTAMP:${stamp}`,
       `DTSTART;VALUE=DATE:${d8(m.birthday)}`, `DTEND;VALUE=DATE:${d8(addDays(m.birthday, 1))}`, 'RRULE:FREQ=YEARLY',
-      fold(`SUMMARY:${esc(`🎂 ${L('Geburtstag', 'Birthday')} ${m.name}`)}`), 'TRANSP:TRANSPARENT', 'END:VEVENT');
+      fold(`SUMMARY:${esc(`🎂 ${L('Geburtstag', 'Birthday', `Födelsedag`)} ${m.name}`)}`), 'TRANSP:TRANSPARENT', 'END:VEVENT');
   }
 
   lines.push('END:VCALENDAR');

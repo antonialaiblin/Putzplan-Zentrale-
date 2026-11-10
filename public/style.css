@@ -317,7 +317,7 @@ input:focus, select:focus { outline: 2px solid var(--accent); outline-offset: 0;
 .back { color: var(--accent); text-decoration: none; font-weight: 600; }
 
 /* Sprache: Inhalte nur für eine Sprache */
-html[lang="en"] .only-de, html[lang="de"] .only-en { display: none !important; }
+html:not([lang="de"]) .only-de, html:not([lang="en"]) .only-en, html:not([lang="sv"]) .only-sv { display: none !important; }
 
 /* Einstellungen */
 .settings summary { font-weight: 700; font-size: 1.05rem; cursor: pointer; list-style: none; display: flex; justify-content: space-between; }
@@ -422,3 +422,7 @@ label.check-row span { flex: 1; }
 #swap-people [data-add-tile] { margin: 0 6px 6px 0; }
 .dash > * { min-width: 0; }
 .tile-tools button { min-width: 0; }
+.set-row { flex-wrap: wrap; gap: 8px; }
+#set-lang { min-width: 0; max-width: 100%; }
+#set-lang button { padding-left: 8px; padding-right: 8px; }
+.set-row #set-lang { width: 240px; }

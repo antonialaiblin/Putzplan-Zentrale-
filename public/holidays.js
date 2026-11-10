@@ -29,26 +29,26 @@ export function berlinHolidays(y) {
   const nov23 = new Date(Date.UTC(y, 10, 23));
   const bussDiff = ((nov23.getUTCDay() - 3 + 7) % 7) || 7;
   const list = [
-    { date: iso(y, 1, 1), de: 'Neujahr', en: "New Year's Day", legal: true },
-    { date: iso(y, 1, 6), de: 'Heilige Drei Könige', en: 'Epiphany' },
-    { date: iso(y, 3, 8), de: 'Frauentag', en: "International Women's Day", legal: true },
-    { date: plus(os, -3), de: 'Gründonnerstag', en: 'Maundy Thursday' },
-    { date: plus(os, -2), de: 'Karfreitag', en: 'Good Friday', legal: true },
-    { date: os, de: 'Ostersonntag', en: 'Easter Sunday', sunday: true },
-    { date: plus(os, 1), de: 'Ostermontag', en: 'Easter Monday', legal: true },
-    { date: iso(y, 5, 1), de: 'Tag der Arbeit', en: 'Labour Day', legal: true },
-    { date: plus(os, 39), de: 'Christi Himmelfahrt', en: 'Ascension Day', legal: true },
-    { date: plus(os, 49), de: 'Pfingstsonntag', en: 'Whit Sunday', sunday: true },
-    { date: plus(os, 50), de: 'Pfingstmontag', en: 'Whit Monday', legal: true },
-    { date: plus(os, 60), de: 'Fronleichnam', en: 'Corpus Christi' },
-    { date: iso(y, 10, 3), de: 'Tag der Deutschen Einheit', en: 'German Unity Day', legal: true },
-    { date: iso(y, 10, 31), de: 'Reformationstag', en: 'Reformation Day' },
-    { date: iso(y, 11, 1), de: 'Allerheiligen', en: "All Saints' Day" },
-    { date: plus(iso(y, 11, 23), -bussDiff), de: 'Buß- und Bettag', en: 'Day of Repentance' },
-    { date: iso(y, 12, 24), de: 'Heiligabend', en: 'Christmas Eve', short: true },
-    { date: iso(y, 12, 25), de: '1. Weihnachtstag', en: 'Christmas Day', legal: true },
-    { date: iso(y, 12, 26), de: '2. Weihnachtstag', en: 'Boxing Day', legal: true },
-    { date: iso(y, 12, 31), de: 'Silvester', en: "New Year's Eve", short: true },
+    { date: iso(y, 1, 1), de: 'Neujahr', en: "New Year's Day", sv: 'Nyårsdagen', legal: true },
+    { date: iso(y, 1, 6), de: 'Heilige Drei Könige', en: 'Epiphany', sv: 'Trettondedag jul' },
+    { date: iso(y, 3, 8), de: 'Frauentag', en: "International Women's Day", sv: 'Internationella kvinnodagen', legal: true },
+    { date: plus(os, -3), de: 'Gründonnerstag', en: 'Maundy Thursday', sv: 'Skärtorsdagen' },
+    { date: plus(os, -2), de: 'Karfreitag', en: 'Good Friday', sv: 'Långfredagen', legal: true },
+    { date: os, de: 'Ostersonntag', en: 'Easter Sunday', sv: 'Påskdagen', sunday: true },
+    { date: plus(os, 1), de: 'Ostermontag', en: 'Easter Monday', sv: 'Annandag påsk', legal: true },
+    { date: iso(y, 5, 1), de: 'Tag der Arbeit', en: 'Labour Day', sv: 'Första maj', legal: true },
+    { date: plus(os, 39), de: 'Christi Himmelfahrt', en: 'Ascension Day', sv: 'Kristi himmelsfärdsdag', legal: true },
+    { date: plus(os, 49), de: 'Pfingstsonntag', en: 'Whit Sunday', sv: 'Pingstdagen', sunday: true },
+    { date: plus(os, 50), de: 'Pfingstmontag', en: 'Whit Monday', sv: 'Annandag pingst', legal: true },
+    { date: plus(os, 60), de: 'Fronleichnam', en: 'Corpus Christi', sv: 'Kristi lekamens dag' },
+    { date: iso(y, 10, 3), de: 'Tag der Deutschen Einheit', en: 'German Unity Day', sv: 'Tysklands enhetsdag', legal: true },
+    { date: iso(y, 10, 31), de: 'Reformationstag', en: 'Reformation Day', sv: 'Reformationsdagen' },
+    { date: iso(y, 11, 1), de: 'Allerheiligen', en: "All Saints' Day", sv: 'Alla helgons dag' },
+    { date: plus(iso(y, 11, 23), -bussDiff), de: 'Buß- und Bettag', en: 'Day of Repentance', sv: 'Bot- och bönedagen' },
+    { date: iso(y, 12, 24), de: 'Heiligabend', en: 'Christmas Eve', sv: 'Julafton', short: true },
+    { date: iso(y, 12, 25), de: '1. Weihnachtstag', en: 'Christmas Day', sv: 'Juldagen', legal: true },
+    { date: iso(y, 12, 26), de: '2. Weihnachtstag', en: 'Boxing Day', sv: 'Annandag jul', legal: true },
+    { date: iso(y, 12, 31), de: 'Silvester', en: "New Year's Eve", sv: 'Nyårsafton', short: true },
   ];
   cache.set(y, list);
   return list;
@@ -59,6 +59,12 @@ export const holidayOn = (d) => berlinHolidays(+d.slice(0, 4)).find((h) => h.dat
 
 /** Kurze Erklärung: hat alles zu oder ist offen? */
 export function holidayInfo(h, lang = 'de') {
+  if (lang === 'sv') {
+    if (h.legal) return 'allmän helgdag i Berlin, affärerna stängda';
+    if (h.sunday) return 'söndag, affärerna stängda (ingen extra helgdag i Berlin)';
+    if (h.short) return 'ingen allmän helgdag, affärerna oftast öppna till ca kl. 14';
+    return 'ingen helgdag i Berlin, allt öppet';
+  }
   const de = lang !== 'en';
   if (h.legal) return de ? 'gesetzlicher Feiertag, Geschäfte zu' : 'public holiday, shops closed';
   if (h.sunday) return de ? 'Sonntag, Geschäfte zu (in Berlin kein extra Feiertag)' : 'Sunday, shops closed (no extra holiday in Berlin)';

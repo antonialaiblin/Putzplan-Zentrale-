@@ -16,7 +16,7 @@ export const SCHEDULE = {
 };
 
 const fmtD = (d, lang = 'de') => dayLabel(d, lang);
-const pick = (lang) => (de, en) => (lang === 'en' ? en : de);
+const pick = (lang) => (de, en, sv) => (lang === 'en' ? en : lang === 'sv' ? sv ?? en : de);
 
 const json = (data, status = 200) =>
   new Response(JSON.stringify(data), { status, headers: { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' } });
@@ -37,7 +37,7 @@ export class Putzplan extends DurableObject {
   }
   /** Sprache je Person: { Name: 'de' | 'en' } */
   async langs() {
-    return Object.fromEntries((await this.members()).map((m) => [m.name, m.lang === 'en' ? 'en' : 'de']));
+    return Object.fromEntries((await this.members()).map((m) => [m.name, ['en', 'sv'].includes(m.lang) ? m.lang : 'de']));
   }
   /** Kalender-Einträge: {id, type: urlaub|meeting|sonstiges, title, from, to, time, note, participants:[{name, ok}], by} */
   async events() {
@@ -215,7 +215,7 @@ export class Putzplan extends DurableObject {
     // Kalender-Abo für Apple/Google Kalender
     if (path === '/calendar.ics' && request.method === 'GET') {
       const person = PEOPLE.includes(url.searchParams.get('p')) ? url.searchParams.get('p') : null;
-      const lang = url.searchParams.get('lang') === 'en' ? 'en' : 'de';
+      const lang = ['en', 'sv'].includes(url.searchParams.get('lang')) ? url.searchParams.get('lang') : 'de';
       const current = mondayOf(berlinNow().day);
       const weeks = await this.weeks([...Array(30)].map((_, i) => addDays(current, (i - 4) * 7)));
       const events = (await this.events()).filter((e) => e.to >= addDays(current, -120));
@@ -260,7 +260,7 @@ export class Putzplan extends DurableObject {
       let list = (await this.swapRequests()).filter((r) => r.status === 'open' || Date.now() - r.at < 14 * 864e5);
       const save = async () => { await this.ctx.storage.put('swapRequests', list); return json({ swapRequests: list }); };
       const taskOf = async (monday, key) => (await this.week(monday)).tasks.find((t) => t.key === key);
-      const wk = (m, l) => (l === 'en' ? `the week of ${ddmm(m, l)}` : `der Woche ab ${ddmm(m, l)}`);
+      const wk = (m, l) => (l === 'en' ? `the week of ${ddmm(m, l)}` : l === 'sv' ? `veckan från ${ddmm(m, l)}` : `der Woche ab ${ddmm(m, l)}`);
       if (path === '/swap/request') {
         const { monday, task, by, to, back } = body;
         if (!validMonday(monday) || !TASKS.includes(task) || !PEOPLE.includes(by) || !PEOPLE.includes(to) || by === to) return json({ error: 'bad request' }, 400);
@@ -279,10 +279,10 @@ export class Putzplan extends DurableObject {
         await this.pushToPerson(to, (l) => {
           const L = pick(l);
           return {
-            title: L(`🔁 ${by} möchte mit dir Putzdienst tauschen`, `🔁 ${by} would like to swap cleaning duty with you`),
-            body: L(`Du übernimmst „${t.title}“ in ${wk(monday, 'de')}`, `You take over "${tr(t.title, 'en')}" in ${wk(monday, 'en')}`)
-              + (b ? L(`, dafür übernimmt ${by} dein „${bTitle}“ in ${wk(b.monday, 'de')}.`, `, and ${by} takes over your "${tr(bTitle, 'en')}" in ${wk(b.monday, 'en')}.`) : '.')
-              + L(' Tipp hier, um zuzusagen oder abzulehnen.', ' Tap to accept or decline.'),
+            title: L(`🔁 ${by} möchte mit dir Putzdienst tauschen`, `🔁 ${by} would like to swap cleaning duty with you`, `🔁 ${by} vill byta städtjänst med dig`),
+            body: L(`Du übernimmst „${t.title}“ in ${wk(monday, 'de')}`, `You take over "${tr(t.title, 'en')}" in ${wk(monday, 'en')}`, `Du tar över "${tr(t.title, 'sv')}" ${wk(monday, 'sv')}`)
+              + (b ? L(`, dafür übernimmt ${by} dein „${bTitle}“ in ${wk(b.monday, 'de')}.`, `, and ${by} takes over your "${tr(bTitle, 'en')}" in ${wk(b.monday, 'en')}.`, `, och ${by} tar över din "${tr(bTitle, 'sv')}" ${wk(b.monday, 'sv')}.`) : '.')
+              + L(' Tipp hier, um zuzusagen oder abzulehnen.', ' Tap to accept or decline.', ` Tryck för att tacka ja eller nej.`),
             url: '/#plan',
           };
         });
@@ -316,8 +316,8 @@ export class Putzplan extends DurableObject {
         await this.pushToPerson(r.by, (l) => {
           const L = pick(l);
           return body.accept
-            ? { title: L(`✅ ${r.to} hat dem Tausch zugestimmt`, `✅ ${r.to} accepted the swap`), body: L(`${r.to} übernimmt „${t.title}“ in ${wk(r.monday, 'de')}. Der Putzplan ist angepasst.`, `${r.to} takes over "${tr(t.title, 'en')}" in ${wk(r.monday, 'en')}. The rota has been updated.`), url: '/#plan' }
-            : { title: L(`❌ ${r.to} kann leider nicht tauschen`, `❌ ${r.to} can't swap`), body: L(`Frag am besten jemand anderen für „${t.title}“ in ${wk(r.monday, 'de')}.`, `Best ask someone else for "${tr(t.title, 'en')}" in ${wk(r.monday, 'en')}.`), url: '/#plan' };
+            ? { title: L(`✅ ${r.to} hat dem Tausch zugestimmt`, `✅ ${r.to} accepted the swap`, `✅ ${r.to} har tackat ja till bytet`), body: L(`${r.to} übernimmt „${t.title}“ in ${wk(r.monday, 'de')}. Der Putzplan ist angepasst.`, `${r.to} takes over "${tr(t.title, 'en')}" in ${wk(r.monday, 'en')}. The rota has been updated.`, `${r.to} tar över "${tr(t.title, 'sv')}" ${wk(r.monday, 'sv')}. Schemat är uppdaterat.`), url: '/#plan' }
+            : { title: L(`❌ ${r.to} kann leider nicht tauschen`, `❌ ${r.to} can't swap`, `❌ ${r.to} kan tyvärr inte byta`), body: L(`Frag am besten jemand anderen für „${t.title}“ in ${wk(r.monday, 'de')}.`, `Best ask someone else for "${tr(t.title, 'en')}" in ${wk(r.monday, 'en')}.`, `Fråga helst någon annan om "${tr(t.title, 'sv')}" ${wk(r.monday, 'sv')}.`), url: '/#plan' };
         });
         return save();
       }
@@ -413,16 +413,16 @@ export class Putzplan extends DurableObject {
         await this.ctx.storage.put(`ov:${target}`, tov);
       }
       const week = await this.week(target);
-      const when = (l) => `${fmtD(date, l)}${time ? `${l === 'en' ? ' at' : ' um'} ${time}` : ''}`;
+      const when = (l) => `${fmtD(date, l)}${time ? `${{ en: ' at', sv: ' kl.' }[l] || ' um'} ${time}` : ''}`;
       for (const p of PEOPLE) {
         if (p === by) continue;
         await this.pushToPerson(p, (l) => {
           const L = pick(l);
           const head = fromDay && fromDay !== date
-            ? L(`Die Putzkraft kommt nicht am ${fmtD(fromDay)}, sondern am ${when(l)}.`, `The cleaner is not coming on ${fmtD(fromDay, 'en')} but on ${when(l)}.`)
-            : fromDay ? L(`Die Putzkraft kommt am ${when(l)}.`, `The cleaner comes on ${when(l)}.`)
-              : L(`Zusätzlicher Termin: Die Putzkraft kommt am ${when(l)}.`, `Extra visit: the cleaner comes on ${when(l)}.`);
-          return { title: L('Putzkraft-Termin 🧹', 'Cleaner appointment 🧹'), body: `${head} ${L('Der Putzplan ist angepasst.', 'The cleaning rota has been updated.')}${by ? L(` (von ${by})`, ` (by ${by})`) : ''}`, url: '/#plan' };
+            ? L(`Die Putzkraft kommt nicht am ${fmtD(fromDay)}, sondern am ${when(l)}.`, `The cleaner is not coming on ${fmtD(fromDay, 'en')} but on ${when(l)}.`, `Städhjälpen kommer inte ${fmtD(fromDay, 'sv')} utan ${when(l)}.`)
+            : fromDay ? L(`Die Putzkraft kommt am ${when(l)}.`, `The cleaner comes on ${when(l)}.`, `Städhjälpen kommer ${when(l)}.`)
+              : L(`Zusätzlicher Termin: Die Putzkraft kommt am ${when(l)}.`, `Extra visit: the cleaner comes on ${when(l)}.`, `Extrabesök: städhjälpen kommer ${when(l)}.`);
+          return { title: L('Putzkraft-Termin 🧹', 'Cleaner appointment 🧹', `Tid för städhjälpen 🧹`), body: `${head} ${L('Der Putzplan ist angepasst.', 'The cleaning rota has been updated.', `Städschemat är uppdaterat.`)}${by ? L(` (von ${by})`, ` (by ${by})`, ` (av ${by})`) : ''}`, url: '/#plan' };
         });
       }
       return json(week);
@@ -477,7 +477,7 @@ export class Putzplan extends DurableObject {
       const L = pick((await this.langs())[entry.person]);
       const r = await this.push(`sub:${await sha(body.endpoint)}`, entry, {
         title: 'Zentrale 🧽',
-        body: L(`Hallo ${entry.person}, die Erinnerungen funktionieren!`, `Hi ${entry.person}, notifications are working!`),
+        body: L(`Hallo ${entry.person}, die Erinnerungen funktionieren!`, `Hi ${entry.person}, notifications are working!`, `Hej ${entry.person}, notiserna fungerar!`),
       });
       return json(r, r.ok ? 200 : 502);
     }
@@ -495,7 +495,7 @@ export class Putzplan extends DurableObject {
       // Ab nächstem Montag im Putzplan, die laufende Woche bleibt, wie sie ist
       const since = addDays(mondayOf(berlinNow().day), 7);
       const rest = members.filter((m) => !(m.name.toLowerCase() === name.toLowerCase()));
-      const lang = body.lang === 'en' ? 'en' : 'de';
+      const lang = ['en', 'sv'].includes(body.lang) ? body.lang : 'de';
       const prof = this.checkProfile(body);
       if (prof.error) return json({ error: prof.error }, 400);
       const photo = await this.savePhoto(name, body.photo || undefined);
@@ -505,6 +505,7 @@ export class Putzplan extends DurableObject {
         if (p === name) continue;
         await this.pushToPerson(p, (l) => (l === 'en'
           ? { title: '🎉 New flatmate', body: `${name} has joined the flat (${side === 'vorne' ? 'front' : 'back'} room) and is on the cleaning rota from ${fmtD(since, 'en')}. Say hi!`, url: '/#start' }
+          : l === 'sv' ? { title: '🎉 Ny i kollektivet', body: `${name} har flyttat in (rum ${side === 'vorne' ? 'fram' : 'bak'}) och är med i städschemat från ${fmtD(since, 'sv')}. Säg hej!`, url: '/#start' }
           : { title: `🎉 ${g === 'w' ? 'Neue Mitbewohnerin' : g === 'm' ? 'Neuer Mitbewohner' : 'Neu in der WG'}`, body: `${name} ist neu in der WG (Zimmer ${side}) und ab ${fmtD(since)} im Putzplan. Sag hallo!`, url: '/#start' }));
       }
       return json({ ok: true, name, since, members: await this.members() });
@@ -554,7 +555,7 @@ export class Putzplan extends DurableObject {
     if (path === '/members/lang' && request.method === 'POST') {
       const members = await this.members();
       if (!members.some((m) => m.name === body.name)) return json({ error: 'Mitglied nicht gefunden.' }, 404);
-      const lang = body.lang === 'en' ? 'en' : 'de';
+      const lang = ['en', 'sv'].includes(body.lang) ? body.lang : 'de';
       await this.ctx.storage.put('members', members.map((m) => (m.name === body.name ? { ...m, lang } : m)));
       return json({ ok: true, members: await this.members() });
     }
@@ -591,16 +592,16 @@ export class Putzplan extends DurableObject {
       const participants = names.map((n) => ({ name: n, ok: type !== 'urlaub' || n === by }));
       const ev = { id: rid(), type, title: str(body.title, 60), from, to, time: type !== 'urlaub' && isTime(body.time) ? body.time : '', note: str(body.note, 200), by, participants };
       await this.ctx.storage.put('events', [...(await this.events()), ev].sort((a, b) => (a.from + a.time < b.from + b.time ? -1 : 1)));
-      const when = (lang) => `${fmtD(from, lang)}${to !== from ? ` – ${fmtD(to, lang)}` : ''}${ev.time ? `${lang === 'en' ? ' at' : ' um'} ${ev.time}` : ''}`;
+      const when = (lang) => `${fmtD(from, lang)}${to !== from ? ` – ${fmtD(to, lang)}` : ''}${ev.time ? `${{ en: ' at', sv: ' kl.' }[lang] || ' um'} ${ev.time}` : ''}`;
       for (const p of participants) {
         if (p.name === by) continue;
         if (type === 'urlaub') {
           await this.pushToPerson(p.name, (lang) => {
             const L = pick(lang);
             return {
-              title: L('Urlaub bestätigen? 🏖️', 'Confirm holiday? 🏖️'),
+              title: L('Urlaub bestätigen? 🏖️', 'Confirm holiday? 🏖️', `Bekräfta semester? 🏖️`),
               body: L(`${by || 'Jemand'} hat dich beim Urlaub ${ev.title ? `„${ev.title}“ ` : ''}${when(lang)} eingetragen. Bitte in der Zentrale bestätigen.`,
-                `${by || 'Someone'} added you to the holiday ${ev.title ? `"${ev.title}" ` : ''}${when(lang)}. Please confirm in the app.`),
+                `${by || 'Someone'} added you to the holiday ${ev.title ? `"${ev.title}" ` : ''}${when(lang)}. Please confirm in the app.`, `${by || 'Någon'} har lagt till dig i semestern ${ev.title ? `"${ev.title}" ` : ''}${when(lang)}. Bekräfta i appen.`),
               url: '/#kalender',
             };
           });
@@ -608,8 +609,8 @@ export class Putzplan extends DurableObject {
           await this.pushToPerson(p.name, (lang) => {
             const L = pick(lang);
             return {
-              title: `${type === 'meeting' ? '🗣️ ' : '📅 '}${ev.title || (lang === 'en' ? { meeting: 'Flat meeting', sonstiges: 'Event' }[type] : label(type))}`,
-              body: L(`Neuer Termin: ${when(lang)}${by ? ` (von ${by})` : ''}.`, `New event: ${when(lang)}${by ? ` (from ${by})` : ''}.`),
+              title: `${type === 'meeting' ? '🗣️ ' : '📅 '}${ev.title || (lang === 'en' ? { meeting: 'Flat meeting', sonstiges: 'Event' }[type] : lang === 'sv' ? { meeting: 'Husmöte', sonstiges: 'Händelse' }[type] : label(type))}`,
+              body: L(`Neuer Termin: ${when(lang)}${by ? ` (von ${by})` : ''}.`, `New event: ${when(lang)}${by ? ` (from ${by})` : ''}.`, `Ny händelse: ${when(lang)}${by ? ` (från ${by})` : ''}.`),
               url: '/#kalender',
             };
           });
@@ -669,9 +670,9 @@ export class Putzplan extends DurableObject {
           await this.pushToPerson(p, (lang) => {
             const L = pick(lang);
             return {
-              title: L('🗳️ WG-Meeting: wann passt es dir?', '🗳️ Flat meeting: when suits you?'),
+              title: L('🗳️ WG-Meeting: wann passt es dir?', '🗳️ Flat meeting: when suits you?', `🗳️ Husmöte: när passar det?`),
               body: L(`${by || 'Jemand'} wünscht sich ein Meeting${poll.title !== 'WG-Meeting' ? ` („${poll.title}“)` : ''}. Stimm in der Zentrale ab.`,
-                `${by || 'Someone'} would like a meeting${poll.title !== 'WG-Meeting' ? ` ("${poll.title}")` : ''}. Vote in the app.`),
+                `${by || 'Someone'} would like a meeting${poll.title !== 'WG-Meeting' ? ` ("${poll.title}")` : ''}. Vote in the app.`, `${by || 'Någon'} vill ha ett möte${poll.title !== 'WG-Meeting' ? ` ("${poll.title}")` : ''}. Rösta i appen.`),
               url: '/#kalender',
             };
           });
@@ -702,6 +703,7 @@ export class Putzplan extends DurableObject {
       for (const p of PEOPLE) {
         await this.pushToPerson(p, (lang) => (lang === 'en'
           ? { title: '🗣️ Flat meeting is set', body: `${poll.title === 'WG-Meeting' ? 'Flat meeting' : poll.title}: ${fmtD(opt.date, 'en')} at ${opt.time}. See you then!`, url: '/#kalender' }
+          : lang === 'sv' ? { title: '🗣️ Husmötet är bestämt', body: `${poll.title === 'WG-Meeting' ? 'Husmöte' : poll.title}: ${fmtD(opt.date, 'sv')} kl. ${opt.time}. Vi ses!`, url: '/#kalender' }
           : { title: '🗣️ WG-Meeting steht fest', body: `${poll.title}: ${fmtD(opt.date)} um ${opt.time} Uhr. Bis dann!`, url: '/#kalender' }));
       }
       return calState();
@@ -722,6 +724,7 @@ export class Putzplan extends DurableObject {
           if (p === by) continue;
           await this.pushToPerson(p, (l) => (l === 'en'
             ? { title: `🗳️ Poll${by ? ` from ${by}` : ''}`, body: `${question} Tap to answer.`, url: '/#start' }
+            : l === 'sv' ? { title: `🗳️ Omröstning${by ? ` från ${by}` : ''}`, body: `${question} Tryck för att svara.`, url: '/#start' }
             : { title: `🗳️ Umfrage${by ? ` von ${by}` : ''}`, body: `${question} Tipp hier, um abzustimmen.`, url: '/#start' }));
         }
         return save();
@@ -744,6 +747,7 @@ export class Putzplan extends DurableObject {
           }).join(' · ');
           await this.pushToPerson(s.by, (l) => (l === 'en'
             ? { title: '✅ Everyone has answered', body: `"${s.question}" ${result(l)}`, url: '/#start' }
+            : l === 'sv' ? { title: '✅ Alla har svarat', body: `"${s.question}" ${result(l)}`, url: '/#start' }
             : { title: '✅ Alle haben abgestimmt', body: `„${s.question}“ ${result(l)}`, url: '/#start' }));
         }
         return save();
@@ -917,10 +921,12 @@ export class Putzplan extends DurableObject {
           if (p === m.name) {
             done.push([p, await this.pushToPerson(p, (l) => (l === 'en'
               ? { title: '🎂 Happy birthday!', body: `Happy birthday, ${p}! The whole flat wishes you a wonderful day 🎉` }
+              : l === 'sv' ? { title: '🎂 Grattis på födelsedagen!', body: `Grattis på födelsedagen, ${p}! Hela kollektivet önskar dig en underbar dag 🎉` }
               : { title: '🎂 Alles Gute!', body: `Alles Liebe zum Geburtstag, ${p}! Die ganze WG wünscht dir einen wunderschönen Tag 🎉` }))]);
           } else {
             done.push([p, await this.pushToPerson(p, (l) => (l === 'en'
               ? { title: `🎂 ${m.name}'s birthday`, body: `Today is ${m.name}'s birthday! Don't forget to wish ${pron[1]} a happy birthday 🎉` }
+              : l === 'sv' ? { title: `🎂 ${m.name} fyller år`, body: `I dag fyller ${m.name} år! Glöm inte att gratulera 🎉` }
               : { title: `🎂 ${m.name} hat Geburtstag`, body: `Heute hat ${m.name} Geburtstag! Vergiss nicht, ${pron[0]} zu gratulieren 🎉` }))]);
           }
         }

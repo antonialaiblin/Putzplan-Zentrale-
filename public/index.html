@@ -61,10 +61,11 @@
           <button type="button" role="radio" aria-checked="false" data-gender="d">Divers</button>
         </div>
       </fieldset>
-      <fieldset class="field"><legend>Sprache / Language</legend>
-        <div class="seg two-seg" id="join-lang" role="radiogroup">
+      <fieldset class="field"><legend>Sprache / Language / Språk</legend>
+        <div class="seg three-seg" id="join-lang" role="radiogroup">
           <button type="button" role="radio" aria-checked="true" data-jlang="de">Deutsch</button>
           <button type="button" role="radio" aria-checked="false" data-jlang="en">English</button>
+          <button type="button" role="radio" aria-checked="false" data-jlang="sv">Svenska</button>
         </div>
       </fieldset>
       <div class="row end"><button type="button" class="ghost" id="join-cancel">Abbrechen</button><button type="submit">Mitglied werden</button></div>
@@ -77,9 +78,10 @@
         <div class="set-row"><span id="set-me" class="me-line"></span><button type="button" class="ghost small" id="change-me">Mitglied wechseln</button></div>
         <div class="set-row"><span>Mein Profil</span><button type="button" class="ghost small" id="profile-open">Profil bearbeiten</button></div>
         <div class="set-row"><span>App-Sprache</span>
-          <div class="seg two-seg" id="set-lang" role="radiogroup" aria-label="App-Sprache">
+          <div class="seg three-seg" id="set-lang" role="radiogroup" aria-label="App-Sprache">
             <button type="button" role="radio" data-lang="de">Deutsch</button>
             <button type="button" role="radio" data-lang="en">English</button>
+            <button type="button" role="radio" data-lang="sv">Svenska</button>
           </div></div>
         <section id="notify" class="notify" hidden><div id="notify-body"></div></section>
         <div class="set-row"><span></span><button type="button" class="ghost small" id="leave-open">Ich ziehe aus</button></div>
@@ -327,6 +329,50 @@
         <li><strong>Appointments with the cleaner</strong> are arranged by one person (can be changed on the cleaning rota under "In charge of the cleaner"). They get a message on Monday morning and enter when the cleaner is coming. Everyone else is then notified.</li>
         <li>You can swap at any time: tap "Swap" on the cleaning rota and ask someone. As soon as they accept, the rota is updated.</li>
         <li><strong>Fridge:</strong> Everyone cleans their own shelves once a month and throws out expired food, by the last Sunday of the month.</li>
+      </ul></details>
+      </div>
+      <div class="only-sv" lang="sv">
+      <section class="card intro">
+        <h2>Mission Haussegen 🏡</h2>
+        <p class="muted">Regler för husfriden (från 3 nov 2026)</p>
+      </section>
+      <details class="card" open><summary>🔇 Allmänna regler</summary><ul>
+        <li><strong>Ljud:</strong> Från kl. 23, särskilt på vardagar, var tyst: i köket, entrén, det bakre badrummet och överallt i lägenheten, så länge det inte är klart att alla fortfarande är vakna.</li>
+        <li><strong>Lampor:</strong> Låt dem bara vara tända i rum där någon är. Släck alla lampor när du går.</li>
+        <li>Den som lämnar lägenheten sist kollar att alla fönster är stängda och låser ytterdörren utifrån.</li>
+        <li><strong>Gäster:</strong> Om du bjuder in fler än 3 personer för att laga mat eller umgås i de gemensamma rummen, säg till i kollektivgruppen. Säg också till om övernattningsgäster. Vid spontana planer behövs det förstås inte ;)</li>
+        <li>Efter träffar och fester städar värdarna allt skinande rent senast dagen efter.</li>
+        <li><strong>Pengar:</strong> Lägg in allt du köper till kollektivet som inte täcks av pantpengarna i <a href="#kasse">kollektivkassan</a>.</li>
+      </ul></details>
+      <details class="card"><summary>🍽️ Kök &amp; diskmaskin</summary><ul>
+        <li>Töm diskmaskinen så fort du ser att den är ren. Sätt på den när den är smutsig och full: eco-program på natten, turbo på dagen.</li>
+        <li>Skölj av större matrester innan disken går in i maskinen.</li>
+        <li>Ställ bara stora flata tallrikar längs kanten i nedre korgen, annars blir inget rent.</li>
+        <li>Trä och vassa knivar ska inte i diskmaskinen. Diska och torka knivar direkt efter användning så att de inte rostar.</li>
+      </ul></details>
+      <details class="card"><summary>🧊 Kylskåp &amp; förråd</summary><ul>
+        <li><strong>Saker:</strong> Ta inte bara mat eller andra saker från de andra. Fråga först.</li>
+        <li><strong>Kylskåp:</strong> Alla har en egen hylla. Räcker den inte finns grönsakslådan, eller fråga om du får ställa något på någon annans hylla. Fyll inte andras hyllor utan att fråga.</li>
+        <li><strong>Före semester:</strong> ät upp din mat, ta med den eller bestäm vem som äter upp eller slänger den. Lämna inget färskvaror i kylen.</li>
+        <li>Salt eller kryddor slut: köp bara nya nästa gång du handlar.</li>
+        <li><strong>Gemensamma saker</strong> (olivolja, havremjölk, lök, vitlök): se till att det alltid finns tillräckligt och fyll på regelbundet, så att ingen planerar med något som har tagit slut. Skriv upp det som är slut på <a href="#einkauf">inköpslistan</a>.</li>
+        <li>Öppna inte en ny havremjölk när 3 öppnade redan står i kylen, annars blir alla dåliga.</li>
+      </ul></details>
+      <details class="card"><summary>👕 Tvätt</summary><ul>
+        <li>Starta inte en tvätt om du inte kan ta ut den strax efter att den är klar.</li>
+        <li>Bortglömd tvätt får flyttas till en tvättkorg. Skriv ett kort meddelande i kollektivgruppen så att personen vet.</li>
+        <li>Torkställningen full och torr: kasta inte andras kläder på golvet. Lägg dem i en hög på tvättmaskinen (bak) eller i personens rum och säg till.</li>
+        <li>Lämna inga klädhögar eller enstaka strumpor i de gemensamma rummen.</li>
+        <li>Lämna ingen smutstvätt på badrumsgolvet.</li>
+      </ul></details>
+      <details class="card"><summary>🧽 Städregler</summary><ul>
+        <li><strong>Efter matlagning:</strong> inom 3 timmar är allt diskat, rengjort och som vanligt igen (spis, bänk, diskho, bord), och silen i diskhon är tömd.</li>
+        <li>Städhjälpen kommer varannan vecka på onsdag, städar alla gemensamma ytor inkl. badrum, moppar alla golv och tömmer soporna. Veckorna däremellan städar vi själva (se <a href="#plan">städschemat</a>).</li>
+        <li>Dammsuga och moppa betyder alltid: även i hörnen och under eller bakom möbler som går att flytta.</li>
+        <li><strong>Om städhjälpen ställer in</strong> gör vi storstädningen själva den veckan. Schemat flyttas då en vecka från veckan efter. Tryck bara på "Städhjälpen inställd?" i städschemat.</li>
+        <li><strong>Tider med städhjälpen</strong> bokas av en person (kan ändras i städschemat under "Ansvarig för städhjälpen"). Den personen får ett meddelande på måndagsmorgonen och fyller i när städhjälpen kommer. Alla andra får sedan en notis.</li>
+        <li>Byta går alltid: tryck på "Byt" i städschemat och fråga någon. Så fort personen tackar ja är schemat uppdaterat.</li>
+        <li><strong>Kylskåp:</strong> Alla städar sina egna hyllor en gång i månaden och slänger utgången mat, senast sista söndagen i månaden.</li>
       </ul></details>
       </div>
     </div>

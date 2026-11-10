@@ -14,7 +14,7 @@ const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&
 
 const state = {
   me: store.get('me'),
-  lang: store.get('lang') === 'en' ? 'en' : 'de',
+  lang: ['en', 'sv'].includes(store.get('lang')) ? store.get('lang') : 'de',
   people: [],
   current: null,
   view: null,
@@ -22,19 +22,20 @@ const state = {
 };
 
 // ---------------- Sprache ----------------
-/** L('Deutsch', 'English') */
-const L = (de, en) => (state.lang === 'en' ? en : de);
+/** L('Deutsch', 'English', `Svenska`) */
+const L = (de, en, sv) => (state.lang === 'en' ? en : state.lang === 'sv' ? sv ?? en : de);
 /** Texte vom Server (Aufgaben, Kategorien, Fehlermeldungen) übersetzen */
 const T = (s) => tr(s, state.lang);
-const locale = () => (state.lang === 'en' ? 'en-GB' : 'de-DE');
+const locale = () => ({ en: 'en-GB', sv: 'sv-SE' }[state.lang] || 'de-DE');
 const MON_EN = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-const ddmm = (s) => (state.lang === 'en' ? `${+s.slice(8, 10)} ${MON_EN[+s.slice(5, 7) - 1]}` : `${s.slice(8, 10)}.${s.slice(5, 7)}.`);
-const WD = { de: ['So', 'Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa'], en: ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'] };
+const MON_SV = ['jan', 'feb', 'mar', 'apr', 'maj', 'jun', 'jul', 'aug', 'sep', 'okt', 'nov', 'dec'];
+const ddmm = (s) => (state.lang === 'en' ? `${+s.slice(8, 10)} ${MON_EN[+s.slice(5, 7) - 1]}` : state.lang === 'sv' ? `${+s.slice(8, 10)} ${MON_SV[+s.slice(5, 7) - 1]}` : `${s.slice(8, 10)}.${s.slice(5, 7)}.`);
+const WD = { de: ['So', 'Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa'], en: ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'], sv: ['sön', 'mån', 'tis', 'ons', 'tor', 'fre', 'lör'] };
 const wd = (s) => WD[state.lang][new Date(`${s}T12:00:00Z`).getUTCDay()];
-const atTime = (t) => (t ? L(` um ${t}`, ` at ${t}`) : '');
-const clock = (t) => L(`${t} Uhr`, t);
+const atTime = (t) => (t ? L(` um ${t}`, ` at ${t}`, ` kl. ${t}`) : '');
+const clock = (t) => L(`${t} Uhr`, t, `kl. ${t}`);
 const cleanerWhen = (w) => `${wd(w.cleanerDay)} ${ddmm(w.cleanerDay)}${atTime(w.cleanerTime)}`;
-const fmtDay = (d) => new Date(`${d}T12:00:00Z`).toLocaleDateString(locale(), { weekday: 'short', day: '2-digit', month: state.lang === 'en' ? 'short' : '2-digit', timeZone: 'UTC' });
+const fmtDay = (d) => new Date(`${d}T12:00:00Z`).toLocaleDateString(locale(), { weekday: 'short', day: '2-digit', month: state.lang === 'de' ? '2-digit' : 'short', timeZone: 'UTC' });
 
 // Feste Texte in index.html: deutsches Original merken und je nach Sprache austauschen
 const ORIG = new WeakMap();
@@ -45,7 +46,7 @@ function translateStatic() {
     const key = orig.trim();
     if (!key || EN[key] === undefined) continue;
     ORIG.set(n, orig);
-    const want = state.lang === 'en' ? orig.replace(key, EN[key]) : orig;
+    const want = state.lang === 'de' ? orig : orig.replace(key, tr(key, state.lang));
     if (n.nodeValue !== want) n.nodeValue = want;
   }
   for (const el of document.body.querySelectorAll('[placeholder],[aria-label],[title]')) {
@@ -54,12 +55,12 @@ function translateStatic() {
       const orig = el.getAttribute(`data-de-${a}`) ?? el.getAttribute(a);
       if (EN[orig] === undefined) continue;
       el.setAttribute(`data-de-${a}`, orig);
-      el.setAttribute(a, state.lang === 'en' ? EN[orig] : orig);
+      el.setAttribute(a, state.lang === 'de' ? orig : tr(orig, state.lang));
     }
   }
 }
 function setLang(lang, { rerender = true } = {}) {
-  state.lang = lang === 'en' ? 'en' : 'de';
+  state.lang = ['en', 'sv'].includes(lang) ? lang : 'de';
   store.set('lang', state.lang);
   document.documentElement.lang = state.lang;
   translateStatic();
@@ -82,7 +83,7 @@ async function api(path, body) {
     ? { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }
     : undefined);
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(T(data.error) || L(`Fehler ${res.status}`, `Error ${res.status}`));
+  if (!res.ok) throw new Error(T(data.error) || L(`Fehler ${res.status}`, `Error ${res.status}`, `Fel ${res.status}`));
   return data;
 }
 
@@ -158,23 +159,23 @@ function renderMe() {
   const joining = location.hash === '#beitreten' || state.joining;
   $('#join').hidden = !joining;
   pick.hidden = !!state.me || joining;
-  $('#who-line').textContent = state.me ? L(`Hallo ${state.me} 👋`, `Hi ${state.me} 👋`) : 'Mission Haussegen';
+  $('#who-line').textContent = state.me ? L(`Hallo ${state.me} 👋`, `Hi ${state.me} 👋`, `Hej ${state.me} 👋`) : 'Mission Haussegen';
   $('#people-buttons').innerHTML = state.people.map((p) => `<button data-me="${esc(p)}">${avatar(p, 'sm')}${esc(p)}</button>`).join('');
   // Sprachknopf oben nur, solange noch niemand ausgewählt ist (sonst in den Einstellungen)
   const quick = $('#lang-quick');
   quick.hidden = !!state.me;
-  quick.textContent = state.lang === 'en' ? '🇩🇪 Deutsch' : '🇬🇧 English';
-  $('#set-me').innerHTML = state.me ? `${avatar(state.me)} ${L(`Du bist <strong>${esc(state.me)}</strong>`, `You are <strong>${esc(state.me)}</strong>`)}` : '';
+  quick.textContent = { de: '🇬🇧 English', en: '🇸🇪 Svenska', sv: '🇩🇪 Deutsch' }[state.lang];
+  $('#set-me').innerHTML = state.me ? `${avatar(state.me)} ${L(`Du bist <strong>${esc(state.me)}</strong>`, `You are <strong>${esc(state.me)}</strong>`, `Du är <strong>${esc(state.me)}</strong>`)}` : '';
   document.querySelectorAll('#set-lang [data-lang]').forEach((b) => b.setAttribute('aria-checked', b.dataset.lang === state.lang));
   $('#settings').hidden = !state.me;
 }
 
 function weekTitle(monday) {
   const diff = Math.round((Date.parse(monday) - Date.parse(state.current)) / (7 * 86400000));
-  if (diff === 0) return L('Diese Woche', 'This week');
-  if (diff === 1) return L('Nächste Woche', 'Next week');
-  if (diff === -1) return L('Letzte Woche', 'Last week');
-  return diff > 0 ? L(`In ${diff} Wochen`, `In ${diff} weeks`) : L(`Vor ${-diff} Wochen`, `${-diff} weeks ago`);
+  if (diff === 0) return L('Diese Woche', 'This week', `Den här veckan`);
+  if (diff === 1) return L('Nächste Woche', 'Next week', `Nästa vecka`);
+  if (diff === -1) return L('Letzte Woche', 'Last week', `Förra veckan`);
+  return diff > 0 ? L(`In ${diff} Wochen`, `In ${diff} weeks`, `Om ${diff} veckor`) : L(`Vor ${-diff} Wochen`, `${-diff} weeks ago`, `För ${-diff} veckor sedan`);
 }
 
 function renderWeek() {
@@ -185,40 +186,40 @@ function renderWeek() {
 
   let html = '';
   const contact = state.cleanerContact;
-  const contactLine = `<p class="muted small">${L('Zuständig für die Putzkraft', 'In charge of the cleaner')}: <strong>${contact ? esc(contact) : L('niemand', 'nobody')}</strong>
-    <button class="link" data-cleaner-contact>${L('ändern', 'change')}</button></p>`;
+  const contactLine = `<p class="muted small">${L('Zuständig für die Putzkraft', 'In charge of the cleaner', `Ansvarig för städhjälpen`)}: <strong>${contact ? esc(contact) : L('niemand', 'nobody', `ingen`)}</strong>
+    <button class="link" data-cleaner-contact>${L('ändern', 'change', `ändra`)}</button></p>`;
   const whenD = (d) => `${wd(d)} ${ddmm(d)}`;
   if (w.extra) {
     html += `<div class="banner"><p>${L(`🧹 <strong>Putzkraft kommt ${cleanerWhen(w)}</strong> ✓ <span class="muted">(${w.extraFrom ? `verschoben aus der Woche ab ${ddmm(w.extraFrom)}` : 'Zusatztermin'})</span> und putzt Bäder, Böden und Müll.`,
-      `🧹 <strong>The cleaner comes ${cleanerWhen(w)}</strong> ✓ <span class="muted">(${w.extraFrom ? `moved from the week of ${ddmm(w.extraFrom)}` : 'extra visit'})</span> and cleans bathrooms, floors and bins.`)}</p>
-      <div class="row"><button class="link" data-cleaner-visit>${L('Termin ändern', 'Change date')}</button>
-      <button class="link" data-cleaner-extra-remove>${w.extraFrom ? L('Zurück in die alte Woche', 'Back to the original week') : L('Zusatztermin löschen', 'Delete extra visit')}</button></div>
+      `🧹 <strong>The cleaner comes ${cleanerWhen(w)}</strong> ✓ <span class="muted">(${w.extraFrom ? `moved from the week of ${ddmm(w.extraFrom)}` : 'extra visit'})</span> and cleans bathrooms, floors and bins.`, `🧹 <strong>Städhjälpen kommer ${cleanerWhen(w)}</strong> ✓ <span class="muted">(${w.extraFrom ? `flyttad från veckan ${ddmm(w.extraFrom)}` : 'extrabesök'})</span> och städar badrum, golv och sopor.`)}</p>
+      <div class="row"><button class="link" data-cleaner-visit>${L('Termin ändern', 'Change date', `Ändra tid`)}</button>
+      <button class="link" data-cleaner-extra-remove>${w.extraFrom ? L('Zurück in die alte Woche', 'Back to the original week', `Tillbaka till ursprungliga veckan`) : L('Zusatztermin löschen', 'Delete extra visit', `Ta bort extrabesök`)}</button></div>
       ${contactLine}</div>`;
   } else if (w.movedTo) {
     html += `<div class="banner"><p>${L(`📅 <strong>Putzkraft wurde auf ${whenD(w.movedTo)} verschoben.</strong> Diese Woche putzen wir selbst.`,
-      `📅 <strong>The cleaner was moved to ${whenD(w.movedTo)}.</strong> This week we clean ourselves.`)}</p>
-      <div class="row"><button class="link" data-cleaner-unmove>${L('Verschiebung rückgängig', 'Undo move')}</button></div>
+      `📅 <strong>The cleaner was moved to ${whenD(w.movedTo)}.</strong> This week we clean ourselves.`, `📅 <strong>Städhjälpen har flyttats till ${whenD(w.movedTo)}.</strong> Den här veckan städar vi själva.`)}</p>
+      <div class="row"><button class="link" data-cleaner-unmove>${L('Verschiebung rückgängig', 'Undo move', `Ångra flytt`)}</button></div>
       ${contactLine}</div>`;
   } else if (w.plannedCleaner) {
     const isContact = state.me && state.me === contact;
     html += `<div class="banner"><p>${w.ausfall
       ? L('⚠️ <strong>Putzkraft fällt aus.</strong> Diese Woche putzen wir selbst (Intensivputz). Ab nächster Woche ist der Plan eine Woche später dran.',
-        "⚠️ <strong>Cleaner cancelled.</strong> This week we clean ourselves (deep clean). From next week the rota moves back one week.")
+        "⚠️ <strong>Cleaner cancelled.</strong> This week we clean ourselves (deep clean). From next week the rota moves back one week.", `⚠️ <strong>Städhjälpen är inställd.</strong> Den här veckan städar vi själva (storstäd). Från nästa vecka flyttas schemat en vecka framåt.`)
       : L(`🧹 <strong>Putzkraft kommt ${cleanerWhen(w)}</strong>${w.cleanerConfirmed ? ' ✓' : ' <span class="muted">(laut Plan, noch nicht bestätigt)</span>'} und putzt Bäder, Böden und Müll.`,
-        `🧹 <strong>The cleaner comes ${cleanerWhen(w)}</strong>${w.cleanerConfirmed ? ' ✓' : ' <span class="muted">(as planned, not confirmed yet)</span>'} and cleans bathrooms, floors and bins.`)}</p>
-      ${isContact && !w.ausfall && !w.cleanerConfirmed ? `<p class="small">${L('<strong>Du stimmst die Termine mit der Putzkraft ab:</strong> Kommt sie diese Woche? Dann trag bitte Tag und Uhrzeit ein.', '<strong>You arrange the dates with the cleaner:</strong> Is she coming this week? Then please enter the day and time.')}</p>` : ''}
-      <div class="row">${w.ausfall ? '' : `<button class="link" data-cleaner-visit>${w.cleanerConfirmed ? L('Termin ändern', 'Change date') : L('Tag & Uhrzeit eintragen', 'Enter day & time')}</button>`}
-      <button class="link" data-ausfall="${w.ausfall ? 0 : 1}">${w.ausfall ? L('Doch nicht ausgefallen', 'Not cancelled after all') : L('Putzkraft fällt aus?', 'Cleaner cancelled?')}</button></div>
+        `🧹 <strong>The cleaner comes ${cleanerWhen(w)}</strong>${w.cleanerConfirmed ? ' ✓' : ' <span class="muted">(as planned, not confirmed yet)</span>'} and cleans bathrooms, floors and bins.`, `🧹 <strong>Städhjälpen kommer ${cleanerWhen(w)}</strong>${w.cleanerConfirmed ? ' ✓' : ' <span class="muted">(enligt plan, inte bekräftat än)</span>'} och städar badrum, golv och sopor.`)}</p>
+      ${isContact && !w.ausfall && !w.cleanerConfirmed ? `<p class="small">${L('<strong>Du stimmst die Termine mit der Putzkraft ab:</strong> Kommt sie diese Woche? Dann trag bitte Tag und Uhrzeit ein.', '<strong>You arrange the dates with the cleaner:</strong> Is she coming this week? Then please enter the day and time.', `<strong>Du bokar tider med städhjälpen:</strong> Kommer hon den här veckan? Fyll i så fall i dag och tid.`)}</p>` : ''}
+      <div class="row">${w.ausfall ? '' : `<button class="link" data-cleaner-visit>${w.cleanerConfirmed ? L('Termin ändern', 'Change date', `Ändra tid`) : L('Tag & Uhrzeit eintragen', 'Enter day & time', `Fyll i dag & tid`)}</button>`}
+      <button class="link" data-ausfall="${w.ausfall ? 0 : 1}">${w.ausfall ? L('Doch nicht ausgefallen', 'Not cancelled after all', `Inte inställd ändå`) : L('Putzkraft fällt aus?', 'Cleaner cancelled?', `Städhjälpen inställd?`)}</button></div>
       ${contactLine}</div>`;
   } else {
-    html += `<div class="banner"><p>${L('🫧 <strong>Woche ohne Putzkraft.</strong> Wir putzen selbst.', '🫧 <strong>Week without the cleaner.</strong> We clean ourselves.')}</p>
-      <div class="row"><button class="link" data-cleaner-add>${L('Putzkraft kommt diese Woche doch?', 'Cleaner coming this week after all?')}</button></div>${contactLine}</div>`;
+    html += `<div class="banner"><p>${L('🫧 <strong>Woche ohne Putzkraft.</strong> Wir putzen selbst.', '🫧 <strong>Week without the cleaner.</strong> We clean ourselves.', `🫧 <strong>Vecka utan städhjälp.</strong> Vi städar själva.`)}</p>
+      <div class="row"><button class="link" data-cleaner-add>${L('Putzkraft kommt diese Woche doch?', 'Cleaner coming this week after all?', `Kommer städhjälpen ändå den här veckan?`)}</button></div>${contactLine}</div>`;
   }
 
   if (w.away && w.away.length) {
     const names = `<strong>${w.away.map(esc).join(', ')}</strong>`;
     html += `<div class="banner"><p>🏖️ ${L(`${names} ${w.away.length > 1 ? 'sind' : 'ist'} diese Woche weg und wurde${w.away.length > 1 ? 'n' : ''} im Plan übersprungen.`,
-      `${names} ${w.away.length > 1 ? 'are' : 'is'} away this week and ${w.away.length > 1 ? 'were' : 'was'} skipped on the rota.`)}</p></div>`;
+      `${names} ${w.away.length > 1 ? 'are' : 'is'} away this week and ${w.away.length > 1 ? 'were' : 'was'} skipped on the rota.`, `${names} är borta den här veckan och hoppas över i schemat.`)}</p></div>`;
   }
   const tasks = [...w.tasks].sort((a, b) => (b.person === state.me) - (a.person === state.me));
   for (const t of tasks) {
@@ -227,17 +228,17 @@ function renderWeek() {
     const mine = t.person === state.me || items.some((it) => it.person === state.me);
     const complete = items.length > 0 && doneCount === items.length;
     html += `<article class="card task${mine ? ' mine' : ''}${complete ? ' complete' : ''}">
-      <header><h3>${esc(T(t.title))}</h3>${t.person ? `<span class="person">${esc(t.person)}${t.person !== t.planned ? ` <span class="swapped">(${L('statt', 'instead of')} ${esc(t.planned)})</span>` : ''}</span>` : `<span class="muted small">${doneCount}/${items.length}</span>`}</header>
+      <header><h3>${esc(T(t.title))}</h3>${t.person ? `<span class="person">${esc(t.person)}${t.person !== t.planned ? ` <span class="swapped">(${L('statt', 'instead of', `i stället för`)} ${esc(t.planned)})</span>` : ''}</span>` : `<span class="muted small">${doneCount}/${items.length}</span>`}</header>
       ${t.note ? `<p class="note">${esc(T(t.note))}</p>` : ''}
       ${items.map((it) => {
         const key = `${t.key}:${it.id}`;
         const c = w.checks[key];
         return `<label class="check${c ? ' done' : ''}"><input type="checkbox" data-check="${esc(key)}" ${c ? 'checked' : ''}>
-          <span>${esc(T(it.label))}${c?.by ? `<small>${L('erledigt von', 'done by')} ${esc(c.by)}</small>` : ''}</span></label>`;
+          <span>${esc(T(it.label))}${c?.by ? `<small>${L('erledigt von', 'done by', `klart av`)} ${esc(c.by)}</small>` : ''}</span></label>`;
       }).join('')}
       ${t.person ? (() => {
         const req = openSwaps().find((r) => r.monday === w.monday && r.task === t.key);
-        return `<div class="actions">${req ? `<span class="muted small">⏳ ${L(`Tausch-Anfrage an ${esc(req.to)} läuft`, `Swap request to ${esc(req.to)} pending`)}</span>` : ''}<button class="ghost small" data-swap="${t.key}">${L('Tauschen', 'Swap')}</button></div>`;
+        return `<div class="actions">${req ? `<span class="muted small">⏳ ${L(`Tausch-Anfrage an ${esc(req.to)} läuft`, `Swap request to ${esc(req.to)} pending`, `Bytesförfrågan till ${esc(req.to)} väntar`)}</span>` : ''}<button class="ghost small" data-swap="${t.key}">${L('Tauschen', 'Swap', `Byt`)}</button></div>`;
       })() : ''}
     </article>`;
   }
@@ -256,7 +257,7 @@ function renderUpcoming() {
       return t.person === state.me ? `<span class="me">${name}</span>` : name;
     };
     rows.push(`<tr class="${i === 0 ? 'current' : ''}${w.cleaner ? ' pk' : ''}"><td>${ddmm(w.monday)}</td>
-      <td>${w.cleaner ? wd(w.cleanerDay) : w.ausfall ? L('fällt aus', 'cancelled') : w.movedTo ? L('verschoben', 'moved') : '–'}</td>
+      <td>${w.cleaner ? wd(w.cleanerDay) : w.ausfall ? L('fällt aus', 'cancelled', `inställd`) : w.movedTo ? L('verschoben', 'moved', `flyttad`) : '–'}</td>
       <td>${p('woche')}</td><td>${p('bad-vorne')}</td><td>${p('bad-hinten')}</td></tr>`);
   }
   $('#upcoming').innerHTML = rows.join('');
@@ -276,7 +277,7 @@ async function currentSubscription() {
 /** Im Putzplan kurz darauf hinweisen, wenn die Erinnerungen noch aus sind */
 function nudge(on) {
   $('#notify-nudge').innerHTML = on && state.me
-    ? `<div class="banner"><p>🔔 ${L('Erinnerungen sind noch aus.', 'Reminders are still off.')}</p><button class="link" data-open-settings>${L('In den Einstellungen einschalten', 'Turn on in settings')}</button></div>`
+    ? `<div class="banner"><p>🔔 ${L('Erinnerungen sind noch aus.', 'Reminders are still off.', `Påminnelserna är fortfarande avstängda.`)}</p><button class="link" data-open-settings>${L('In den Einstellungen einschalten', 'Turn on in settings', `Slå på i inställningarna`)}</button></div>`
     : '';
 }
 
@@ -297,11 +298,15 @@ async function renderNotify() {
         <p>For your iPhone to remind you, add this page to your home screen once:</p>
         <ol class="steps"><li>In Safari, tap <strong>Share</strong> at the bottom (square with an arrow).</li>
         <li>Choose <strong>Add to Home Screen</strong>.</li>
-        <li>Open the app from your home screen and tap "Turn on reminders" here.</li></ol>`);
+        <li>Open the app from your home screen and tap "Turn on reminders" here.</li></ol>`, `<h3>🔔 Påminnelser på din iPhone</h3>
+        <p>För att din iPhone ska kunna påminna dig, lägg till den här sidan på hemskärmen en gång:</p>
+        <ol class="steps"><li>Tryck på <strong>Dela</strong> längst ner i Safari (fyrkant med pil).</li>
+        <li>Välj <strong>Lägg till på hemskärmen</strong>.</li>
+        <li>Öppna appen från hemskärmen och tryck här på "Slå på påminnelser".</li></ol>`);
       nudge(true);
     } else {
       body.innerHTML = L('<h3>🔔 Erinnerungen</h3><p class="muted">Dieser Browser kann leider keine Erinnerungen empfangen. Probier es mit Chrome, Firefox, Edge oder Safari.</p>',
-        "<h3>🔔 Reminders</h3><p class=\"muted\">Sorry, this browser can't receive reminders. Try Chrome, Firefox, Edge or Safari.</p>");
+        "<h3>🔔 Reminders</h3><p class=\"muted\">Sorry, this browser can't receive reminders. Try Chrome, Firefox, Edge or Safari.</p>", `<h3>🔔 Påminnelser</h3><p class="muted">Tyvärr kan den här webbläsaren inte ta emot påminnelser. Testa Chrome, Firefox, Edge eller Safari.</p>`);
       nudge(false);
     }
     return;
@@ -312,10 +317,10 @@ async function renderNotify() {
     // Server-Zuordnung aktuell halten (z.B. nach "Mitglied wechseln")
     api('subscribe', { person: state.me, subscription: sub.toJSON() }).catch(() => {});
     body.innerHTML = `<div class="row" style="justify-content:space-between">
-      <p style="margin:0">🔔 <strong>${L('Erinnerungen sind an.', 'Reminders are on.')}</strong><br><span class="muted small">${L('Sonntag 19 Uhr für die neue Woche, Freitag 18 Uhr falls noch was offen ist.', 'Sunday 7 pm for the new week, Friday 6 pm if something is still open.')}</span></p>
-      <div class="row"><button class="ghost small" id="test-push">Test</button><button class="link" id="push-off">${L('Ausschalten', 'Turn off')}</button></div></div>`;
+      <p style="margin:0">🔔 <strong>${L('Erinnerungen sind an.', 'Reminders are on.', `Påminnelserna är på.`)}</strong><br><span class="muted small">${L('Sonntag 19 Uhr für die neue Woche, Freitag 18 Uhr falls noch was offen ist.', 'Sunday 7 pm for the new week, Friday 6 pm if something is still open.', `Söndag kl. 19 för den nya veckan, fredag kl. 18 om något fortfarande är kvar.`)}</span></p>
+      <div class="row"><button class="ghost small" id="test-push">Test</button><button class="link" id="push-off">${L('Ausschalten', 'Turn off', `Stäng av`)}</button></div></div>`;
     $('#test-push').onclick = async () => {
-      try { await api('test', { endpoint: sub.endpoint }); toast(L('Test-Nachricht ist unterwegs', 'Test notification is on its way')); } catch (e) { toast(e.message); }
+      try { await api('test', { endpoint: sub.endpoint }); toast(L('Test-Nachricht ist unterwegs', 'Test notification is on its way', `Testnotisen är på väg`)); } catch (e) { toast(e.message); }
     };
     $('#push-off').onclick = async () => {
       await api('unsubscribe', { endpoint: sub.endpoint }).catch(() => {});
@@ -328,13 +333,13 @@ async function renderNotify() {
 
   if (Notification.permission === 'denied') {
     body.innerHTML = L('<h3>🔔 Erinnerungen blockiert</h3><p class="muted">Du hast Benachrichtigungen für diese Seite abgelehnt. Erlaube sie in den Einstellungen deines Browsers bzw. Handys und lade die Seite neu.</p>',
-      '<h3>🔔 Reminders blocked</h3><p class="muted">You blocked notifications for this page. Allow them in your browser or phone settings and reload the page.</p>');
+      '<h3>🔔 Reminders blocked</h3><p class="muted">You blocked notifications for this page. Allow them in your browser or phone settings and reload the page.</p>', `<h3>🔔 Påminnelser blockerade</h3><p class="muted">Du har blockerat notiser för den här sidan. Tillåt dem i webbläsarens eller telefonens inställningar och ladda om sidan.</p>`);
     nudge(false);
     return;
   }
-  body.innerHTML = `<h3>🔔 ${L('Erinnerungen bekommen', 'Get reminders')}</h3>
-    <p>${L('Sonntagabend siehst du, was in der neuen Woche ansteht. Wenn am Freitag noch etwas nicht abgehakt ist, kommt eine kurze Erinnerung.', "On Sunday evening you'll see what's coming up in the new week. If something isn't ticked off by Friday, you'll get a short reminder.")}</p>
-    <button id="push-on">${L('Erinnerungen aktivieren', 'Turn on reminders')}</button>`;
+  body.innerHTML = `<h3>🔔 ${L('Erinnerungen bekommen', 'Get reminders', `Få påminnelser`)}</h3>
+    <p>${L('Sonntagabend siehst du, was in der neuen Woche ansteht. Wenn am Freitag noch etwas nicht abgehakt ist, kommt eine kurze Erinnerung.', "On Sunday evening you'll see what's coming up in the new week. If something isn't ticked off by Friday, you'll get a short reminder.", `På söndagskvällen ser du vad som väntar den nya veckan. Om något inte är avbockat till fredag får du en kort påminnelse.`)}</p>
+    <button id="push-on">${L('Erinnerungen aktivieren', 'Turn on reminders', `Slå på påminnelser`)}</button>`;
   $('#push-on').onclick = enablePush;
   nudge(true);
   if (!state.settingsOpened) { state.settingsOpened = true; $('#settings').open = true; }
@@ -348,9 +353,9 @@ async function enablePush() {
     const reg = await navigator.serviceWorker.ready;
     const sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: publicKey });
     await api('subscribe', { person: state.me, subscription: sub.toJSON() });
-    toast(L('Erinnerungen sind an 🎉', 'Reminders are on 🎉'));
+    toast(L('Erinnerungen sind an 🎉', 'Reminders are on 🎉', `Påminnelserna är på 🎉`));
   } catch (e) {
-    toast(L(`Hat nicht geklappt: ${e.message}`, `That didn't work: ${e.message}`));
+    toast(L(`Hat nicht geklappt: ${e.message}`, `That didn't work: ${e.message}`, `Det fungerade inte: ${e.message}`));
   }
   renderNotify();
 }
@@ -379,13 +384,13 @@ document.addEventListener('click', async (e) => {
   if (sc && !state.editHome) { runShortcut(sc.dataset.shortcut); return; }
   if (state.editHome && e.target.closest('.tile-edit') && !e.target.closest('.tile-tools')) { e.preventDefault(); return; }
   if (e.target.closest('[data-home-edit]')) {
-    if (!state.me) { toast(L('Wähle zuerst oben aus, wer du bist.', 'First choose who you are at the top.')); return; }
+    if (!state.me) { toast(L('Wähle zuerst oben aus, wer du bist.', 'First choose who you are at the top.', `Välj först högst upp vem du är.`)); return; }
     state.editHome = true; state.homeDraft = null; renderHome(); return;
   }
-  if (e.target.closest('[data-home-done]')) { state.editHome = false; state.homeDraft = null; renderHome(); toast(L('Gespeichert', 'Saved')); return; }
+  if (e.target.closest('[data-home-done]')) { state.editHome = false; state.homeDraft = null; renderHome(); toast(L('Gespeichert', 'Saved', `Sparat`)); return; }
   if (e.target.closest('[data-home-add]')) { openHomeAdd(); return; }
   if (e.target.closest('[data-home-reset]')) {
-    if (confirm(L('Übersicht auf den Standard zurücksetzen?', 'Reset the overview to the default?'))) saveHome(DEFAULT_HOME.map((x) => ({ ...x })));
+    if (confirm(L('Übersicht auf den Standard zurücksetzen?', 'Reset the overview to the default?', `Återställa översikten till standard?`))) saveHome(DEFAULT_HOME.map((x) => ({ ...x })));
     return;
   }
   const tm = e.target.closest('[data-tile-move]');
@@ -409,7 +414,7 @@ document.addEventListener('click', async (e) => {
       if (canc) await api('swap/cancel', { id: canc.dataset.swapCancel, by: state.me });
       else await api('swap/answer', { id: ans.dataset.swapAnswer, name: state.me, accept: ans.dataset.accept === '1' });
       await reloadWeeks();
-      toast(canc ? L('Anfrage zurückgezogen', 'Request withdrawn') : ans.dataset.accept === '1' ? L('Getauscht, der Putzplan ist angepasst', 'Swapped, the rota has been updated') : L('Abgelehnt', 'Declined'));
+      toast(canc ? L('Anfrage zurückgezogen', 'Request withdrawn', `Förfrågan återkallad`) : ans.dataset.accept === '1' ? L('Getauscht, der Putzplan ist angepasst', 'Swapped, the rota has been updated', `Bytt, schemat är uppdaterat`) : L('Abgelehnt', 'Declined', `Nekad`));
     } catch (err) { toast(err.message); await reloadWeeks(); }
     return;
   }
@@ -421,14 +426,14 @@ document.addEventListener('click', async (e) => {
   if (e.target.closest('[data-cleaner-extra-remove]') || e.target.closest('[data-cleaner-unmove]')) {
     const w = state.weeks.get(state.view);
     const undo = !!e.target.closest('[data-cleaner-unmove]');
-    const q = undo ? L('Verschiebung rückgängig machen? Die Putzkraft kommt dann wieder in dieser Woche.', 'Undo the move? The cleaner then comes in this week again.')
-      : w.extraFrom ? L('Termin zurück in die ursprüngliche Woche legen?', 'Move the visit back to the original week?')
-        : L('Zusatztermin löschen?', 'Delete the extra visit?');
+    const q = undo ? L('Verschiebung rückgängig machen? Die Putzkraft kommt dann wieder in dieser Woche.', 'Undo the move? The cleaner then comes in this week again.', `Ångra flytten? Städhjälpen kommer då den här veckan igen.`)
+      : w.extraFrom ? L('Termin zurück in die ursprüngliche Woche legen?', 'Move the visit back to the original week?', `Flytta tillbaka besöket till den ursprungliga veckan?`)
+        : L('Zusatztermin löschen?', 'Delete the extra visit?', `Ta bort extrabesöket?`);
     if (!confirm(q)) return;
     try {
       await api(undo ? 'cleaner/unmove' : 'cleaner/extra/remove', { monday: state.view });
       await reloadWeeks();
-      toast(L('Erledigt, der Putzplan ist angepasst', 'Done, the rota has been updated'));
+      toast(L('Erledigt, der Putzplan ist angepasst', 'Done, the rota has been updated', `Klart, schemat är uppdaterat`));
     } catch (err) { toast(err.message); }
     return;
   }
@@ -438,8 +443,8 @@ document.addEventListener('click', async (e) => {
     const value = ausfall.dataset.ausfall === '1';
     const msg = value
       ? L('Putzkraft fällt diese Woche aus?\n\nDann putzen wir diese Woche selbst (Küche, Flure, Bäder), ab nächster Woche rutscht der ganze Plan um eine Woche, und alle bekommen sofort eine Nachricht.',
-        'Is the cleaner cancelled this week?\n\nThen we clean ourselves this week (kitchen, hallways, bathrooms), from next week the whole rota moves back one week, and everyone gets a notification right away.')
-      : L('Doch nicht ausgefallen? Der Plan rutscht dann wieder zurück.', 'Not cancelled after all? The rota then moves back again.');
+        'Is the cleaner cancelled this week?\n\nThen we clean ourselves this week (kitchen, hallways, bathrooms), from next week the whole rota moves back one week, and everyone gets a notification right away.', `Är städhjälpen inställd den här veckan?\n\nDå städar vi själva den här veckan (kök, hallar, badrum), från nästa vecka flyttas hela schemat en vecka och alla får en notis direkt.`)
+      : L('Doch nicht ausgefallen? Der Plan rutscht dann wieder zurück.', 'Not cancelled after all? The rota then moves back again.', `Inte inställd ändå? Schemat flyttas då tillbaka igen.`);
     if (!confirm(msg)) return;
     try {
       await api('ausfall', { monday: state.view, value });
@@ -447,7 +452,7 @@ document.addEventListener('click', async (e) => {
       await load();
       await ensureWeek(state.view);
       renderWeek();
-      toast(value ? L('Eingetragen, alle wurden benachrichtigt', 'Saved, everyone has been notified') : L('Zurückgenommen', 'Undone'));
+      toast(value ? L('Eingetragen, alle wurden benachrichtigt', 'Saved, everyone has been notified', `Sparat, alla har fått en notis`) : L('Zurückgenommen', 'Undone', `Ångrat`));
     } catch (err) { toast(err.message); }
   }
 });
@@ -457,7 +462,7 @@ $('#change-me').onclick = () => {
   render();
   window.scrollTo(0, 0);
 };
-$('#lang-quick').onclick = () => setLang(state.lang === 'en' ? 'de' : 'en');
+$('#lang-quick').onclick = () => setLang({ de: 'en', en: 'sv', sv: 'de' }[state.lang]);
 $('#set-lang').addEventListener('click', async (e) => {
   const b = e.target.closest('[data-lang]');
   if (!b || b.dataset.lang === state.lang) return;
@@ -467,7 +472,7 @@ $('#set-lang').addEventListener('click', async (e) => {
     const r = await api('members/lang', { name: state.me, lang: state.lang });
     state.members = r.members;
     renderHome();
-    toast(L('Sprache gespeichert, auch für deine Erinnerungen', 'Language saved, also for your reminders'));
+    toast(L('Sprache gespeichert, auch für deine Erinnerungen', 'Language saved, also for your reminders', `Språket är sparat, även för dina påminnelser`));
   } catch (err) { toast(err.message); }
 });
 
@@ -480,10 +485,10 @@ document.addEventListener('change', async (e) => {
     const w = await api('check', { monday: state.view, key, done, by: state.me });
     state.weeks.set(w.monday, w);
     renderWeek();
-    if (done) toast(L('Super, danke! ✨', 'Great, thanks! ✨'));
+    if (done) toast(L('Super, danke! ✨', 'Great, thanks! ✨', `Toppen, tack! ✨`));
   } catch (err) {
     e.target.checked = !done;
-    toast(L(`Konnte nicht speichern: ${err.message}`, `Could not save: ${err.message}`));
+    toast(L(`Konnte nicht speichern: ${err.message}`, `Could not save: ${err.message}`, `Kunde inte spara: ${err.message}`));
   }
 });
 
@@ -500,24 +505,24 @@ async function go(days) {
 
 const openSwaps = () => (state.swapRequests || []).filter((r) => r.status === 'open' && addDays(r.monday, 6) >= (state.today || ''));
 const taskTitle = (key) => T({ woche: 'Wochendienst', 'bad-vorne': 'Vorderes Bad + extra Klo', 'bad-hinten': 'Hinteres Bad' }[key] || key);
-const weekOf = (m) => L(`Woche ab ${ddmm(m)}`, `week of ${ddmm(m)}`);
+const weekOf = (m) => L(`Woche ab ${ddmm(m)}`, `week of ${ddmm(m)}`, `veckan från ${ddmm(m)}`);
 
 function openSwap(taskKey) {
   const w = state.weeks.get(state.view);
   const t = w.tasks.find((x) => x.key === taskKey);
   const dlg = $('#swap-dialog');
-  $('#swap-title').textContent = L(`${t.title} tauschen`, `Swap: ${T(t.title)}`);
+  $('#swap-title').textContent = L(`${t.title} tauschen`, `Swap: ${T(t.title)}`, `Byt: ${T(t.title)}`);
   const box = $('#swap-people');
-  if (!state.me) { toast(L('Wähle zuerst oben aus, wer du bist.', 'First choose who you are at the top.')); return; }
+  if (!state.me) { toast(L('Wähle zuerst oben aus, wer du bist.', 'First choose who you are at the top.', `Välj först högst upp vem du är.`)); return; }
   if (state.me !== t.person) {
     $('#swap-text').textContent = L(`Diese Woche ist ${t.person} dran. Nur ${t.person} kann für diesen Dienst eine Tausch-Anfrage stellen.`,
-      `${t.person} is on duty this week. Only ${t.person} can send a swap request for this duty.`);
+      `${t.person} is on duty this week. Only ${t.person} can send a swap request for this duty.`, `${t.person} har tjänsten den här veckan. Bara ${t.person} kan skicka en bytesförfrågan för den.`);
     box.innerHTML = '';
     dlg.showModal();
     return;
   }
   $('#swap-text').textContent = L(`Wen möchtest du fragen, ob er oder sie „${t.title}“ in der ${weekOf(w.monday)} übernimmt? Die Person bekommt eine Nachricht und muss zustimmen, erst dann wird getauscht.`,
-    `Who do you want to ask to take over "${T(t.title)}" in the ${weekOf(w.monday)}? They get a notification and have to accept before anything changes.`);
+    `Who do you want to ask to take over "${T(t.title)}" in the ${weekOf(w.monday)}? They get a notification and have to accept before anything changes.`, `Vem vill du fråga om att ta över "${T(t.title)}" ${weekOf(w.monday)}? Personen får en notis och måste tacka ja innan något ändras.`);
   const step1 = () => {
     box.innerHTML = state.people.filter((p) => p !== t.person)
       .map((p) => `<button type="button" data-swap-to="${esc(p)}">${avatar(p, 'sm')}${esc(p)}</button>`).join('');
@@ -527,11 +532,11 @@ function openSwap(taskKey) {
     const opts = [...state.weeks.values()].filter((x) => x.monday >= state.current).sort((a, b) => (a.monday < b.monday ? -1 : 1))
       .flatMap((x) => x.tasks.filter((y) => y.person === to).map((y) => ({ monday: x.monday, task: y.key, label: `${T(y.title)} · ${weekOf(x.monday)}` })));
     box.innerHTML = `<div class="swap-step">
-      <p><strong>${L(`Anfrage an ${esc(to)}`, `Request to ${esc(to)}`)}</strong></p>
-      <label class="field"><span>${L(`Übernimmst du dafür einen Dienst von ${esc(to)}? (optional)`, `Will you take over one of ${esc(to)}'s duties in return? (optional)`)}</span>
-        <select id="swap-back"><option value="">${L('Nein, einfach nur abgeben', 'No, just hand it over')}</option>
+      <p><strong>${L(`Anfrage an ${esc(to)}`, `Request to ${esc(to)}`, `Förfrågan till ${esc(to)}`)}</strong></p>
+      <label class="field"><span>${L(`Übernimmst du dafür einen Dienst von ${esc(to)}? (optional)`, `Will you take over one of ${esc(to)}'s duties in return? (optional)`, `Tar du över en av ${esc(to)}s tjänster i gengäld? (valfritt)`)}</span>
+        <select id="swap-back"><option value="">${L('Nein, einfach nur abgeben', 'No, just hand it over', `Nej, bara lämna över`)}</option>
         ${opts.map((o) => `<option value="${o.monday}|${o.task}">${esc(o.label)}</option>`).join('')}</select></label>
-      <div class="row end"><button type="button" class="ghost" data-swap-backstep>${L('Zurück', 'Back')}</button><button type="button" data-swap-send="${esc(to)}">${L('Anfrage senden', 'Send request')}</button></div></div>`;
+      <div class="row end"><button type="button" class="ghost" data-swap-backstep>${L('Zurück', 'Back', `Tillbaka`)}</button><button type="button" data-swap-send="${esc(to)}">${L('Anfrage senden', 'Send request', `Skicka förfrågan`)}</button></div></div>`;
   };
   step1();
   box.onclick = async (e) => {
@@ -546,7 +551,7 @@ function openSwap(taskKey) {
       state.swapRequests = r.swapRequests;
       dlg.close();
       render();
-      toast(L(`Anfrage an ${send.dataset.swapSend} geschickt`, `Request sent to ${send.dataset.swapSend}`));
+      toast(L(`Anfrage an ${send.dataset.swapSend} geschickt`, `Request sent to ${send.dataset.swapSend}`, `Förfrågan skickad till ${send.dataset.swapSend}`));
     } catch (err) { toast(err.message); }
   };
   dlg.showModal();
@@ -557,13 +562,13 @@ function renderSwapInbox() {
   const reqs = openSwaps();
   const inc = reqs.filter((r) => r.to === me);
   const out = reqs.filter((r) => r.by === me);
-  const html = !me || (!inc.length && !out.length) ? '' : `<section class="card inbox"><h2>${L('Tauschen 🔁', 'Swaps 🔁')}</h2>
+  const html = !me || (!inc.length && !out.length) ? '' : `<section class="card inbox"><h2>${L('Tauschen 🔁', 'Swaps 🔁', `Byten 🔁`)}</h2>
     ${inc.map((r) => `<div class="swap-req"><p>${L(`<strong>${esc(r.by)}</strong> möchte mit dir Putzdienst tauschen: Du übernimmst <strong>${taskTitle(r.task)}</strong> (${weekOf(r.monday)})`,
-      `<strong>${esc(r.by)}</strong> would like to swap cleaning duty with you: you take over <strong>${taskTitle(r.task)}</strong> (${weekOf(r.monday)})`)}${r.back
-      ? L(`, dafür übernimmt ${esc(r.by)} dein <strong>${taskTitle(r.back.task)}</strong> (${weekOf(r.back.monday)}).`, `, and ${esc(r.by)} takes over your <strong>${taskTitle(r.back.task)}</strong> (${weekOf(r.back.monday)}).`) : '.'}</p>
-      <div class="row"><button class="small" data-swap-answer="${esc(r.id)}" data-accept="1">${L('Zusagen', 'Accept')}</button><button class="ghost small" data-swap-answer="${esc(r.id)}" data-accept="0">${L('Ablehnen', 'Decline')}</button></div></div>`).join('')}
-    ${out.map((r) => `<div class="row"><span class="small">⏳ ${L(`Warte auf ${esc(r.to)}: ${taskTitle(r.task)} (${weekOf(r.monday)})`, `Waiting for ${esc(r.to)}: ${taskTitle(r.task)} (${weekOf(r.monday)})`)}</span>
-      <button class="link small" data-swap-cancel="${esc(r.id)}">${L('zurückziehen', 'withdraw')}</button></div>`).join('')}
+      `<strong>${esc(r.by)}</strong> would like to swap cleaning duty with you: you take over <strong>${taskTitle(r.task)}</strong> (${weekOf(r.monday)})`, `<strong>${esc(r.by)}</strong> vill byta städtjänst med dig: du tar över <strong>${taskTitle(r.task)}</strong> (${weekOf(r.monday)})`)}${r.back
+      ? L(`, dafür übernimmt ${esc(r.by)} dein <strong>${taskTitle(r.back.task)}</strong> (${weekOf(r.back.monday)}).`, `, and ${esc(r.by)} takes over your <strong>${taskTitle(r.back.task)}</strong> (${weekOf(r.back.monday)}).`, `, och ${esc(r.by)} tar över din <strong>${taskTitle(r.back.task)}</strong> (${weekOf(r.back.monday)}).`) : '.'}</p>
+      <div class="row"><button class="small" data-swap-answer="${esc(r.id)}" data-accept="1">${L('Zusagen', 'Accept', `Tacka ja`)}</button><button class="ghost small" data-swap-answer="${esc(r.id)}" data-accept="0">${L('Ablehnen', 'Decline', `Tacka nej`)}</button></div></div>`).join('')}
+    ${out.map((r) => `<div class="row"><span class="small">⏳ ${L(`Warte auf ${esc(r.to)}: ${taskTitle(r.task)} (${weekOf(r.monday)})`, `Waiting for ${esc(r.to)}: ${taskTitle(r.task)} (${weekOf(r.monday)})`, `Väntar på ${esc(r.to)}: ${taskTitle(r.task)} (${weekOf(r.monday)})`)}</span>
+      <button class="link small" data-swap-cancel="${esc(r.id)}">${L('zurückziehen', 'withdraw', `återkalla`)}</button></div>`).join('')}
   </section>`;
   for (const id of ['#swap-inbox', '#swap-inbox-home']) if ($(id)) $(id).innerHTML = html;
 }
@@ -586,8 +591,8 @@ function openCleaner(from = null, near = null) {
   const d = $('#cleaner-date');
   const t = $('#cleaner-time');
   const weeks = [...state.weeks.values()].filter((w) => w.cleaner && w.sunday >= state.today).sort((a, b) => (a.monday < b.monday ? -1 : 1));
-  sel.innerHTML = weeks.map((w) => `<option value="${w.monday}">${L(`Termin ${cleanerWhen(w)} verschieben`, `Move visit on ${cleanerWhen(w)}`)}</option>`).join('')
-    + `<option value="">${L('➕ Zusätzlicher Termin', '➕ Extra visit')}</option>`;
+  sel.innerHTML = weeks.map((w) => `<option value="${w.monday}">${L(`Termin ${cleanerWhen(w)} verschieben`, `Move visit on ${cleanerWhen(w)}`, `Flytta besöket ${cleanerWhen(w)}`)}</option>`).join('')
+    + `<option value="">${L('➕ Zusätzlicher Termin', '➕ Extra visit', `➕ Extrabesök`)}</option>`;
   if (from === null) from = weeks.length ? weeks[0].monday : '';
   if (from && !weeks.some((w) => w.monday === from)) from = '';
   sel.value = from;
@@ -596,8 +601,8 @@ function openCleaner(from = null, near = null) {
     const w = sel.value && state.weeks.get(sel.value);
     if (w) { d.value = w.cleanerDay; t.value = w.cleanerTime || ''; } else { d.value = near && near > state.today ? addDays(near, 2) : ''; t.value = ''; }
     $('#cleaner-week').textContent = w
-      ? L('Du kannst auch einen Tag in einer anderen Woche wählen. Der Putzplan passt sich an, und alle bekommen eine kurze Nachricht.', 'You can also pick a day in another week. The rota adjusts and everyone gets a short notification.')
-      : L('Für eine Woche, in der die Putzkraft sonst nicht kommt. Der Putzplan passt sich an, und alle bekommen eine kurze Nachricht.', 'For a week in which the cleaner would not come otherwise. The rota adjusts and everyone gets a short notification.');
+      ? L('Du kannst auch einen Tag in einer anderen Woche wählen. Der Putzplan passt sich an, und alle bekommen eine kurze Nachricht.', 'You can also pick a day in another week. The rota adjusts and everyone gets a short notification.', `Du kan också välja en dag i en annan vecka. Schemat anpassas och alla får en kort notis.`)
+      : L('Für eine Woche, in der die Putzkraft sonst nicht kommt. Der Putzplan passt sich an, und alle bekommen eine kurze Nachricht.', 'For a week in which the cleaner would not come otherwise. The rota adjusts and everyone gets a short notification.', `För en vecka då städhjälpen annars inte kommer. Schemat anpassas och alla får en kort notis.`);
   };
   sel.onchange = fill;
   fill();
@@ -610,7 +615,7 @@ function openCleaner(from = null, near = null) {
       dlg.close();
       await reloadWeeks();
       if (state.weeks.has(nw.monday) && location.hash === '#plan') { state.view = nw.monday; render(); }
-      toast(L('Eingetragen, alle wurden benachrichtigt', 'Saved, everyone has been notified'));
+      toast(L('Eingetragen, alle wurden benachrichtigt', 'Saved, everyone has been notified', `Sparat, alla har fått en notis`));
     } catch (err) { toast(err.message); }
   };
   dlg.showModal();
@@ -618,11 +623,11 @@ function openCleaner(from = null, near = null) {
 
 function openCleanerContact() {
   const dlg = $('#swap-dialog');
-  $('#swap-title').textContent = L('Zuständig für die Putzkraft', 'In charge of the cleaner');
+  $('#swap-title').textContent = L('Zuständig für die Putzkraft', 'In charge of the cleaner', `Ansvarig för städhjälpen`);
   $('#swap-text').textContent = L('Wer stimmt die Termine mit der Putzkraft ab? Diese Person bekommt montags die Frage, ob und wann die Putzkraft kommt.',
-    'Who arranges the dates with the cleaner? This person gets asked on Mondays whether and when the cleaner is coming.');
+    'Who arranges the dates with the cleaner? This person gets asked on Mondays whether and when the cleaner is coming.', `Vem bokar tider med städhjälpen? Den personen får en fråga på måndagar om och när städhjälpen kommer.`);
   $('#swap-people').innerHTML = state.people
-    .map((p) => `<button type="button" data-contact="${esc(p)}">${esc(p)}${p === state.cleanerContact ? L(' (bisher)', ' (current)') : ''}</button>`).join('');
+    .map((p) => `<button type="button" data-contact="${esc(p)}">${esc(p)}${p === state.cleanerContact ? L(' (bisher)', ' (current)', ` (nuvarande)`) : ''}</button>`).join('');
   $('#swap-people').onclick = async (e) => {
     const b = e.target.closest('[data-contact]');
     if (!b) return;
@@ -631,7 +636,7 @@ function openCleanerContact() {
       state.cleanerContact = r.cleanerContact;
       dlg.close();
       render();
-      toast(L(`${r.cleanerContact} ist jetzt zuständig`, `${r.cleanerContact} is now in charge`));
+      toast(L(`${r.cleanerContact} ist jetzt zuständig`, `${r.cleanerContact} is now in charge`, `${r.cleanerContact} är nu ansvarig`));
     } catch (err) { toast(err.message); }
   };
   dlg.showModal();
@@ -655,13 +660,13 @@ window.addEventListener('hashchange', showTab);
 
 function ago(ts) {
   const min = Math.round((Date.now() - ts) / 60000);
-  if (min < 1) return L('gerade eben', 'just now');
-  if (min < 60) return L(`vor ${min} Min.`, `${min} min ago`);
+  if (min < 1) return L('gerade eben', 'just now', `nyss`);
+  if (min < 60) return L(`vor ${min} Min.`, `${min} min ago`, `för ${min} min sedan`);
   const h = Math.round(min / 60);
-  if (h < 24) return L(`vor ${h} Std.`, `${h} h ago`);
+  if (h < 24) return L(`vor ${h} Std.`, `${h} h ago`, `för ${h} h sedan`);
   const d = Math.round(h / 24);
-  if (d === 1) return L('gestern', 'yesterday');
-  if (d < 7) return L(`vor ${d} Tagen`, `${d} days ago`);
+  if (d === 1) return L('gestern', 'yesterday', `i går`);
+  if (d < 7) return L(`vor ${d} Tagen`, `${d} days ago`, `för ${d} dagar sedan`);
   const d2 = new Date(ts);
   return d2.toLocaleDateString(locale(), d2.getFullYear() === new Date().getFullYear() ? { day: '2-digit', month: '2-digit' } : { day: '2-digit', month: '2-digit', year: 'numeric' });
 }
@@ -683,7 +688,7 @@ function renderShop() {
   $('#shop-cats').innerHTML = sh.categories.map((c) =>
     `<button type="button" class="chip" role="radio" aria-checked="${c.id === state.shopCat}" data-cat="${c.id}">${c.icon} ${esc(T(c.label))}</button>`).join('');
   if (!sh.items.length) {
-    $('#shop-list').innerHTML = `<div class="card"><p class="empty">${L('Alles da! 🎉 Wenn etwas leer ist, trag es oben ein.', "We've got everything! 🎉 If something runs out, add it above.")}</p></div>`;
+    $('#shop-list').innerHTML = `<div class="card"><p class="empty">${L('Alles da! 🎉 Wenn etwas leer ist, trag es oben ein.', "We've got everything! 🎉 If something runs out, add it above.", `Vi har allt! 🎉 Om något tar slut, lägg till det ovan.`)}</p></div>`;
     return;
   }
   $('#shop-list').innerHTML = sh.categories.map((c) => {
@@ -691,7 +696,7 @@ function renderShop() {
     if (!items.length) return '';
     return `<section class="card shop-cat"><h2>${c.icon} ${esc(T(c.label))} <span class="muted small">${items.length}</span></h2>
       ${items.map((i) => `<div class="shop-item"><div class="name">${esc(i.name)}<small>${i.by ? `${esc(i.by)}, ` : ''}${ago(i.at)}</small></div>
-        <button class="ghost small" data-bought="${esc(i.id)}">${L('Gekauft ✓', 'Bought ✓')}</button></div>`).join('')}
+        <button class="ghost small" data-bought="${esc(i.id)}">${L('Gekauft ✓', 'Bought ✓', `Köpt ✓`)}</button></div>`).join('')}
     </section>`;
   }).join('');
 }
@@ -704,7 +709,7 @@ $('#shop-form').addEventListener('submit', async (e) => {
     state.shop = await api('shop/add', { name, cat: state.shopCat, by: state.me });
     input.value = '';
     renderShop();
-    toast(L('Steht auf der Liste', 'Added to the list'));
+    toast(L('Steht auf der Liste', 'Added to the list', `Tillagt på listan`));
   } catch (err) { toast(err.message); }
 });
 $('#shop-cats').addEventListener('click', (e) => {
@@ -719,7 +724,7 @@ $('#shop-list').addEventListener('click', (e) => {
   if (!b) return;
   const item = state.shop.items.find((i) => i.id === b.dataset.bought);
   if (!item) return;
-  $('#bought-title').textContent = L(`${item.name} gekauft 🎉`, `${item.name} bought 🎉`);
+  $('#bought-title').textContent = L(`${item.name} gekauft 🎉`, `${item.name} bought 🎉`, `${item.name} köpt 🎉`);
   $('#bought-price').value = '';
   const dlg = $('#bought-dialog');
   dlg.onclose = async () => {
@@ -728,7 +733,7 @@ $('#shop-list').addEventListener('click', (e) => {
     try {
       state.shop = await api('shop/done', { id: item.id, price: price || undefined, by: state.me });
       renderShop();
-      toast(price ? L('Danke! Betrag steht in der WG-Kasse.', 'Thanks! The amount is in the flat money.') : L('Danke!', 'Thanks!'));
+      toast(price ? L('Danke! Betrag steht in der WG-Kasse.', 'Thanks! The amount is in the flat money.', `Tack! Beloppet finns nu i kollektivkassan.`) : L('Danke!', 'Thanks!', `Tack!`));
       state.money = null;
     } catch (err) { toast(err.message); }
   };
@@ -740,8 +745,8 @@ $('#shop-list').addEventListener('click', (e) => {
 function catRow(c = { label: '', icon: '🛒' }) {
   return `<div class="cat-row" data-id="${esc(c.id || '')}">
     <input class="ic" value="${esc(c.icon)}" maxlength="8" aria-label="Emoji">
-    <input class="lb" value="${esc(T(c.label))}" data-orig="${esc(c.label)}" maxlength="40" placeholder="${L('Name', 'Name')}" aria-label="Name">
-    <button type="button" class="ghost" data-cat-del aria-label="${L('Löschen', 'Delete')}">🗑</button></div>`;
+    <input class="lb" value="${esc(T(c.label))}" data-orig="${esc(c.label)}" maxlength="40" placeholder="${L('Name', 'Name', `Namn`)}" aria-label="Name">
+    <button type="button" class="ghost" data-cat-del aria-label="${L('Löschen', 'Delete', `Ta bort`)}">🗑</button></div>`;
 }
 $('#edit-cats').addEventListener('click', () => {
   $('#cats-list').innerHTML = state.shop.categories.map(catRow).join('');
@@ -759,7 +764,7 @@ $('#edit-cats').addEventListener('click', () => {
       state.shop = await api('shop/categories', { categories });
       if (!state.shop.categories.some((c) => c.id === state.shopCat)) state.shopCat = state.shop.categories[0].id;
       renderShop();
-      toast(L('Kategorien gespeichert', 'Categories saved'));
+      toast(L('Kategorien gespeichert', 'Categories saved', `Kategorierna sparade`));
     } catch (err) { toast(err.message); }
   };
   dlg.showModal();
@@ -779,10 +784,10 @@ state.mode = 'equal';
 state.cur = store.get('cur') || 'EUR';
 const money = (cents, cur = 'EUR') => new Intl.NumberFormat(locale(), { style: 'currency', currency: cur }).format(cents / 100);
 const modeHint = (mode) => ({
-  equal: L('Wird gleichmäßig auf die ausgewählten Personen aufgeteilt.', 'Split equally between the selected people.'),
-  percent: L('Prozent pro Person eintragen, zusammen 100 %.', 'Enter a percentage per person, 100 % in total.'),
-  shares: L('Anteile eintragen, z.B. 2 und 1 heißt: die erste Person zahlt doppelt so viel.', 'Enter shares, e.g. 2 and 1 means the first person pays twice as much.'),
-  exact: L('Genaue Beträge eintragen, zusammen der Gesamtbetrag.', 'Enter exact amounts that add up to the total.'),
+  equal: L('Wird gleichmäßig auf die ausgewählten Personen aufgeteilt.', 'Split equally between the selected people.', `Delas lika mellan de valda personerna.`),
+  percent: L('Prozent pro Person eintragen, zusammen 100 %.', 'Enter a percentage per person, 100 % in total.', `Ange procent per person, totalt 100 %.`),
+  shares: L('Anteile eintragen, z.B. 2 und 1 heißt: die erste Person zahlt doppelt so viel.', 'Enter shares, e.g. 2 and 1 means the first person pays twice as much.', `Ange andelar, t.ex. 2 och 1 betyder att första personen betalar dubbelt så mycket.`),
+  exact: L('Genaue Beträge eintragen, zusammen der Gesamtbetrag.', 'Enter exact amounts that add up to the total.', `Ange exakta belopp som tillsammans blir totalen.`),
 }[mode]);
 
 async function loadMoney() {
@@ -804,12 +809,12 @@ function renderMoney() {
     tHtml += transfers.length
       ? transfers.map((t) => `<div class="transfer"><span>${esc(t.from)} → ${esc(t.to)}</span>
           <span class="row"><strong>${money(t.amount, c)}</strong>
-          <button class="ghost small" data-settle='${esc(JSON.stringify({ ...t, currency: c }))}'>${L('Bezahlt', 'Paid')}</button></span></div>`).join('')
-      : `<p class="empty">${L('Alle sind quitt. 🙌', 'Everyone is square. 🙌')}</p>`;
+          <button class="ghost small" data-settle='${esc(JSON.stringify({ ...t, currency: c }))}'>${L('Bezahlt', 'Paid', `Betalat`)}</button></span></div>`).join('')
+      : `<p class="empty">${L('Alle sind quitt. 🙌', 'Everyone is square. 🙌', `Alla är kvitt. 🙌`)}</p>`;
     if (multi) bHtml += `<p class="cur-head" style="grid-column:1/-1">${c}</p>`;
     bHtml += [...m.people, ...(m.former || []).filter((p) => balances[p])].map((p) => {
       const v = balances[p] || 0;
-      return `<div class="bal${p === state.me ? ' mine-bal' : ''}"><div class="who">${esc(p)}${m.people.includes(p) ? '' : L(' (ausgezogen)', ' (moved out)')}</div>
+      return `<div class="bal${p === state.me ? ' mine-bal' : ''}"><div class="who">${esc(p)}${m.people.includes(p) ? '' : L(' (ausgezogen)', ' (moved out)', ` (utflyttad)`)}</div>
         <div class="amt ${v > 0 ? 'pos' : v < 0 ? 'neg' : ''}">${v > 0 ? '+' : ''}${money(v, c)}</div></div>`;
     }).join('');
   }
@@ -834,31 +839,31 @@ function renderMoney() {
       if (e.net) { // aus Splitwise importiert
         const to = Object.entries(e.net).filter(([, v]) => v < 0).map(([p]) => p);
         who = settleRow
-          ? L(`${esc(e.paidBy)} hat ${to.map(esc).join(', ')} Geld zurückgegeben · Splitwise`, `${esc(e.paidBy)} paid back ${to.map(esc).join(', ')} · Splitwise`)
-          : L(`${esc(e.paidBy || '?')} hat bezahlt · Splitwise`, `${esc(e.paidBy || '?')} paid · Splitwise`);
+          ? L(`${esc(e.paidBy)} hat ${to.map(esc).join(', ')} Geld zurückgegeben · Splitwise`, `${esc(e.paidBy)} paid back ${to.map(esc).join(', ')} · Splitwise`, `${esc(e.paidBy)} betalade tillbaka ${to.map(esc).join(', ')} · Splitwise`)
+          : L(`${esc(e.paidBy || '?')} hat bezahlt · Splitwise`, `${esc(e.paidBy || '?')} paid · Splitwise`, `${esc(e.paidBy || '?')} betalade · Splitwise`);
       } else {
         const parts = e.parts || Object.fromEntries((e.split || []).map((p) => [p, null]));
         let forWho;
         if (e.mode && e.mode !== 'equal') forWho = Object.entries(parts).map(([p, v]) => `${esc(p)} ${money(v, cur)}`).join(', ');
-        else forWho = Object.keys(parts).length === m.people.length ? L('für alle', 'for everyone') : `${L('für', 'for')} ${Object.keys(parts).map(esc).join(', ')}`;
+        else forWho = Object.keys(parts).length === m.people.length ? L('für alle', 'for everyone', `för alla`) : `${L('für', 'for', `för`)} ${Object.keys(parts).map(esc).join(', ')}`;
         who = settleRow
-          ? L(`${esc(e.paidBy)} hat ${esc(Object.keys(parts)[0])} Geld zurückgegeben`, `${esc(e.paidBy)} paid back ${esc(Object.keys(parts)[0])}`)
-          : `${L(`${esc(e.paidBy)} hat bezahlt`, `${esc(e.paidBy)} paid`)} · ${forWho}`;
+          ? L(`${esc(e.paidBy)} hat ${esc(Object.keys(parts)[0])} Geld zurückgegeben`, `${esc(e.paidBy)} paid back ${esc(Object.keys(parts)[0])}`, `${esc(e.paidBy)} betalade tillbaka ${esc(Object.keys(parts)[0])}`)
+          : `${L(`${esc(e.paidBy)} hat bezahlt`, `${esc(e.paidBy)} paid`, `${esc(e.paidBy)} betalade`)} · ${forWho}`;
       }
       const split = !e.net && e.parts && !settleRow
-        ? `<details><summary>${L('Aufteilung', 'Split')}</summary><p>${Object.entries(e.parts).map(([p, v]) => `${esc(p)}: ${money(v, cur)}`).join(' · ')}</p></details>`
+        ? `<details><summary>${L('Aufteilung', 'Split', `Fördelning`)}</summary><p>${Object.entries(e.parts).map(([p, v]) => `${esc(p)}: ${money(v, cur)}`).join(' · ')}</p></details>`
         : '';
       return `<div class="exp${settleRow ? ' settle' : ''}"><div class="d">${esc(T(e.desc))}<small>${who} · ${ago(e.at)}</small>${split}</div>
-        <div class="r"><strong>${money(e.amount, cur)}</strong><button class="link small" data-del="${esc(e.id)}">${L('löschen', 'delete')}</button></div></div>`;
+        <div class="r"><strong>${money(e.amount, cur)}</strong><button class="link small" data-del="${esc(e.id)}">${L('löschen', 'delete', `ta bort`)}</button></div></div>`;
     }).join('')
-    : `<p class="empty">${L('Noch nichts eingetragen.', 'Nothing added yet.')}</p>`;
+    : `<p class="empty">${L('Noch nichts eingetragen.', 'Nothing added yet.', `Inget tillagt än.`)}</p>`;
 }
 
 /** "So wird gerechnet": pro Person bezahlt, Anteil, Rückzahlungen → Saldo */
 function renderExplain(m, curs) {
   let html = `<p class="small">${L(
     'Für jede Person wird zusammengezählt, was sie für die WG <strong>bezahlt</strong> hat. Davon wird abgezogen, was bei allen Einträgen <strong>ihr Anteil</strong> war. Rückzahlungen werden verrechnet. Plus heißt: bekommt Geld, Minus heißt: schuldet Geld.',
-    'For each person we add up what they <strong>paid</strong> for the flat and subtract <strong>their share</strong> of all entries. Repayments are taken into account. Plus means they are owed money, minus means they owe money.')}</p>`;
+    'For each person we add up what they <strong>paid</strong> for the flat and subtract <strong>their share</strong> of all entries. Repayments are taken into account. Plus means they are owed money, minus means they owe money.', `För varje person lägger vi ihop vad hen har <strong>betalat</strong> för kollektivet och drar av <strong>sin andel</strong> av alla poster. Återbetalningar räknas med. Plus betyder att hen ska få pengar, minus att hen är skyldig.`)}</p>`;
   for (const c of curs) {
     const bd = m.byCurrency[c].breakdown;
     if (!bd) continue;
@@ -867,9 +872,9 @@ function renderExplain(m, curs) {
     const hasRepay = people.some((p) => bd[p]?.repaid || bd[p]?.received);
     const f = (v) => (v ? money(v, c) : '–');
     html += `${curs.length > 1 ? `<p class="cur-head">${c}</p>` : ''}<div class="table-wrap"><table><thead><tr>
-      <th>${L('Person', 'Person')}</th><th>${L('bezahlt', 'paid')}</th><th>− ${L('Anteil', 'share')}</th>
-      ${hasRepay ? `<th>+ ${L('zurückgezahlt', 'paid back')}</th><th>− ${L('zurückbekommen', 'got back')}</th>` : ''}
-      ${hasImport ? `<th>+ Splitwise</th>` : ''}<th>= ${L('Saldo', 'Balance')}</th></tr></thead><tbody>
+      <th>${L('Person', 'Person', `Person`)}</th><th>${L('bezahlt', 'paid', `betalat`)}</th><th>− ${L('Anteil', 'share', `andel`)}</th>
+      ${hasRepay ? `<th>+ ${L('zurückgezahlt', 'paid back', `betalat tillbaka`)}</th><th>− ${L('zurückbekommen', 'got back', `fått tillbaka`)}</th>` : ''}
+      ${hasImport ? `<th>+ Splitwise</th>` : ''}<th>= ${L('Saldo', 'Balance', `Saldo`)}</th></tr></thead><tbody>
       ${people.map((p) => {
         const b = bd[p] || {};
         const v = m.byCurrency[c].balances[p] || 0;
@@ -878,11 +883,11 @@ function renderExplain(m, curs) {
           ${hasImport ? `<td>${b.imported ? `${b.imported > 0 ? '+' : ''}${money(b.imported, c)}` : '–'}</td>` : ''}
           <td class="sum">${v > 0 ? '+' : ''}${money(v, c)}</td></tr>`;
       }).join('')}</tbody></table></div>`;
-    if (hasImport) html += `<p class="muted small">${L('„Splitwise“ ist der übernommene Stand aus der alten Splitwise-Gruppe.', '"Splitwise" is the balance carried over from the old Splitwise group.')}</p>`;
+    if (hasImport) html += `<p class="muted small">${L('„Splitwise“ ist der übernommene Stand aus der alten Splitwise-Gruppe.', '"Splitwise" is the balance carried over from the old Splitwise group.', `"Splitwise" är saldot som fördes över från den gamla Splitwise-gruppen.`)}</p>`;
   }
   html += `<p class="small">${L(
     'Damit alle wieder bei 0 sind, schlägt die App möglichst wenige Überweisungen vor: Wer am meisten schuldet, zahlt an die Person, die am meisten bekommt, und so weiter. Bei jedem Eintrag unten zeigt „Aufteilung“, wer wie viel übernimmt.',
-    'To get everyone back to 0, the app suggests as few transfers as possible: whoever owes the most pays the person who is owed the most, and so on. On each entry below, "Split" shows who covers how much.')}</p>`;
+    'To get everyone back to 0, the app suggests as few transfers as possible: whoever owes the most pays the person who is owed the most, and so on. On each entry below, "Split" shows who covers how much.', `För att alla ska komma tillbaka till 0 föreslår appen så få överföringar som möjligt: den som är skyldig mest betalar till den som ska få mest, och så vidare. Vid varje post nedan visar "Fördelning" vem som står för hur mycket.`)}</p>`;
   $('#money-explain').innerHTML = html;
 }
 
@@ -897,10 +902,10 @@ function renderSplit() {
     $('#m-split').innerHTML = m.people.map((p) =>
       `<button type="button" class="chip" aria-pressed="${state.split.has(p)}" data-split="${esc(p)}">${esc(p)}</button>`).join('');
   } else {
-    const unit = state.mode === 'percent' ? '%' : state.mode === 'shares' ? L('Anteile', 'shares') : $('#m-cur').value || 'EUR';
+    const unit = state.mode === 'percent' ? '%' : state.mode === 'shares' ? L('Anteile', 'shares', `andelar`) : $('#m-cur').value || 'EUR';
     const old = Object.fromEntries([...document.querySelectorAll('#m-values input')].map((i) => [i.name, i.value]));
     $('#m-values').innerHTML = m.people.map((p) => `<label><span>${esc(p)}</span>
-      <input name="${esc(p)}" inputmode="decimal" placeholder="0" value="${esc(old[p] ?? '')}" aria-label="${esc(p)} ${L('in', 'in')} ${unit}"><small class="muted">${unit}</small></label>`).join('');
+      <input name="${esc(p)}" inputmode="decimal" placeholder="0" value="${esc(old[p] ?? '')}" aria-label="${esc(p)} ${L('in', 'in', `i`)} ${unit}"><small class="muted">${unit}</small></label>`).join('');
   }
   updateHint();
 }
@@ -909,11 +914,11 @@ function updateHint() {
   if (state.mode !== 'equal') {
     const nums = [...document.querySelectorAll('#m-values input')].map((i) => Number(i.value.replace(',', '.')) || 0);
     const sum = nums.reduce((a, b) => a + b, 0);
-    if (state.mode === 'percent') hint += L(` Bisher: ${Math.round(sum * 100) / 100} %.`, ` So far: ${Math.round(sum * 100) / 100} %.`);
+    if (state.mode === 'percent') hint += L(` Bisher: ${Math.round(sum * 100) / 100} %.`, ` So far: ${Math.round(sum * 100) / 100} %.`, ` Hittills: ${Math.round(sum * 100) / 100} %.`);
     if (state.mode === 'exact') {
       const total = Number($('#m-amount').value.replace(',', '.')) || 0;
       const rest = Math.round((total - sum) * 100);
-      hint += rest ? L(` Noch zu verteilen: ${money(rest, $('#m-cur').value)}.`, ` Still to split: ${money(rest, $('#m-cur').value)}.`) : L(' Passt genau.', ' Adds up exactly.');
+      hint += rest ? L(` Noch zu verteilen: ${money(rest, $('#m-cur').value)}.`, ` Still to split: ${money(rest, $('#m-cur').value)}.`, ` Kvar att fördela: ${money(rest, $('#m-cur').value)}.`) : L(' Passt genau.', ' Adds up exactly.', ` Går jämnt ut.`);
     }
   }
   $('#m-hint').textContent = hint;
@@ -939,7 +944,7 @@ $('#m-split').addEventListener('click', (e) => {
 });
 $('#money-form').addEventListener('submit', async (e) => {
   e.preventDefault();
-  if (state.mode === 'equal' && !state.split.size) { toast(L('Bitte mindestens eine Person auswählen', 'Please choose at least one person')); return; }
+  if (state.mode === 'equal' && !state.split.size) { toast(L('Bitte mindestens eine Person auswählen', 'Please choose at least one person', `Välj minst en person`)); return; }
   const values = Object.fromEntries([...document.querySelectorAll('#m-values input')].map((i) => [i.name, i.value.trim()]));
   try {
     state.money = await api('money/add', {
@@ -950,7 +955,7 @@ $('#money-form').addEventListener('submit', async (e) => {
     $('#m-amount').value = '';
     $('#m-values').innerHTML = '';
     renderMoney();
-    toast(L('Eingetragen', 'Added'));
+    toast(L('Eingetragen', 'Added', `Tillagt`));
   } catch (err) { toast(err.message); }
 });
 $('#sw-import').addEventListener('click', () => $('#sw-file').click());
@@ -963,61 +968,61 @@ $('#sw-file').addEventListener('change', async () => {
     state.money = r;
     renderMoney();
     toast(L(`${r.imported} Einträge übernommen${r.matches ? ', Salden stimmen mit Splitwise überein ✓' : ''}`,
-      `${r.imported} entries imported${r.matches ? ', balances match Splitwise ✓' : ''}`));
+      `${r.imported} entries imported${r.matches ? ', balances match Splitwise ✓' : ''}`, `${r.imported} poster importerade${r.matches ? ', saldona stämmer med Splitwise ✓' : ''}`));
   } catch (err) { toast(err.message); }
 });
 $('#tab-money').addEventListener('click', async (e) => {
   const s = e.target.closest('[data-settle]');
   if (s) {
     const t = JSON.parse(s.dataset.settle);
-    if (!confirm(L(`Hat ${t.from} ${t.to} ${money(t.amount, t.currency)} zurückgezahlt?`, `Has ${t.from} paid ${t.to} ${money(t.amount, t.currency)} back?`))) return;
+    if (!confirm(L(`Hat ${t.from} ${t.to} ${money(t.amount, t.currency)} zurückgezahlt?`, `Has ${t.from} paid ${t.to} ${money(t.amount, t.currency)} back?`, `Har ${t.from} betalat tillbaka ${money(t.amount, t.currency)} till ${t.to}?`))) return;
     try {
       state.money = await api('money/add', {
         kind: 'settle', desc: 'Rückzahlung', amount: (t.amount / 100).toFixed(2), currency: t.currency, paidBy: t.from, split: [t.to], by: state.me,
       });
       renderMoney();
-      toast(L('Ausgeglichen 👍', 'Settled 👍'));
+      toast(L('Ausgeglichen 👍', 'Settled 👍', `Utjämnat 👍`));
     } catch (err) { toast(err.message); }
     return;
   }
   const d = e.target.closest('[data-del]');
   if (d) {
-    if (!confirm(L('Diesen Eintrag wirklich löschen?', 'Really delete this entry?'))) return;
+    if (!confirm(L('Diesen Eintrag wirklich löschen?', 'Really delete this entry?', `Vill du verkligen ta bort posten?`))) return;
     try { state.money = await api('money/delete', { id: d.dataset.del }); renderMoney(); } catch (err) { toast(err.message); }
   }
 });
 
 // ---------------- Übersicht (Dashboard) ----------------
 function absentNow(day) { return (state.absences || []).filter((a) => a.from <= day && a.to >= day); }
-const plural = (n, de1, deN, en1, enN) => (n === 1 ? L(de1, en1) : L(deN, enN));
+const plural = (n, de1, deN, en1, enN, sv1, svN) => (n === 1 ? L(de1, en1, sv1) : L(deN, enN, svN));
 
 // ---------- Übersicht: Kacheln pro Person ----------
 const WIDGETS = {
-  week: { de: 'Deine Woche', en: 'Your week', size: 'w' },
-  plan: { de: 'Putzplan', en: 'Cleaning', size: 's' },
-  shop: { de: 'Einkauf', en: 'Shopping', size: 's' },
-  money: { de: 'Kasse', en: 'Money', size: 's' },
-  cal: { de: 'Kalender', en: 'Calendar', size: 's' },
-  meetings: { de: 'Letzte WG-Meetings', en: 'Recent flat meetings', size: 'w' },
-  rules: { de: 'Hausregeln', en: 'House rules', size: 'w' },
-  duties: { de: 'Meine nächsten Dienste', en: 'My next duties', size: 's' },
-  cleaner: { de: 'Putzkraft', en: 'Cleaner', size: 's' },
-  birthdays: { de: 'Nächste Geburtstage', en: 'Next birthdays', size: 's' },
-  holiday: { de: 'Nächster Feiertag', en: 'Next holiday', size: 's' },
-  shoplist: { de: 'Einkaufsliste', en: 'Shopping list', size: 'w' },
+  week: { de: 'Deine Woche', en: 'Your week', sv: 'Din vecka', size: 'w' },
+  plan: { de: 'Putzplan', en: 'Cleaning', sv: 'Städning', size: 's' },
+  shop: { de: 'Einkauf', en: 'Shopping', sv: 'Handla', size: 's' },
+  money: { de: 'Kasse', en: 'Money', sv: 'Kassa', size: 's' },
+  cal: { de: 'Kalender', en: 'Calendar', sv: 'Kalender', size: 's' },
+  meetings: { de: 'Letzte WG-Meetings', en: 'Recent flat meetings', sv: 'Senaste husmötena', size: 'w' },
+  rules: { de: 'Hausregeln', en: 'House rules', sv: 'Husregler', size: 'w' },
+  duties: { de: 'Meine nächsten Dienste', en: 'My next duties', sv: 'Mina nästa tjänster', size: 's' },
+  cleaner: { de: 'Putzkraft', en: 'Cleaner', sv: 'Städhjälp', size: 's' },
+  birthdays: { de: 'Nächste Geburtstage', en: 'Next birthdays', sv: 'Nästa födelsedagar', size: 's' },
+  holiday: { de: 'Nächster Feiertag', en: 'Next holiday', sv: 'Nästa helgdag', size: 's' },
+  shoplist: { de: 'Einkaufsliste', en: 'Shopping list', sv: 'Inköpslista', size: 'w' },
 };
 const SHORTCUTS = {
-  shop: { icon: '🛒', de: 'Einkauf eintragen', en: 'Add to shopping' },
-  expense: { icon: '💶', de: 'Ausgabe eintragen', en: 'Add expense' },
-  event: { icon: '📅', de: 'Kalendereintrag', en: 'Calendar entry' },
-  survey: { icon: '🗳️', de: 'Umfrage starten', en: 'Start a poll' },
-  cleaner: { icon: '🧹', de: 'Putzkraft-Termin', en: 'Cleaner date' },
-  swap: { icon: '🔁', de: 'Dienst tauschen', en: 'Swap duty' },
-  icscal: { icon: '📲', de: 'Handy-Kalender', en: 'Phone calendar' },
-  invite: { icon: '➕', de: 'Mitglied einladen', en: 'Invite member' },
+  shop: { icon: '🛒', de: 'Einkauf eintragen', en: 'Add to shopping', sv: 'Lägg till inköp' },
+  expense: { icon: '💶', de: 'Ausgabe eintragen', en: 'Add expense', sv: 'Lägg till utgift' },
+  event: { icon: '📅', de: 'Kalendereintrag', en: 'Calendar entry', sv: 'Kalenderpost' },
+  survey: { icon: '🗳️', de: 'Umfrage starten', en: 'Start a poll', sv: 'Starta omröstning' },
+  cleaner: { icon: '🧹', de: 'Putzkraft-Termin', en: 'Cleaner date', sv: 'Tid för städhjälpen' },
+  swap: { icon: '🔁', de: 'Dienst tauschen', en: 'Swap duty', sv: 'Byt tjänst' },
+  icscal: { icon: '📲', de: 'Handy-Kalender', en: 'Phone calendar', sv: 'Mobilkalender' },
+  invite: { icon: '➕', de: 'Mitglied einladen', en: 'Invite member', sv: 'Bjud in medlem' },
 };
 const DEFAULT_HOME = ['week', 'plan', 'shop', 'money', 'cal', 'meetings', 'rules'].map((id) => ({ id, size: WIDGETS[id].size }));
-const widgetName = (id) => (id.startsWith('sc:') ? L(SHORTCUTS[id.slice(3)]?.de || id, SHORTCUTS[id.slice(3)]?.en || id) : L(WIDGETS[id]?.de || id, WIDGETS[id]?.en || id));
+const widgetName = (id) => (id.startsWith('sc:') ? L(SHORTCUTS[id.slice(3)]?.de || id, SHORTCUTS[id.slice(3)]?.en || id, SHORTCUTS[id.slice(3)]?.sv || id) : L(WIDGETS[id]?.de || id, WIDGETS[id]?.en || id, WIDGETS[id]?.sv || id));
 function homeLayout() {
   if (state.homeDraft) return state.homeDraft;
   const saved = memberOf(state.me)?.home;
@@ -1042,29 +1047,29 @@ function extraTiles(w) {
   if (me) {
     const list = [...state.weeks.values()].filter((x) => x.monday >= state.current).sort((a, b) => (a.monday < b.monday ? -1 : 1))
       .flatMap((x) => x.tasks.filter((t) => t.person === me && t.key !== 'kuehlschrank' && (t.key === 'woche' || !x.cleaner)).map((t) => `${ddmm(x.monday)} ${esc(T(t.title))}`)).slice(0, 4);
-    out.duties = `<a class="card __CLS__" href="#plan"><h3>${L('Meine nächsten Dienste', 'My next duties')}</h3>${list.length ? `<p>${list.join('<br>')}</p>` : `<p class="muted">${L('Nichts geplant', 'Nothing planned')}</p>`}</a>`;
+    out.duties = `<a class="card __CLS__" href="#plan"><h3>${L('Meine nächsten Dienste', 'My next duties', `Mina nästa tjänster`)}</h3>${list.length ? `<p>${list.join('<br>')}</p>` : `<p class="muted">${L('Nichts geplant', 'Nothing planned', `Inget planerat`)}</p>`}</a>`;
   }
   // Putzkraft: nächster Termin
   const nextCleaner = [...state.weeks.values()].filter((x) => x.cleaner && x.cleanerDay >= today).sort((a, b) => (a.cleanerDay < b.cleanerDay ? -1 : 1))[0];
-  out.cleaner = `<a class="card __CLS__" href="#plan"><h3>${L('Putzkraft', 'Cleaner')}</h3>${nextCleaner
-    ? `<div class="big">🧹 ${cleanerWhen(nextCleaner)}</div><p class="muted">${nextCleaner.cleanerConfirmed ? L('bestätigt ✓', 'confirmed ✓') : L('laut Plan', 'as planned')}</p>`
-    : `<p class="muted">${L('Kein Termin geplant', 'No visit planned')}</p>`}</a>`;
+  out.cleaner = `<a class="card __CLS__" href="#plan"><h3>${L('Putzkraft', 'Cleaner', `Städhjälp`)}</h3>${nextCleaner
+    ? `<div class="big">🧹 ${cleanerWhen(nextCleaner)}</div><p class="muted">${nextCleaner.cleanerConfirmed ? L('bestätigt ✓', 'confirmed ✓', `bekräftat ✓`) : L('laut Plan', 'as planned', `enligt plan`)}</p>`
+    : `<p class="muted">${L('Kein Termin geplant', 'No visit planned', `Inget besök planerat`)}</p>`}</a>`;
   // Geburtstage
   const bdays = (state.members || []).filter((m) => m.birthday && state.people.includes(m.name)).map((m) => {
     let d = `${today.slice(0, 4)}${m.birthday.slice(4)}`;
     if (d < today) d = `${+today.slice(0, 4) + 1}${m.birthday.slice(4)}`;
     return { name: m.name, d };
   }).sort((a, b) => (a.d < b.d ? -1 : 1)).slice(0, 3);
-  out.birthdays = `<a class="card __CLS__" href="#kalender"><h3>${L('Nächste Geburtstage', 'Next birthdays')}</h3>${bdays.length
-    ? `<p>${bdays.map((b) => `🎂 ${esc(b.name)} · ${ddmm(b.d)}${b.d === today ? L(' (heute!)', ' (today!)') : ''}`).join('<br>')}</p>` : `<p class="muted">${L('Noch keine Geburtstage eingetragen', 'No birthdays yet')}</p>`}</a>`;
+  out.birthdays = `<a class="card __CLS__" href="#kalender"><h3>${L('Nächste Geburtstage', 'Next birthdays', `Nästa födelsedagar`)}</h3>${bdays.length
+    ? `<p>${bdays.map((b) => `🎂 ${esc(b.name)} · ${ddmm(b.d)}${b.d === today ? L(' (heute!)', ' (today!)', ` (i dag!)`) : ''}`).join('<br>')}</p>` : `<p class="muted">${L('Noch keine Geburtstage eingetragen', 'No birthdays yet', `Inga födelsedagar än`)}</p>`}</a>`;
   // Nächster Feiertag
   const y = +today.slice(0, 4);
   const hol = [...berlinHolidays(y), ...berlinHolidays(y + 1)].find((h) => h.date >= today && (h.legal || h.short));
-  if (hol) out.holiday = `<a class="card __CLS__" href="#kalender"><h3>${L('Nächster Feiertag', 'Next holiday')}</h3><div class="big">${hol.legal ? '🔴' : '⚪'} ${esc(L(hol.de, hol.en))}</div><p>${fmtDay(hol.date)}</p><p class="muted">${holidayInfo(hol, state.lang)}</p></a>`;
+  if (hol) out.holiday = `<a class="card __CLS__" href="#kalender"><h3>${L('Nächster Feiertag', 'Next holiday', `Nästa helgdag`)}</h3><div class="big">${hol.legal ? '🔴' : '⚪'} ${esc(L(hol.de, hol.en, hol.sv || hol.en))}</div><p>${fmtDay(hol.date)}</p><p class="muted">${holidayInfo(hol, state.lang)}</p></a>`;
   // Einkaufsliste komplett
   const sh = state.shop;
-  out.shoplist = `<a class="card __CLS__" href="#einkauf"><h3>${L('Einkaufsliste', 'Shopping list')}</h3>${sh
-    ? (sh.items.length ? `<ul>${sh.items.slice(0, 12).map((i) => `<li>${esc(i.name)}</li>`).join('')}</ul>${sh.items.length > 12 ? `<p class="muted">+ ${sh.items.length - 12}</p>` : ''}` : `<p>${L('Alles da 🎉', 'All stocked 🎉')}</p>`)
+  out.shoplist = `<a class="card __CLS__" href="#einkauf"><h3>${L('Einkaufsliste', 'Shopping list', `Inköpslista`)}</h3>${sh
+    ? (sh.items.length ? `<ul>${sh.items.slice(0, 12).map((i) => `<li>${esc(i.name)}</li>`).join('')}</ul>${sh.items.length > 12 ? `<p class="muted">+ ${sh.items.length - 12}</p>` : ''}` : `<p>${L('Alles da 🎉', 'All stocked 🎉', `Allt finns 🎉`)}</p>`)
     : '<p class="muted">…</p>'}</a>`;
   return out;
 }
@@ -1074,11 +1079,11 @@ function openHomeAdd() {
   const have = new Set(layout.map((x) => x.id));
   const ws = Object.keys(WIDGETS).filter((id) => !have.has(id));
   const scs = Object.keys(SHORTCUTS).filter((id) => !have.has(`sc:${id}`));
-  $('#swap-title').textContent = L('Kachel hinzufügen', 'Add a tile');
-  $('#swap-text').textContent = L('Was soll in deine Übersicht? Es landet ganz unten, mit den Pfeilen kannst du es verschieben.', 'What should go into your overview? It is added at the bottom; use the arrows to move it.');
-  $('#swap-people').innerHTML = `${ws.length ? `<h3 class="add-h">${L('Kacheln', 'Tiles')}</h3>${ws.map((id) => `<button type="button" class="ghost" data-add-tile="${id}">${esc(widgetName(id))}</button>`).join('')}` : ''}
-    ${scs.length ? `<h3 class="add-h">${L('Kurzbefehle', 'Shortcuts')}</h3>${scs.map((id) => `<button type="button" class="ghost" data-add-tile="sc:${id}">${SHORTCUTS[id].icon} ${esc(widgetName(`sc:${id}`))}</button>`).join('')}` : ''}
-    ${!ws.length && !scs.length ? `<p class="muted">${L('Du hast schon alles in deiner Übersicht.', 'You already have everything in your overview.')}</p>` : ''}`;
+  $('#swap-title').textContent = L('Kachel hinzufügen', 'Add a tile', `Lägg till en ruta`);
+  $('#swap-text').textContent = L('Was soll in deine Übersicht? Es landet ganz unten, mit den Pfeilen kannst du es verschieben.', 'What should go into your overview? It is added at the bottom; use the arrows to move it.', `Vad ska finnas i din översikt? Det hamnar längst ner, med pilarna kan du flytta det.`);
+  $('#swap-people').innerHTML = `${ws.length ? `<h3 class="add-h">${L('Kacheln', 'Tiles', `Rutor`)}</h3>${ws.map((id) => `<button type="button" class="ghost" data-add-tile="${id}">${esc(widgetName(id))}</button>`).join('')}` : ''}
+    ${scs.length ? `<h3 class="add-h">${L('Kurzbefehle', 'Shortcuts', `Genvägar`)}</h3>${scs.map((id) => `<button type="button" class="ghost" data-add-tile="sc:${id}">${SHORTCUTS[id].icon} ${esc(widgetName(`sc:${id}`))}</button>`).join('')}` : ''}
+    ${!ws.length && !scs.length ? `<p class="muted">${L('Du hast schon alles in deiner Übersicht.', 'You already have everything in your overview.', `Du har redan allt i din översikt.`)}</p>` : ''}`;
   const dlg = $('#swap-dialog');
   $('#swap-people').onclick = (e) => {
     const b = e.target.closest('[data-add-tile]');
@@ -1119,35 +1124,35 @@ function renderHome() {
         total++;
         if (w.checks[`${t.key}:${it.id}`]) done++;
       }
-      if (t.person === me && t.key !== 'kuehlschrank') mine.push(T(t.title) + (t.key.startsWith('bad-') && !t.cleaningWeek ? L(' (nur Klopapier)', ' (toilet paper only)') : ''));
+      if (t.person === me && t.key !== 'kuehlschrank') mine.push(T(t.title) + (t.key.startsWith('bad-') && !t.cleaningWeek ? L(' (nur Klopapier)', ' (toilet paper only)', ` (bara toapapper)`) : ''));
     }
-    if (w.tasks.some((t) => t.key === 'kuehlschrank' && t.items.some((i) => i.person === me))) mine.push(L('Kühlschrankfach', 'Fridge shelf'));
-    tiles.week = `<a class="card __CLS__" href="#plan"><h3>${L('Deine Woche', 'Your week')}</h3>
+    if (w.tasks.some((t) => t.key === 'kuehlschrank' && t.items.some((i) => i.person === me))) mine.push(L('Kühlschrankfach', 'Fridge shelf', `Kylskåpshylla`));
+    tiles.week = `<a class="card __CLS__" href="#plan"><h3>${L('Deine Woche', 'Your week', `Din vecka`)}</h3>
       ${me ? (mine.length ? `<div class="big">${mine.map(esc).join(', ')}</div>
-        ${total ? `<p>${L(`${done} von ${total} erledigt`, `${done} of ${total} done`)}</p><div class="progress"><b style="width:${Math.round((done / total) * 100)}%"></b></div>` : ''}`
-        : `<div class="big">${L('Frei diese Woche 🎉', 'Free this week 🎉')}</div>`) : `<p>${L('Tipp oben auf deinen Namen.', 'Tap your name above.')}</p>`}
+        ${total ? `<p>${L(`${done} von ${total} erledigt`, `${done} of ${total} done`, `${done} av ${total} klart`)}</p><div class="progress"><b style="width:${Math.round((done / total) * 100)}%"></b></div>` : ''}`
+        : `<div class="big">${L('Frei diese Woche 🎉', 'Free this week 🎉', `Ledig den här veckan 🎉`)}</div>`) : `<p>${L('Tipp oben auf deinen Namen.', 'Tap your name above.', `Tryck på ditt namn ovan.`)}</p>`}
       </a>`;
     const t = (k) => w.tasks.find((x) => x.key === k);
-    tiles.plan = `<a class="card __CLS__" href="#plan"><h3>${L('Putzplan', 'Cleaning')}</h3>
-      <p>${L('Wochendienst', 'Weekly duty')}: <strong>${esc(t('woche')?.person || '–')}</strong></p>
-      <p>${L('Bad vorne', 'Front bath')}: ${esc(t('bad-vorne')?.person || '–')}</p><p>${L('Bad hinten', 'Back bath')}: ${esc(t('bad-hinten')?.person || '–')}</p>
-      <p class="muted">${w.cleaner ? `🧹 ${L('Putzkraft', 'Cleaner')} ${cleanerWhen(w)}${w.cleanerConfirmed ? ' ✓' : ''}` : w.ausfall ? L('⚠️ Putzkraft fällt aus', '⚠️ Cleaner cancelled') : L('Ohne Putzkraft', 'No cleaner')}</p></a>`;
+    tiles.plan = `<a class="card __CLS__" href="#plan"><h3>${L('Putzplan', 'Cleaning', `Städning`)}</h3>
+      <p>${L('Wochendienst', 'Weekly duty', `Veckotjänst`)}: <strong>${esc(t('woche')?.person || '–')}</strong></p>
+      <p>${L('Bad vorne', 'Front bath', `Främre badrum`)}: ${esc(t('bad-vorne')?.person || '–')}</p><p>${L('Bad hinten', 'Back bath', `Bakre badrum`)}: ${esc(t('bad-hinten')?.person || '–')}</p>
+      <p class="muted">${w.cleaner ? `🧹 ${L('Putzkraft', 'Cleaner', `Städhjälp`)} ${cleanerWhen(w)}${w.cleanerConfirmed ? ' ✓' : ''}` : w.ausfall ? L('⚠️ Putzkraft fällt aus', '⚠️ Cleaner cancelled', `⚠️ Städhjälpen inställd`) : L('Ohne Putzkraft', 'No cleaner', `Ingen städhjälp`)}</p></a>`;
   }
   const sh = state.shop;
-  tiles.shop = `<a class="card __CLS__" href="#einkauf"><h3>${L('Einkauf', 'Shopping')}</h3>${sh
-    ? (sh.items.length ? `<div class="big">${sh.items.length}</div><p>${sh.items.slice(0, 3).map((i) => esc(i.name)).join(', ')}${sh.items.length > 3 ? ' …' : ''}</p>` : `<p>${L('Alles da 🎉', 'All stocked 🎉')}</p>`)
+  tiles.shop = `<a class="card __CLS__" href="#einkauf"><h3>${L('Einkauf', 'Shopping', `Handla`)}</h3>${sh
+    ? (sh.items.length ? `<div class="big">${sh.items.length}</div><p>${sh.items.slice(0, 3).map((i) => esc(i.name)).join(', ')}${sh.items.length > 3 ? ' …' : ''}</p>` : `<p>${L('Alles da 🎉', 'All stocked 🎉', `Allt finns 🎉`)}</p>`)
     : '<p class="muted">…</p>'}</a>`;
   const m = state.money;
   if (m) {
     const eur = m.byCurrency.EUR;
     const v = me ? eur.balances[me] || 0 : null;
     const owe = me ? eur.transfers.filter((x) => x.from === me) : [];
-    tiles.money = `<a class="card __CLS__" href="#kasse"><h3>${L('Kasse', 'Money')}</h3>${me
+    tiles.money = `<a class="card __CLS__" href="#kasse"><h3>${L('Kasse', 'Money', `Kassa`)}</h3>${me
       ? `<div class="big" style="color:${v > 0 ? 'var(--done)' : v < 0 ? 'var(--warn)' : 'inherit'}">${v > 0 ? '+' : ''}${money(v)}</div>
-        <p>${owe.length ? owe.map((x) => `${L('an', 'to')} ${esc(x.to)}: ${money(x.amount)}`).join('<br>') : v > 0 ? L('Du bekommst Geld zurück', "You're owed money") : L('Du bist quitt', "You're square")}</p>`
+        <p>${owe.length ? owe.map((x) => `${L('an', 'to', `till`)} ${esc(x.to)}: ${money(x.amount)}`).join('<br>') : v > 0 ? L('Du bekommst Geld zurück', "You're owed money", `Du ska få pengar`) : L('Du bist quitt', "You're square", `Du är kvitt`)}</p>`
       : ''}</a>`;
   } else {
-    tiles.money = `<a class="card __CLS__" href="#kasse"><h3>${L('Kasse', 'Money')}</h3><p class="muted">…</p></a>`;
+    tiles.money = `<a class="card __CLS__" href="#kasse"><h3>${L('Kasse', 'Money', `Kassa`)}</h3><p class="muted">…</p></a>`;
   }
   const today = state.today;
   const now = absentNow(today);
@@ -1156,27 +1161,27 @@ function renderHome() {
   const openPolls = (state.polls || []).filter((p) => p.status === 'open');
   const invites = (state.events || []).filter((e) => e.participants.some((p) => p.name === me && !p.ok));
   const nTopics = meet?.topics?.length || 0;
-  tiles.cal = `<a class="card __CLS__" href="#kalender"><h3>${L('Kalender', 'Calendar')}</h3>
-    ${now.length ? `<p>${now.map((a) => `🏖️ <strong>${esc(a.person)}</strong> ${L('bis', 'until')} ${ddmm(a.to)}`).join('<br>')}</p>` : `<p>${L('Alle da', 'Everyone is home')}</p>`}
-    ${next.length ? `<p class="muted">${next.map((a) => L(`${esc(a.person)} weg ab ${ddmm(a.from)}`, `${esc(a.person)} away from ${ddmm(a.from)}`)).join('<br>')}</p>` : ''}
-    ${meet ? `<p>🗣️ ${esc(meet.title && meet.title !== 'WG-Meeting' ? meet.title : L('WG-Meeting', 'Flat meeting'))} ${ddmm(meet.from)} ${meet.time}${nTopics ? ` · ${nTopics} ${plural(nTopics, 'Thema', 'Themen', 'topic', 'topics')}` : ''}</p>` : ''}
-    ${openPolls.length ? `<p>🗳️ ${openPolls.length} ${plural(openPolls.length, 'Abstimmung offen', 'Abstimmungen offen', 'open poll', 'open polls')}</p>` : ''}
-    ${invites.length ? `<p><strong>📬 ${invites.length} ${plural(invites.length, 'Einladung für dich', 'Einladungen für dich', 'invitation for you', 'invitations for you')}</strong></p>` : ''}</a>`;
+  tiles.cal = `<a class="card __CLS__" href="#kalender"><h3>${L('Kalender', 'Calendar', `Kalender`)}</h3>
+    ${now.length ? `<p>${now.map((a) => `🏖️ <strong>${esc(a.person)}</strong> ${L('bis', 'until', `till`)} ${ddmm(a.to)}`).join('<br>')}</p>` : `<p>${L('Alle da', 'Everyone is home', `Alla är hemma`)}</p>`}
+    ${next.length ? `<p class="muted">${next.map((a) => L(`${esc(a.person)} weg ab ${ddmm(a.from)}`, `${esc(a.person)} away from ${ddmm(a.from)}`, `${esc(a.person)} borta från ${ddmm(a.from)}`)).join('<br>')}</p>` : ''}
+    ${meet ? `<p>🗣️ ${esc(meet.title && meet.title !== 'WG-Meeting' ? meet.title : L('WG-Meeting', 'Flat meeting', `Husmöte`))} ${ddmm(meet.from)} ${meet.time}${nTopics ? ` · ${nTopics} ${plural(nTopics, 'Thema', 'Themen', 'topic', 'topics', 'ämne', 'ämnen')}` : ''}</p>` : ''}
+    ${openPolls.length ? `<p>🗳️ ${openPolls.length} ${plural(openPolls.length, 'Abstimmung offen', 'Abstimmungen offen', 'omröstning öppen', 'omröstningar öppna')}</p>` : ''}
+    ${invites.length ? `<p><strong>📬 ${invites.length} ${plural(invites.length, 'Einladung für dich', 'Einladungen für dich', 'inbjudan till dig', 'inbjudningar till dig')}</strong></p>` : ''}</a>`;
   // Letzte WG-Meetings mit Protokoll
   const pastMeetings = (state.events || []).filter((e) => e.type === 'meeting' && e.to < today).sort((a, b) => (a.from < b.from ? 1 : -1)).slice(0, 3);
   if (pastMeetings.length) {
-    tiles.meetings = `<div class="card __CLS__ meetings-card"><h3>${L('Letzte WG-Meetings', 'Recent flat meetings')}</h3>
+    tiles.meetings = `<div class="card __CLS__ meetings-card"><h3>${L('Letzte WG-Meetings', 'Recent flat meetings', `Senaste husmötena`)}</h3>
       ${pastMeetings.map((e) => {
         const txt = e.minutes?.text?.trim();
         const short = txt ? (txt.length > 140 ? `${txt.slice(0, 140)}…` : txt) : '';
         return `<button type="button" class="meeting-row" data-notes="${esc(e.id)}">
           <span><strong>🗣️ ${esc(evTitle(e))}</strong> <small class="muted">${fmtDay(e.from)}</small></span>
-          <span class="muted small">${short ? esc(short) : L('Noch kein Protokoll, tippen zum Schreiben', 'No minutes yet, tap to write')}</span></button>`;
+          <span class="muted small">${short ? esc(short) : L('Noch kein Protokoll, tippen zum Schreiben', 'No minutes yet, tap to write', `Inget protokoll än, tryck för att skriva`)}</span></button>`;
       }).join('')}</div>`;
   } else {
-    tiles.meetings = `<a class="card __CLS__" href="#kalender"><h3>${L('Letzte WG-Meetings', 'Recent flat meetings')}</h3><p class="muted">${L('Noch keine vergangenen WG-Meetings. Die Protokolle erscheinen dann hier.', 'No past flat meetings yet. Their minutes will show up here.')}</p></a>`;
+    tiles.meetings = `<a class="card __CLS__" href="#kalender"><h3>${L('Letzte WG-Meetings', 'Recent flat meetings', `Senaste husmötena`)}</h3><p class="muted">${L('Noch keine vergangenen WG-Meetings. Die Protokolle erscheinen dann hier.', 'No past flat meetings yet. Their minutes will show up here.', `Inga tidigare husmöten än. Protokollen visas sedan här.`)}</p></a>`;
   }
-  tiles.rules = `<a class="card __CLS__" href="#regeln"><h3>${L('Hausregeln', 'House rules')}</h3><p>${L('Mission Haussegen 📜 Alles zum WG-Seelenfrieden', 'Mission Haussegen 📜 Everything for peace in the flat')}</p></a>`;
+  tiles.rules = `<a class="card __CLS__" href="#regeln"><h3>${L('Hausregeln', 'House rules', `Husregler`)}</h3><p>${L('Mission Haussegen 📜 Alles zum WG-Seelenfrieden', 'Mission Haussegen 📜 Everything for peace in the flat', `Mission Haussegen 📜 Allt för husfriden`)}</p></a>`;
   Object.assign(tiles, extraTiles(w));
   const layout = homeLayout();
   const editing = state.editHome;
@@ -1186,26 +1191,26 @@ function renderHome() {
     if (x.id.startsWith('sc:')) {
       const sc = SHORTCUTS[x.id.slice(3)];
       if (!sc) return;
-      t = `<button type="button" class="card __CLS__ shortcut" data-shortcut="${x.id.slice(3)}"><span class="sc-icon">${sc.icon}</span><span>${L(sc.de, sc.en)}</span></button>`;
+      t = `<button type="button" class="card __CLS__ shortcut" data-shortcut="${x.id.slice(3)}"><span class="sc-icon">${sc.icon}</span><span>${L(sc.de, sc.en, sc.sv || sc.en)}</span></button>`;
     }
     if (!t) {
       if (!editing) return;
-      t = `<div class="card __CLS__"><h3>${esc(widgetName(x.id))}</h3><p class="muted">${L('Gerade nichts anzuzeigen', 'Nothing to show right now')}</p></div>`;
+      t = `<div class="card __CLS__"><h3>${esc(widgetName(x.id))}</h3><p class="muted">${L('Gerade nichts anzuzeigen', 'Nothing to show right now', `Inget att visa just nu`)}</p></div>`;
     }
     t = t.replace('__CLS__', `tile${x.size === 'w' ? ' wide' : ''}`);
     if (editing) {
       t = `<div class="tile-edit${x.size === 'w' ? ' wide' : ''}">${t}<div class="tile-tools">
-        <button type="button" data-tile-move="${i}" data-dir="-1" aria-label="${L('Nach vorne', 'Move up')}" ${i === 0 ? 'disabled' : ''}>↑</button>
-        <button type="button" data-tile-move="${i}" data-dir="1" aria-label="${L('Nach hinten', 'Move down')}" ${i === layout.length - 1 ? 'disabled' : ''}>↓</button>
-        <button type="button" data-tile-size="${i}" aria-label="${x.size === 'w' ? L('Kleiner machen', 'Make smaller') : L('Größer machen', 'Make bigger')}" title="${x.size === 'w' ? L('Kleiner machen', 'Make smaller') : L('Größer machen', 'Make bigger')}">${x.size === 'w' ? '⇲ ' + L('klein', 'small') : '⇱ ' + L('groß', 'big')}</button>
-        <button type="button" data-tile-del="${i}" aria-label="${L('Entfernen', 'Remove')}">✕</button></div></div>`;
+        <button type="button" data-tile-move="${i}" data-dir="-1" aria-label="${L('Nach vorne', 'Move up', `Flytta upp`)}" ${i === 0 ? 'disabled' : ''}>↑</button>
+        <button type="button" data-tile-move="${i}" data-dir="1" aria-label="${L('Nach hinten', 'Move down', `Flytta ner`)}" ${i === layout.length - 1 ? 'disabled' : ''}>↓</button>
+        <button type="button" data-tile-size="${i}" aria-label="${x.size === 'w' ? L('Kleiner machen', 'Make smaller', `Gör mindre`) : L('Größer machen', 'Make bigger', `Gör större`)}" title="${x.size === 'w' ? L('Kleiner machen', 'Make smaller', `Gör mindre`) : L('Größer machen', 'Make bigger', `Gör större`)}">${x.size === 'w' ? '⇲ ' + L('klein', 'small', `liten`) : '⇱ ' + L('groß', 'big', `stor`)}</button>
+        <button type="button" data-tile-del="${i}" aria-label="${L('Entfernen', 'Remove', `Ta bort`)}">✕</button></div></div>`;
     }
     html += t;
   });
   html += '</div>';
   html += editing
-    ? `<div class="row dash-edit-bar"><button type="button" class="ghost" data-home-add>${L('+ Kachel oder Kurzbefehl', '+ Tile or shortcut')}</button><button type="button" class="ghost" data-home-reset>${L('Zurücksetzen', 'Reset')}</button><button type="button" data-home-done>${L('Fertig', 'Done')}</button></div>`
-    : `<div class="dash-edit-link"><button type="button" class="link small" data-home-edit>✏️ ${L('Übersicht anpassen', 'Customise overview')}</button></div>`;
+    ? `<div class="row dash-edit-bar"><button type="button" class="ghost" data-home-add>${L('+ Kachel oder Kurzbefehl', '+ Tile or shortcut', `+ Ruta eller genväg`)}</button><button type="button" class="ghost" data-home-reset>${L('Zurücksetzen', 'Reset', `Återställ`)}</button><button type="button" data-home-done>${L('Fertig', 'Done', `Klar`)}</button></div>`
+    : `<div class="dash-edit-link"><button type="button" class="link small" data-home-edit>✏️ ${L('Übersicht anpassen', 'Customise overview', `Anpassa översikten`)}</button></div>`;
   el.innerHTML = html;
 
   $('#members-list').innerHTML = (state.members || [])
@@ -1214,10 +1219,10 @@ function renderHome() {
       const away = now.some((a) => a.person === x.name);
       const future = x.since > state.current;
       const leaving = x.until;
-      const side = x.side === 'hinten' ? L('hinten', 'back') : L('vorne', 'front');
+      const side = x.side === 'hinten' ? L('hinten', 'back', `bak`) : L('vorne', 'front', `fram`);
       const bday = x.birthday ? ` · 🎂 ${ddmm(x.birthday)}` : '';
-      return `<div class="member"><span>${avatar(x.name)}<span><strong>${esc(x.name)}</strong> <small>${L(`Zimmer ${side}`, `${side} room`)}${bday}${x.lang === 'en' ? ' · 🇬🇧' : ''}</small></span></span>
-        <span>${away ? `<span class="tag away">${L('im Urlaub', 'on holiday')}</span> ` : ''}${future ? `<span class="tag">${L('ab', 'from')} ${ddmm(x.since)}</span>` : ''}${leaving ? `<span class="tag away">${L('zieht aus', 'moving out')}</span>` : ''}</span></div>`;
+      return `<div class="member"><span>${avatar(x.name)}<span><strong>${esc(x.name)}</strong> <small>${L(`Zimmer ${side}`, `${side} room`, `Rum ${side}`)}${bday}${x.lang === 'en' ? ' · 🇬🇧' : x.lang === 'sv' ? ' · 🇸🇪' : ''}</small></span></span>
+        <span>${away ? `<span class="tag away">${L('im Urlaub', 'on holiday', `på semester`)}</span> ` : ''}${future ? `<span class="tag">${L('ab', 'from', `från`)} ${ddmm(x.since)}</span>` : ''}${leaving ? `<span class="tag away">${L('zieht aus', 'moving out', `flyttar ut`)}</span>` : ''}</span></div>`;
     }).join('');
   $('#leave-open').hidden = !me;
 }
@@ -1230,7 +1235,7 @@ function renderSurveys() {
   const open = list.filter((s) => s.status === 'open');
   const closed = list.filter((s) => s.status !== 'open').slice(0, 3);
   if (!open.length && !closed.length) {
-    el.innerHTML = `<p class="muted small" style="margin:10px 0 0">${L('Frag die WG schnell etwas, z.B. ob jemand zu Hause ist, wenn die Putzkraft kommt. Alle bekommen eine Nachricht, und du erfährst, sobald alle geantwortet haben.', 'Quickly ask the flat something, e.g. whether anyone is home when the cleaner comes. Everyone gets a notification, and you find out as soon as everyone has answered.')}</p>`;
+    el.innerHTML = `<p class="muted small" style="margin:10px 0 0">${L('Frag die WG schnell etwas, z.B. ob jemand zu Hause ist, wenn die Putzkraft kommt. Alle bekommen eine Nachricht, und du erfährst, sobald alle geantwortet haben.', 'Quickly ask the flat something, e.g. whether anyone is home when the cleaner comes. Everyone gets a notification, and you find out as soon as everyone has answered.', `Fråga kollektivet något snabbt, t.ex. om någon är hemma när städhjälpen kommer. Alla får en notis, och du får veta så fort alla har svarat.`)}</p>`;
     return;
   }
   const one = (s) => {
@@ -1241,7 +1246,7 @@ function renderSurveys() {
     const isOpen = s.status === 'open';
     return `<div class="survey${isOpen ? '' : ' closed'}">
       <h3>${esc(s.question)}</h3>
-      <p class="muted small meta">${s.by ? `${L('von', 'from')} ${esc(s.by)} · ` : ''}${ago(s.at)} · ${missing.length ? `${L('fehlt noch', 'still missing')}: ${missing.map(esc).join(', ')}` : L('alle haben abgestimmt ✓', 'everyone has answered ✓')}${isOpen ? '' : ` · ${L('beendet', 'closed')}`}${s.multi ? ` · ${L('mehrere Antworten möglich', 'multiple answers')}` : ''}</p>
+      <p class="muted small meta">${s.by ? `${L('von', 'from', `från`)} ${esc(s.by)} · ` : ''}${ago(s.at)} · ${missing.length ? `${L('fehlt noch', 'still missing', `saknas fortfarande`)}: ${missing.map(esc).join(', ')}` : L('alle haben abgestimmt ✓', 'everyone has answered ✓', `alla har svarat ✓`)}${isOpen ? '' : ` · ${L('beendet', 'closed', `avslutad`)}`}${s.multi ? ` · ${L('mehrere Antworten möglich', 'multiple answers', `flera svar`)}` : ''}</p>
       ${s.options.map((o) => {
         const who = voters.filter((n) => s.votes[n].includes(o.id));
         const pct = voters.length ? Math.round((who.length / voters.length) * 100) : 0;
@@ -1249,21 +1254,21 @@ function renderSurveys() {
           <span class="bar" style="width:${pct}%"></span><span class="t">${mine.includes(o.id) ? '✓ ' : ''}${esc(o.text)}</span>
           <span class="who">${who.length} ${who.length ? `· ${who.map(esc).join(', ')}` : ''}</span></button>`;
       }).join('')}
-      ${s.by === state.me || !s.by ? `<div class="row end"><button type="button" class="link small" data-sclose="${esc(s.id)}">${isOpen ? L('Umfrage beenden', 'Close poll') : L('Wieder öffnen', 'Reopen')}</button>
-        <button type="button" class="link small" data-sdel="${esc(s.id)}">${L('löschen', 'delete')}</button></div>` : ''}
+      ${s.by === state.me || !s.by ? `<div class="row end"><button type="button" class="link small" data-sclose="${esc(s.id)}">${isOpen ? L('Umfrage beenden', 'Close poll', `Avsluta omröstning`) : L('Wieder öffnen', 'Reopen', `Öppna igen`)}</button>
+        <button type="button" class="link small" data-sdel="${esc(s.id)}">${L('löschen', 'delete', `ta bort`)}</button></div>` : ''}
     </div>`;
   };
-  el.innerHTML = open.map(one).join('') + (closed.length ? `<details class="explain"><summary>${L('Beendete Umfragen', 'Closed polls')}</summary>${closed.map(one).join('')}</details>` : '');
+  el.innerHTML = open.map(one).join('') + (closed.length ? `<details class="explain"><summary>${L('Beendete Umfragen', 'Closed polls', `Avslutade omröstningar`)}</summary>${closed.map(one).join('')}</details>` : '');
 }
 function surveyOptRow(v = '') {
-  return `<div class="row"><input maxlength="80" value="${esc(v)}" placeholder="${L('Antwort', 'Answer')}"><button type="button" class="ghost" data-sopt-del aria-label="${L('Entfernen', 'Remove')}">✕</button></div>`;
+  return `<div class="row"><input maxlength="80" value="${esc(v)}" placeholder="${L('Antwort', 'Answer', `Svara`)}"><button type="button" class="ghost" data-sopt-del aria-label="${L('Entfernen', 'Remove', `Ta bort`)}">✕</button></div>`;
 }
 $('#survey-open').onclick = () => {
   const f = $('#survey-form');
   f.hidden = !f.hidden;
   if (f.hidden) return;
   f.reset();
-  $('#survey-opts').innerHTML = [L('Ja', 'Yes'), L('Nein', 'No')].map(surveyOptRow).join('');
+  $('#survey-opts').innerHTML = [L('Ja', 'Yes', `Ja`), L('Nein', 'No', `Nej`)].map(surveyOptRow).join('');
   $('#survey-q').focus();
 };
 $('#survey-cancel').onclick = () => { $('#survey-form').hidden = true; };
@@ -1277,7 +1282,7 @@ $('#survey-form').addEventListener('submit', async (e) => {
     state.surveys = r.surveys;
     $('#survey-form').hidden = true;
     renderSurveys();
-    toast(L('Umfrage verschickt, alle bekommen eine Nachricht', 'Poll sent, everyone gets a notification'));
+    toast(L('Umfrage verschickt, alle bekommen eine Nachricht', 'Poll sent, everyone gets a notification', `Omröstningen skickad, alla får en notis`));
   } catch (err) { toast(err.message); }
 });
 $('#surveys').addEventListener('click', async (e) => {
@@ -1296,7 +1301,7 @@ $('#surveys').addEventListener('click', async (e) => {
     if (c) { state.surveys = (await api('surveys/close', { id: c.dataset.sclose })).surveys; renderSurveys(); return; }
     const d = e.target.closest('[data-sdel]');
     if (d) {
-      if (!confirm(L('Umfrage löschen?', 'Delete this poll?'))) return;
+      if (!confirm(L('Umfrage löschen?', 'Delete this poll?', `Ta bort omröstningen?`))) return;
       state.surveys = (await api('surveys/delete', { id: d.dataset.sdel })).surveys;
       renderSurveys();
     }
@@ -1330,8 +1335,8 @@ $('#join-cancel').onclick = () => {
 };
 $('#join').addEventListener('submit', async (e) => {
   e.preventDefault();
-  if (!state.joinSide) { toast(L('Bitte vorne oder hinten wählen', 'Please choose front or back')); return; }
-  if (!joinProfile.gender) { toast(L('Bitte dein Geschlecht angeben', 'Please choose your gender')); return; }
+  if (!state.joinSide) { toast(L('Bitte vorne oder hinten wählen', 'Please choose front or back', `Välj fram eller bak`)); return; }
+  if (!joinProfile.gender) { toast(L('Bitte dein Geschlecht angeben', 'Please choose your gender', `Välj ditt kön`)); return; }
   try {
     const r = await api('members/join', {
       name: $('#join-name').value, side: state.joinSide, lang: state.lang,
@@ -1344,16 +1349,16 @@ $('#join').addEventListener('submit', async (e) => {
     state.weeks.clear();
     await load();
     showTab();
-    toast(L(`Willkommen als ${G(r.name, 'neue Mitbewohnerin', 'neuer Mitbewohner', 'neue:r Mitbewohner:in')}, ${r.name}! Ab ${ddmm(r.since)} bist du im Putzplan.`, `Welcome, ${r.name}! You're on the cleaning rota from ${ddmm(r.since)}.`));
+    toast(L(`Willkommen als ${G(r.name, 'neue Mitbewohnerin', 'neuer Mitbewohner', 'neue:r Mitbewohner:in')}, ${r.name}! Ab ${ddmm(r.since)} bist du im Putzplan.`, `Welcome, ${r.name}! You're on the cleaning rota from ${ddmm(r.since)}.`, `Välkommen, ${r.name}! Du är med i städschemat från ${ddmm(r.since)}.`));
   } catch (err) { toast(err.message); }
 });
 $('#invite').onclick = async () => {
   const url = `${location.origin}/#beitreten`;
-  const text = L('Komm in unsere WG-Zentrale! Leg dir dort dein Profil an:', 'Join our flat app "Zentrale"! Create your profile here:');
+  const text = L('Komm in unsere WG-Zentrale! Leg dir dort dein Profil an:', 'Join our flat app "Zentrale"! Create your profile here:', `Gå med i vår kollektiv-app "Zentrale"! Skapa din profil här:`);
   try {
     if (navigator.share) { await navigator.share({ title: 'WG-Zentrale', text, url }); return; }
   } catch { return; }
-  try { await navigator.clipboard.writeText(`${text} ${url}`); toast(L('Einladungslink kopiert, schick ihn einfach weiter', 'Invite link copied, just send it on')); } catch { prompt(L('Diesen Link verschicken:', 'Send this link:'), url); }
+  try { await navigator.clipboard.writeText(`${text} ${url}`); toast(L('Einladungslink kopiert, schick ihn einfach weiter', 'Invite link copied, just send it on', `Inbjudningslänken är kopierad, skicka den vidare`)); } catch { prompt(L('Diesen Link verschicken:', 'Send this link:', `Skicka den här länken:`), url); }
 };
 $('#leave-open').onclick = async () => {
   if (!state.money) { try { state.money = await api('money'); } catch { /* egal */ } }
@@ -1362,9 +1367,9 @@ $('#leave-open').onclick = async () => {
   const owe = eur ? eur.transfers.filter((x) => x.from === state.me) : [];
   const oweList = owe.length ? ` (${owe.map((x) => `${esc(x.to)}: ${money(x.amount)}`).join(', ')})` : '';
   $('#leave-balance').innerHTML = v < 0
-    ? `<div class="banner"><p>${L(`⚠️ Laut WG-Kasse schuldest du noch <strong>${money(-v)}</strong>${oweList}. Bitte vorher ausgleichen.`, `⚠️ According to the flat money you still owe <strong>${money(-v)}</strong>${oweList}. Please settle up first.`)}</p></div>`
-    : v > 0 ? `<div class="banner"><p>${L(`💶 Du bekommst laut WG-Kasse noch <strong>${money(v)}</strong> zurück. Sprecht das am besten vorher ab.`, `💶 According to the flat money you're still owed <strong>${money(v)}</strong>. Best to sort it out before you go.`)}</p></div>`
-      : `<div class="banner"><p>${L('✅ Deine WG-Kasse ist ausgeglichen.', '✅ Your flat money is settled.')}</p></div>`;
+    ? `<div class="banner"><p>${L(`⚠️ Laut WG-Kasse schuldest du noch <strong>${money(-v)}</strong>${oweList}. Bitte vorher ausgleichen.`, `⚠️ According to the flat money you still owe <strong>${money(-v)}</strong>${oweList}. Please settle up first.`, `⚠️ Enligt kollektivkassan är du fortfarande skyldig <strong>${money(-v)}</strong>${oweList}. Gör upp först.`)}</p></div>`
+    : v > 0 ? `<div class="banner"><p>${L(`💶 Du bekommst laut WG-Kasse noch <strong>${money(v)}</strong> zurück. Sprecht das am besten vorher ab.`, `💶 According to the flat money you're still owed <strong>${money(v)}</strong>. Best to sort it out before you go.`, `💶 Enligt kollektivkassan ska du fortfarande få <strong>${money(v)}</strong>. Gör upp det helst innan du flyttar.`)}</p></div>`
+      : `<div class="banner"><p>${L('✅ Deine WG-Kasse ist ausgeglichen.', '✅ Your flat money is settled.', `✅ Din kollektivkassa är uppgjord.`)}</p></div>`;
   $('#leave-form').reset();
   $('#leave-date').value = state.today;
   const dlg = $('#leave-dialog');
@@ -1376,9 +1381,9 @@ $('#leave-open').onclick = async () => {
       await api('members/leave', { name, date: $('#leave-date').value });
       const sub = await currentSubscription().catch(() => null);
       if (sub) { await sub.unsubscribe().catch(() => {}); }
-      $('#bye-title').textContent = L(`Schade, dass du gehst, ${name}!`, `So sad to see you go, ${name}!`);
+      $('#bye-title').textContent = L(`Schade, dass du gehst, ${name}!`, `So sad to see you go, ${name}!`, `Så tråkigt att du flyttar, ${name}!`);
       $('#bye-text').textContent = L(`Du warst ${G(name, 'eine tolle Mitbewohnerin', 'ein toller Mitbewohner', 'ein:e tolle:r Mitbewohner:in')}, und wir werden dich wirklich vermissen: die Gespräche in der Küche, das gemeinsame Kochen und sogar deine Putzwochen. Danke für die schöne Zeit mit dir! Pass auf dich auf, komm uns besuchen, und für einen Kaffee oder eine Party bist du hier immer willkommen. 💛`,
-        "We'll really miss you: the chats in the kitchen, cooking together and even your cleaning weeks. Thanks for the lovely time with you! Take care, come and visit, and you're always welcome here for a coffee or a party. 💛");
+        "We'll really miss you: the chats in the kitchen, cooking together and even your cleaning weeks. Thanks for the lovely time with you! Take care, come and visit, and you're always welcome here for a coffee or a party. 💛", `Vi kommer att sakna dig: pratstunderna i köket, matlagningen tillsammans och till och med dina städveckor. Tack för den fina tiden med dig! Ta hand om dig, kom och hälsa på, du är alltid välkommen på en kaffe eller en fest. 💛`);
       $('#bye-dialog').showModal();
       state.me = null;
       store.set('me', '');
@@ -1425,7 +1430,7 @@ function profileForm(prefix) {
     const f = $(`#${prefix}-photo`).files[0];
     $(`#${prefix}-photo`).value = '';
     if (!f) return;
-    try { st.photo = await resizePhoto(f); preview(st.photo); } catch { toast(L('Das Bild konnte nicht gelesen werden', 'The image could not be read')); }
+    try { st.photo = await resizePhoto(f); preview(st.photo); } catch { toast(L('Das Bild konnte nicht gelesen werden', 'The image could not be read', `Bilden kunde inte läsas`)); }
   });
   $(`#${prefix}-photo-del`).onclick = () => { st.photo = null; preview(null, $('#profile-name')?.value); };
   return st;
@@ -1448,7 +1453,7 @@ function openProfile(intro = false) {
   $('#profile-form').onsubmit = async (e) => {
     if (e.submitter?.value !== 'ok') return;
     e.preventDefault();
-    if (!editProfile.gender) { toast(L('Bitte dein Geschlecht angeben', 'Please choose your gender')); return; }
+    if (!editProfile.gender) { toast(L('Bitte dein Geschlecht angeben', 'Please choose your gender', `Välj ditt kön`)); return; }
     try {
       const r = await api('members/profile', {
         name: m.name, newName: $('#profile-name').value, birthday: $('#profile-birthday').value, gender: editProfile.gender, photo: editProfile.photo,
@@ -1458,7 +1463,7 @@ function openProfile(intro = false) {
       state.weeks.clear();
       await load();
       if (state.money) loadMoney();
-      toast(L('Profil gespeichert', 'Profile saved'));
+      toast(L('Profil gespeichert', 'Profile saved', `Profilen är sparad`));
     } catch (err) { toast(err.message); }
   };
   dlg.showModal();
@@ -1472,9 +1477,10 @@ state.evPeople = null;
 const MONTHS = {
   de: ['Januar', 'Februar', 'März', 'April', 'Mai', 'Juni', 'Juli', 'August', 'September', 'Oktober', 'November', 'Dezember'],
   en: ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'],
+  sv: ['Januari', 'Februari', 'Mars', 'April', 'Maj', 'Juni', 'Juli', 'Augusti', 'September', 'Oktober', 'November', 'December'],
 };
 const TYPE_ICON = { urlaub: '🏖️', meeting: '🗣️', sonstiges: '📅' };
-const typeLabel = (t) => ({ urlaub: L('Urlaub', 'Holiday'), meeting: L('WG-Meeting', 'Flat meeting'), sonstiges: L('Termin', 'Event') }[t]);
+const typeLabel = (t) => ({ urlaub: L('Urlaub', 'Holiday', `Semester`), meeting: L('WG-Meeting', 'Flat meeting', `Husmöte`), sonstiges: L('Termin', 'Event', `Händelse`) }[t]);
 /** Titel eines Eintrags; der Standardtitel "WG-Meeting" wird übersetzt */
 const evTitle = (e) => (e.title && e.title !== 'WG-Meeting' ? e.title : typeLabel(e.type));
 const dowOf = (d) => (new Date(`${d}T12:00:00Z`).getUTCDay() + 6) % 7;
@@ -1493,7 +1499,7 @@ function renderCal() {
   const first = `${state.calMonth}-01`;
   const start = addDays(first, -dowOf(first));
   const evs = state.events || [];
-  const dows = state.lang === 'en' ? ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'] : ['Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So'];
+  const dows = { en: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'], sv: ['mån', 'tis', 'ons', 'tor', 'fre', 'lör', 'sön'] }[state.lang] || ['Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So'];
   let html = dows.map((d) => `<div class="dow">${d}</div>`).join('');
   for (let i = 0; i < 42; i++) {
     const d = addDays(start, i);
@@ -1502,9 +1508,9 @@ function renderCal() {
     const cleaner = wk && wk.cleaner && wk.cleanerDay === d;
     const pills = [];
     const hol = holidayOn(d);
-    if (hol) pills.push(`<span class="pill hol${hol.legal || hol.sunday ? ' closed' : ''}" title="${esc(`${L(hol.de, hol.en)}: ${holidayInfo(hol, state.lang)}`)}">${hol.legal ? '🔴' : hol.sunday ? '' : '⚪'} ${esc(L(hol.de, hol.en))}</span>`);
+    if (hol) pills.push(`<span class="pill hol${hol.legal || hol.sunday ? ' closed' : ''}" title="${esc(`${L(hol.de, hol.en, hol.sv || hol.en)}: ${holidayInfo(hol, state.lang)}`)}">${hol.legal ? '🔴' : hol.sunday ? '' : '⚪'} ${esc(L(hol.de, hol.en, hol.sv || hol.en))}</span>`);
     for (const m of (state.members || []).filter((x) => x.birthday && state.people.includes(x.name) && x.birthday.slice(5) === d.slice(5))) {
-      pills.push(`<span class="pill bday" title="${L('Geburtstag', 'Birthday')}">🎂 ${esc(m.name)}</span>`);
+      pills.push(`<span class="pill bday" title="${L('Geburtstag', 'Birthday', `Födelsedag`)}">🎂 ${esc(m.name)}</span>`);
     }
     for (const e of evs) {
       if (e.from > d || e.to < d) continue;
@@ -1515,12 +1521,12 @@ function renderCal() {
       }
     }
     html += `<div class="day${d.slice(0, 7) !== state.calMonth ? ' out' : ''}${d === state.today ? ' today' : ''}${hol && hol.legal ? ' holiday' : ''}">
-      <span class="n">${+d.slice(8)}${cleaner ? `<span title="${L('Putzkraft', 'Cleaner')}">🧹</span>` : ''}</span>${pills.join('')}</div>`;
+      <span class="n">${+d.slice(8)}${cleaner ? `<span title="${L('Putzkraft', 'Cleaner', `Städhjälp`)}">🧹</span>` : ''}</span>${pills.join('')}</div>`;
   }
   $('#cal-grid').innerHTML = html;
   const hols = berlinHolidays(y).filter((h) => h.date.startsWith(state.calMonth));
   $('#cal-holidays').innerHTML = hols.length
-    ? `<h3>${L('Feiertage in Berlin', 'Holidays in Berlin')}</h3>${hols.map((h) => `<div class="hol-row${h.legal ? ' legal' : ''}"><span>${h.legal ? '🔴' : h.sunday ? '⚫' : '⚪'}</span><span><strong>${fmtDay(h.date)} · ${esc(L(h.de, h.en))}</strong><br><small>${holidayInfo(h, state.lang)}</small></span></div>`).join('')}`
+    ? `<h3>${L('Feiertage in Berlin', 'Holidays in Berlin', `Helgdagar i Berlin`)}</h3>${hols.map((h) => `<div class="hol-row${h.legal ? ' legal' : ''}"><span>${h.legal ? '🔴' : h.sunday ? '⚫' : '⚪'}</span><span><strong>${fmtDay(h.date)} · ${esc(L(h.de, h.en, h.sv || h.en))}</strong><br><small>${holidayInfo(h, state.lang)}</small></span></div>`).join('')}`
     : '';
   renderInbox();
   renderPolls();
@@ -1532,11 +1538,11 @@ function renderInbox() {
   const pending = (state.events || []).filter((e) => e.participants.some((p) => p.name === me && !p.ok));
   const openPolls = (state.polls || []).filter((p) => p.status === 'open' && !(p.votes || {})[me]);
   if (!me || (!pending.length && !openPolls.length)) { $('#cal-inbox').innerHTML = ''; return; }
-  $('#cal-inbox').innerHTML = `<section class="card inbox"><h2>${L('Für dich 📬', 'For you 📬')}</h2>
+  $('#cal-inbox').innerHTML = `<section class="card inbox"><h2>${L('Für dich 📬', 'For you 📬', `Till dig 📬`)}</h2>
     ${pending.map((e) => `<div class="row"><span>${L(`<strong>${esc(e.by || 'Jemand')}</strong> hat dich beim Urlaub ${e.title ? `„${esc(e.title)}“ ` : ''}${fmtDay(e.from)} – ${fmtDay(e.to)} eingetragen.`,
-      `<strong>${esc(e.by || 'Someone')}</strong> added you to the holiday ${e.title ? `"${esc(e.title)}" ` : ''}${fmtDay(e.from)} – ${fmtDay(e.to)}.`)}</span>
-      <span class="row" style="flex:none"><button class="small" data-respond="${esc(e.id)}" data-accept="1">${L('Bin dabei', "I'm in")}</button><button class="ghost small" data-respond="${esc(e.id)}" data-accept="0">${L('Nein', 'No')}</button></span></div>`).join('')}
-    ${openPolls.map((p) => `<div class="row"><span>🗳️ ${L('Stimm ab', 'Vote')}: <strong>${esc(evTitle({ ...p, type: 'meeting' }))}</strong>${p.by ? ` (${L('von', 'from')} ${esc(p.by)})` : ''}</span><button type="button" class="link small" data-goto-poll="${esc(p.id)}">${L('Zur Abstimmung', 'Go to poll')}</button></div>`).join('')}
+      `<strong>${esc(e.by || 'Someone')}</strong> added you to the holiday ${e.title ? `"${esc(e.title)}" ` : ''}${fmtDay(e.from)} – ${fmtDay(e.to)}.`, `<strong>${esc(e.by || 'Någon')}</strong> har lagt till dig i semestern ${e.title ? `"${esc(e.title)}" ` : ''}${fmtDay(e.from)} – ${fmtDay(e.to)}.`)}</span>
+      <span class="row" style="flex:none"><button class="small" data-respond="${esc(e.id)}" data-accept="1">${L('Bin dabei', "I'm in", `Jag är med`)}</button><button class="ghost small" data-respond="${esc(e.id)}" data-accept="0">${L('Nein', 'No', `Nej`)}</button></span></div>`).join('')}
+    ${openPolls.map((p) => `<div class="row"><span>🗳️ ${L('Stimm ab', 'Vote', `Rösta`)}: <strong>${esc(evTitle({ ...p, type: 'meeting' }))}</strong>${p.by ? ` (${L('von', 'from', `från`)} ${esc(p.by)})` : ''}</span><button type="button" class="link small" data-goto-poll="${esc(p.id)}">${L('Zur Abstimmung', 'Go to poll', `Till omröstningen`)}</button></div>`).join('')}
   </section>`;
 }
 
@@ -1549,7 +1555,7 @@ function pollScore(poll, optId) {
 }
 function renderPolls() {
   const open = (state.polls || []).filter((p) => p.status === 'open');
-  const voteLabel = { yes: L('Passt', 'Works'), maybe: L('Vielleicht', 'Maybe'), no: L('Passt nicht', "Doesn't work") };
+  const voteLabel = { yes: L('Passt', 'Works', `Passar`), maybe: L('Vielleicht', 'Maybe', `Kanske`), no: L('Passt nicht', "Doesn't work", `Passar inte`) };
   $('#polls').innerHTML = open.map((poll) => {
     const mine = (poll.votes || {})[state.me] || {};
     const voters = Object.keys(poll.votes || {});
@@ -1557,7 +1563,7 @@ function renderPolls() {
     const best = Math.max(...poll.options.map((o) => pollScore(poll, o.id).score));
     return `<section class="card poll" id="poll-${esc(poll.id)}">
       <h2>🗳️ ${esc(evTitle({ ...poll, type: 'meeting' }))}</h2>
-      <p class="muted small" style="margin:0 0 6px">${L('Angefragt von', 'Requested by')} ${esc(poll.by || '?')} · ${L('abgestimmt', 'voted')}: ${voters.length}/${state.people.length}${missing.length ? ` · ${L('fehlt noch', 'still missing')}: ${missing.map(esc).join(', ')}` : ''}</p>
+      <p class="muted small" style="margin:0 0 6px">${L('Angefragt von', 'Requested by', `Frågat av`)} ${esc(poll.by || '?')} · ${L('abgestimmt', 'voted', `röstat`)}: ${voters.length}/${state.people.length}${missing.length ? ` · ${L('fehlt noch', 'still missing', `saknas fortfarande`)}: ${missing.map(esc).join(', ')}` : ''}</p>
       ${poll.options.map((o) => {
         const sc = pollScore(poll, o.id);
         const who = (v) => voters.filter((n) => poll.votes[n][o.id] === v).map(esc).join(', ');
@@ -1565,10 +1571,10 @@ function renderPolls() {
           <span class="when"><strong>${fmtDay(o.date)}</strong>, ${clock(o.time)}</span>
           <span class="votes">${state.me ? ['yes', 'maybe', 'no'].map((v) => `<button type="button" class="${v}" aria-pressed="${mine[o.id] === v}" data-vote="${esc(poll.id)}" data-opt="${esc(o.id)}" data-val="${v}" aria-label="${voteLabel[v]}">${{ yes: '✅', maybe: '🤔', no: '❌' }[v]}</button>`).join('') : ''}</span>
           <span class="tally">✅ ${sc.yes}${sc.yes ? ` (${who('yes')})` : ''} · 🤔 ${sc.maybe}${sc.maybe ? ` (${who('maybe')})` : ''} · ❌ ${sc.no}${sc.no ? ` (${who('no')})` : ''}
-            · <button type="button" class="link small" data-close="${esc(poll.id)}" data-opt="${esc(o.id)}">${L('Diesen Termin festlegen', 'Pick this date')}</button></span>
+            · <button type="button" class="link small" data-close="${esc(poll.id)}" data-opt="${esc(o.id)}">${L('Diesen Termin festlegen', 'Pick this date', `Välj den här tiden`)}</button></span>
         </div>`;
       }).join('')}
-      <div class="row end" style="margin-top:6px"><button type="button" class="link small" data-poll-del="${esc(poll.id)}">${L('Anfrage löschen', 'Delete request')}</button></div>
+      <div class="row end" style="margin-top:6px"><button type="button" class="link small" data-poll-del="${esc(poll.id)}">${L('Anfrage löschen', 'Delete request', `Ta bort förfrågan`)}</button></div>
     </section>`;
   }).join('');
 }
@@ -1578,19 +1584,19 @@ function renderEvList() {
   $('#ev-list').innerHTML = up.length
     ? up.map((e) => {
       const ppl = e.participants.length === state.people.length && e.type !== 'urlaub'
-        ? L('alle', 'everyone')
-        : e.participants.map((p) => `${esc(p.name)}${p.ok ? '' : L(' (wartet auf Zusage)', ' (waiting to confirm)')}`).join(', ');
+        ? L('alle', 'everyone', `alla`)
+        : e.participants.map((p) => `${esc(p.name)}${p.ok ? '' : L(' (wartet auf Zusage)', ' (waiting to confirm)', ` (väntar på bekräftelse)`)}`).join(', ');
       return `<div class="ev"><div>${TYPE_ICON[e.type]} <strong>${esc(evTitle(e))}</strong>
         <small>${fmtDay(e.from)}${e.to !== e.from ? ` – ${fmtDay(e.to)}` : ''}${e.time ? `, ${clock(e.time)}` : ''} · ${ppl}${e.note ? ` · ${esc(e.note)}` : ''}</small></div>
-        <div class="ev-actions">${e.type === 'meeting' ? `<button class="link small" data-notes="${esc(e.id)}">📝 ${L('Themen & Protokoll', 'Topics & minutes')}${e.topics?.length ? ` (${e.topics.length})` : ''}</button>` : ''}
-        <button class="link small" data-ev-del="${esc(e.id)}">${L('löschen', 'delete')}</button></div></div>`;
+        <div class="ev-actions">${e.type === 'meeting' ? `<button class="link small" data-notes="${esc(e.id)}">📝 ${L('Themen & Protokoll', 'Topics & minutes', `Ämnen & protokoll`)}${e.topics?.length ? ` (${e.topics.length})` : ''}</button>` : ''}
+        <button class="link small" data-ev-del="${esc(e.id)}">${L('löschen', 'delete', `ta bort`)}</button></div></div>`;
     }).join('')
-    : `<p class="empty">${L('Nichts eingetragen.', 'Nothing planned.')}</p>`;
+    : `<p class="empty">${L('Nichts eingetragen.', 'Nothing planned.', `Inget planerat.`)}</p>`;
   const past = (state.events || []).filter((e) => e.type === 'meeting' && e.to < state.today).sort((a, b) => (a.from < b.from ? 1 : -1));
   $('#past-meetings').innerHTML = past.length
-    ? `<h3>${L('Vergangene WG-Meetings', 'Past flat meetings')}</h3>${past.map((e) => `<div class="ev"><div>🗣️ <strong>${esc(evTitle(e))}</strong>
-        <small>${fmtDay(e.from)}${e.minutes?.text ? L(' · Protokoll vorhanden', ' · minutes available') : L(' · noch kein Protokoll', ' · no minutes yet')}</small></div>
-        <button class="link small" data-notes="${esc(e.id)}">📝 ${e.minutes?.text ? L('Protokoll lesen', 'Read minutes') : L('Protokoll schreiben', 'Write minutes')}</button></div>`).join('')}`
+    ? `<h3>${L('Vergangene WG-Meetings', 'Past flat meetings', `Tidigare husmöten`)}</h3>${past.map((e) => `<div class="ev"><div>🗣️ <strong>${esc(evTitle(e))}</strong>
+        <small>${fmtDay(e.from)}${e.minutes?.text ? L(' · Protokoll vorhanden', ' · minutes available', ` · protokoll finns`) : L(' · noch kein Protokoll', ' · no minutes yet', ` · inget protokoll än`)}</small></div>
+        <button class="link small" data-notes="${esc(e.id)}">📝 ${e.minutes?.text ? L('Protokoll lesen', 'Read minutes', `Läs protokoll`) : L('Protokoll schreiben', 'Write minutes', `Skriv protokoll`)}</button></div>`).join('')}`
     : '';
 }
 
@@ -1604,11 +1610,11 @@ function openNotes(id) {
     $('#notes-when').textContent = `${fmtDay(e.from)}${e.time ? `, ${clock(e.time)}` : ''}`;
     $('#notes-topics').innerHTML = (e.topics || []).length
       ? e.topics.map((t) => `<li><span>${esc(t.text)}${t.by ? ` <small class="muted">(${esc(t.by)})</small>` : ''}</span>
-          <button type="button" class="link small" data-topic-del="${esc(t.id)}" aria-label="${L('Thema entfernen', 'Remove topic')}">✕</button></li>`).join('')
-      : `<li class="muted">${L('Noch keine Themen.', 'No topics yet.')}</li>`;
+          <button type="button" class="link small" data-topic-del="${esc(t.id)}" aria-label="${L('Thema entfernen', 'Remove topic', `Ta bort ämne`)}">✕</button></li>`).join('')
+      : `<li class="muted">${L('Noch keine Themen.', 'No topics yet.', `Inga ämnen än.`)}</li>`;
     const m = e.minutes;
     const when = m?.at ? new Date(m.at).toLocaleString(locale(), { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : '';
-    $('#notes-meta').textContent = m?.text ? L(`Zuletzt gespeichert${m.by ? ` von ${m.by}` : ''} am ${when}`, `Last saved${m.by ? ` by ${m.by}` : ''} on ${when}`) : '';
+    $('#notes-meta').textContent = m?.text ? L(`Zuletzt gespeichert${m.by ? ` von ${m.by}` : ''} am ${when}`, `Last saved${m.by ? ` by ${m.by}` : ''} on ${when}`, `Senast sparat${m.by ? ` by ${m.by}` : ''} den ${when}`) : '';
     return e;
   };
   const e = draw();
@@ -1636,7 +1642,7 @@ function openNotes(id) {
     try {
       applyCal(await api('events/notes/minutes', { id, text: $('#notes-minutes').value, by: state.me }));
       draw(); renderEvList(); renderHome();
-      toast(L('Protokoll gespeichert', 'Minutes saved'));
+      toast(L('Protokoll gespeichert', 'Minutes saved', `Protokollet är sparat`));
     } catch (err) { toast(err.message); }
   };
   dlg.showModal();
@@ -1649,15 +1655,15 @@ function renderEvForm() {
   document.querySelectorAll('#ev-type [data-type]').forEach((b) => b.setAttribute('aria-checked', b.dataset.type === t));
   $('#ev-time-wrap').hidden = t !== 'meeting';
   $('#ev-to-wrap').hidden = t === 'meeting';
-  $('#ev-from-label').textContent = t === 'meeting' ? L('Datum', 'Date') : L('Von', 'From');
+  $('#ev-from-label').textContent = t === 'meeting' ? L('Datum', 'Date', `Datum`) : L('Von', 'From', `Från`);
   $('#ev-title').placeholder = {
-    urlaub: L('z.B. Heimaturlaub, Skifahren', 'e.g. visiting family, skiing'),
-    meeting: L('WG-Meeting', 'Flat meeting'),
-    sonstiges: L('z.B. Hausbesichtigung, Party', 'e.g. flat viewing, party'),
+    urlaub: L('z.B. Heimaturlaub, Skifahren', 'e.g. visiting family, skiing', `t.ex. hälsa på familjen, skidåkning`),
+    meeting: L('WG-Meeting', 'Flat meeting', `Husmöte`),
+    sonstiges: L('z.B. Hausbesichtigung, Party', 'e.g. flat viewing, party', `t.ex. visning, fest`),
   }[t];
   if (!state.evPeople) state.evPeople = new Set(t === 'meeting' ? state.people : [state.me].filter(Boolean));
   $('#ev-people').innerHTML = state.people.map((p) => `<button type="button" class="chip" aria-pressed="${state.evPeople.has(p)}" data-evp="${esc(p)}">${esc(p)}</button>`).join('');
-  $('#ev-people-hint').textContent = t === 'urlaub' ? L('Andere, die du hinzufügst, müssen selbst bestätigen, dass sie dabei sind.', 'Anyone else you add has to confirm themselves that they are in.') : '';
+  $('#ev-people-hint').textContent = t === 'urlaub' ? L('Andere, die du hinzufügst, müssen selbst bestätigen, dass sie dabei sind.', 'Anyone else you add has to confirm themselves that they are in.', `Alla andra du lägger till måste själva bekräfta att de är med.`) : '';
 }
 $('#cleaner-open').onclick = () => openCleaner();
 $('#ics-open').onclick = () => {
@@ -1666,13 +1672,13 @@ $('#ics-open').onclick = () => {
     const kinds = [...document.querySelectorAll('#ics-kinds input')].filter((c) => c.checked && !c.closest('label').hidden).map((c) => c.value);
     if (state.me && kinds.includes('dienste')) q.set('p', state.me);
     if (kinds.length < document.querySelectorAll('#ics-kinds input').length - (state.me ? 0 : 1)) q.set('inc', kinds.join(','));
-    if (state.lang === 'en') q.set('lang', 'en');
+    if (state.lang !== 'de') q.set('lang', state.lang);
     const https = `${location.origin}/api/calendar.ics${q.toString() ? `?${q}` : ''}`;
     const webcal = https.replace(/^https?:/, 'webcal:');
     $('#ics-apple').href = webcal;
     $('#ics-google').href = `https://calendar.google.com/calendar/r?cid=${encodeURIComponent(webcal)}`;
     $('#ics-copy').onclick = async () => {
-      try { await navigator.clipboard.writeText(https); toast(L('Link kopiert', 'Link copied')); } catch { prompt(L('Link kopieren:', 'Copy link:'), https); }
+      try { await navigator.clipboard.writeText(https); toast(L('Link kopiert', 'Link copied', `Länken är kopierad`)); } catch { prompt(L('Link kopieren:', 'Copy link:', `Kopiera länken:`), https); }
     };
   };
   $('#ics-mine-row').hidden = !state.me;
@@ -1705,7 +1711,7 @@ $('#ev-people').addEventListener('click', (e) => {
 $('#ev-from').addEventListener('change', () => { if (!$('#ev-to').value || $('#ev-to').value < $('#ev-from').value) $('#ev-to').value = $('#ev-from').value; });
 $('#ev-form').addEventListener('submit', async (e) => {
   e.preventDefault();
-  if (!state.evPeople.size) { toast(L('Bitte mindestens eine Person auswählen', 'Please choose at least one person')); return; }
+  if (!state.evPeople.size) { toast(L('Bitte mindestens eine Person auswählen', 'Please choose at least one person', `Välj minst en person`)); return; }
   try {
     const data = await api('events/add', {
       type: state.evType, title: $('#ev-title').value, from: $('#ev-from').value, to: $('#ev-to').value || $('#ev-from').value,
@@ -1715,14 +1721,14 @@ $('#ev-form').addEventListener('submit', async (e) => {
     $('#ev-form').hidden = true;
     state.weeks.clear();
     await load();
-    toast(state.evType === 'urlaub' && state.evPeople.size > 1 ? L('Eingetragen, die anderen müssen noch zustimmen', 'Added, the others still have to confirm') : L('Eingetragen', 'Added'));
+    toast(state.evType === 'urlaub' && state.evPeople.size > 1 ? L('Eingetragen, die anderen müssen noch zustimmen', 'Added, the others still have to confirm', `Tillagt, de andra måste fortfarande bekräfta`) : L('Eingetragen', 'Added', `Tillagt`));
   } catch (err) { toast(err.message); }
 });
 
 // Meeting-Anfrage
 function pollOptRow(date = '', time = '19:00') {
   return `<div class="poll-opt-row"><input type="date" value="${date}" required><input type="time" value="${time}" required>
-    <button type="button" class="ghost" data-opt-del aria-label="${L('Entfernen', 'Remove')}">✕</button></div>`;
+    <button type="button" class="ghost" data-opt-del aria-label="${L('Entfernen', 'Remove', `Ta bort`)}">✕</button></div>`;
 }
 $('#poll-open').onclick = () => {
   $('#poll-form').hidden = false; $('#ev-form').hidden = true;
@@ -1743,7 +1749,7 @@ $('#poll-form').addEventListener('submit', async (e) => {
     applyCal(await api('polls/add', { title: $('#poll-title').value, options, by: state.me }));
     $('#poll-form').hidden = true;
     renderCal(); renderHome();
-    toast(L('Anfrage verschickt, alle können jetzt abstimmen', 'Request sent, everyone can vote now'));
+    toast(L('Anfrage verschickt, alle können jetzt abstimmen', 'Request sent, everyone can vote now', `Förfrågan skickad, alla kan rösta nu`));
   } catch (err) { toast(err.message); }
 });
 
@@ -1765,15 +1771,15 @@ $('#tab-cal').addEventListener('click', async (e) => {
     if (close) {
       const poll = state.polls.find((p) => p.id === close.dataset.close);
       const o = poll.options.find((x) => x.id === close.dataset.opt);
-      if (!confirm(L(`WG-Meeting auf ${fmtDay(o.date)}, ${o.time} Uhr festlegen? Alle bekommen eine Nachricht.`, `Set the flat meeting for ${fmtDay(o.date)}, ${o.time}? Everyone gets a notification.`))) return;
+      if (!confirm(L(`WG-Meeting auf ${fmtDay(o.date)}, ${o.time} Uhr festlegen? Alle bekommen eine Nachricht.`, `Set the flat meeting for ${fmtDay(o.date)}, ${o.time}? Everyone gets a notification.`, `Bestämma husmötet till ${fmtDay(o.date)}, ${o.time}? Alla får en notis.`))) return;
       applyCal(await api('polls/close', { id: poll.id, optionId: o.id, by: state.me }));
       renderCal(); renderHome();
-      toast(L('Termin steht 🎉', 'Date is set 🎉'));
+      toast(L('Termin steht 🎉', 'Date is set 🎉', `Tiden är bestämd 🎉`));
       return;
     }
     const pdel = t.closest('[data-poll-del]');
     if (pdel) {
-      if (!confirm(L('Anfrage löschen?', 'Delete this request?'))) return;
+      if (!confirm(L('Anfrage löschen?', 'Delete this request?', `Ta bort förfrågan?`))) return;
       applyCal(await api('polls/delete', { id: pdel.dataset.pollDel }));
       renderCal(); renderHome();
       return;
@@ -1783,14 +1789,14 @@ $('#tab-cal').addEventListener('click', async (e) => {
       applyCal(await api('events/respond', { id: resp.dataset.respond, name: state.me, accept: resp.dataset.accept === '1' }));
       state.weeks.clear();
       await load();
-      toast(resp.dataset.accept === '1' ? L('Bestätigt, schönen Urlaub! 🏖️', 'Confirmed, have a great holiday! 🏖️') : L('Abgelehnt', 'Declined'));
+      toast(resp.dataset.accept === '1' ? L('Bestätigt, schönen Urlaub! 🏖️', 'Confirmed, have a great holiday! 🏖️', `Bekräftat, ha en fin semester! 🏖️`) : L('Abgelehnt', 'Declined', `Nekad`));
       return;
     }
     const notes = t.closest('[data-notes]');
     if (notes) { openNotes(notes.dataset.notes); return; }
     const del = t.closest('[data-ev-del]');
     if (del) {
-      if (!confirm(L('Eintrag löschen?', 'Delete this entry?'))) return;
+      if (!confirm(L('Eintrag löschen?', 'Delete this entry?', `Ta bort posten?`))) return;
       applyCal(await api('events/delete', { id: del.dataset.evDel }));
       state.weeks.clear();
       await load();
@@ -1824,7 +1830,7 @@ markJoinLang();
 showTab();
 if (currentTab() !== 'shop') api('shop').then((d) => { state.shop = d; renderShop(); }).catch(() => {});
 load().catch((e) => {
-  $('#week').innerHTML = `<div class="card"><p>${L(`Der Plan konnte nicht geladen werden (${esc(e.message)}). Bitte später nochmal versuchen.`, `The rota could not be loaded (${esc(e.message)}). Please try again later.`)}</p></div>`;
+  $('#week').innerHTML = `<div class="card"><p>${L(`Der Plan konnte nicht geladen werden (${esc(e.message)}). Bitte später nochmal versuchen.`, `The rota could not be loaded (${esc(e.message)}). Please try again later.`, `Schemat kunde inte laddas (${esc(e.message)}). Försök igen senare.`)}</p></div>`;
 });
 document.addEventListener('visibilitychange', () => {
   if (document.visibilityState !== 'visible') return;
