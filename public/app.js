@@ -2212,7 +2212,7 @@ function renderCal() {
         pills.push(`<span class="pill ${e.type}" title="${esc(evTitle(e))}">${e.time ? `${e.time} ` : ''}${esc(evTitle(e))}</span>`);
       }
     }
-    html += `<div class="day${d.slice(0, 7) !== state.calMonth ? ' out' : ''}${d === state.today ? ' today' : ''}${hol && hol.legal ? ' holiday' : ''}">
+    html += `<div data-day="${d}" class="day${d.slice(0, 7) !== state.calMonth ? ' out' : ''}${d === state.today ? ' today' : ''}${hol && hol.legal ? ' holiday' : ''}">
       <span class="n">${+d.slice(8)}${cleaner ? `<span title="${L('Putzkraft', 'Cleaner', `Städhjälp`)}">🧹</span>` : ''}</span>${pills.join('')}</div>`;
   }
   $('#cal-grid').innerHTML = html;
@@ -2538,7 +2538,19 @@ async function moveCal(n) {
 }
 $('#cal-prev').onclick = () => moveCal(-1);
 // Wie Google Kalender: nach links/rechts wischen = Monat wechseln, „Hochwischen“ zeigt den Rest
-$('#cal-more').onclick = () => document.querySelector('#tab-cal .cal-info').scrollIntoView({ behavior: 'smooth', block: 'start' });
+// Tag im Raster antippen: dort einen Termin eintragen
+$('#cal-grid').addEventListener('click', (e) => {
+  const d = e.target.closest('[data-day]');
+  if (!d || e.target.closest('[data-respond],[data-notes]')) return;
+  $('#ev-open').click();
+  state.evType = 'sonstiges';
+  $('#ev-from').value = d.dataset.day;
+  if ($('#ev-to')) $('#ev-to').value = d.dataset.day;
+  renderEvForm();
+  $('#ev-from').value = d.dataset.day;
+  if ($('#ev-to')) $('#ev-to').value = d.dataset.day;
+  setTimeout(() => $('#ev-title').focus(), 300);
+});
 {
   let sx = 0; let sy = 0;
   const g = $('#cal-grid');

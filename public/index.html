@@ -176,19 +176,16 @@
         </div>
         <div class="month-strip" id="cal-months"></div>
         <div class="cal" id="cal-grid"></div>
-        <button type="button" class="cal-more" id="cal-more">⌃ Hochwischen für Termine &amp; mehr</button>
+        <button type="button" class="cal-bar" id="ev-open">+ Eintrag</button>
       </section>
-      <section class="card cal-info">
-        <p class="muted small cal-legend">🧹 Putzkraft · <span class="pill-demo urlaub">Urlaub</span> <span class="pill-demo meeting">Meeting</span> <span class="pill-demo sonstiges">Termin</span> · <span class="cal-today-dot"></span> heute<br>🔴 gesetzlicher Feiertag, alles zu · ⚪ Feiertag, aber offen</p>
-        <div id="cal-holidays" class="cal-holidays"></div>
-      </section>
-      <div id="cal-inbox"></div>
-      <div class="row cal-actions">
-        <button type="button" id="ev-open">+ Eintrag</button>
-        <button type="button" class="ghost" id="poll-open">🗳️ WG-Meeting anfragen</button>
-        <button type="button" class="ghost" id="cleaner-open">🧹 Putzkraft</button>
-        <button type="button" class="ghost" id="ics-open">📲 Handy-Kalender</button>
+      <p class="muted small cal-legend">🧹 Putzkraft · <span class="pill-demo urlaub">Urlaub</span> <span class="pill-demo meeting">Meeting</span> <span class="pill-demo sonstiges">Termin</span> · <span class="cal-today-dot"></span> heute<br>🔴 gesetzlicher Feiertag, alles zu · ⚪ Feiertag, aber offen<br>Tipp: Tippe auf einen Tag, um dort etwas einzutragen.</p>
+      <div class="cal-actions">
+        <button type="button" class="ghost cal-bar" id="poll-open">🗳️ WG-Meeting anfragen</button>
+        <button type="button" class="ghost cal-bar" id="cleaner-open">🧹 Putzkraft</button>
+        <button type="button" class="ghost cal-bar" id="ics-open">📲 Handy-Kalender</button>
       </div>
+      <div id="cal-inbox"></div>
+      <section class="card cal-info" id="cal-holidays-card"><div id="cal-holidays" class="cal-holidays"></div></section>
       <form class="card" id="ev-form" hidden>
         <h2>Neuer Eintrag</h2>
         <div class="seg three-seg" id="ev-type" role="radiogroup" aria-label="Kategorie">

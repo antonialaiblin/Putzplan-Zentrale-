@@ -610,3 +610,11 @@ body.guest #logout { display: none !important; }
 .month-strip button small { font-size: 9px; font-weight: 500; opacity: .7; }
 .month-strip button.now { border-color: var(--accent); }
 .month-strip button.on { background: var(--accent); color: var(--accent-text); border-color: var(--accent); }
+
+/* Kalender: Balken untereinander, volle Breite */
+.cal-bar { display: block; width: 100%; padding: 12px 14px; font-size: 15px; }
+#tab-cal .cal-full .cal-bar { margin-top: 8px; flex: none; }
+.cal-actions { display: flex; flex-direction: column; gap: 8px; margin: 10px 0 14px; }
+#tab-cal .cal-legend { margin: 0 4px; text-align: center; }
+#tab-cal .cal .day { cursor: pointer; }
+#cal-holidays-card:has(#cal-holidays:empty) { display: none; }
