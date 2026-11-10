@@ -573,3 +573,8 @@ body.bday .tabbar a span::after { content: '🎁'; font-size: 11px; position: ab
 .stars { display: flex; gap: 6px; margin: 4px 0 10px; }
 .stars button { font-size: 32px; background: none; border: 0; color: #f5b301; cursor: pointer; padding: 0 2px; line-height: 1; }
 .fb-quote { margin: 6px 0; padding: 8px 12px; border-left: 3px solid var(--accent); background: var(--accent-soft); border-radius: 8px; width: 100%; }
+
+/* Übersicht anpassen: gut sichtbar */
+.dash-top { display: flex; justify-content: flex-end; margin: 0 0 10px; }
+.edit-pill { display: inline-flex; align-items: center; gap: 6px; padding: 8px 14px; border-radius: 999px; border: 0; background: var(--accent); color: var(--accent-text); font-weight: 700; font-size: 14px; cursor: pointer; box-shadow: 0 3px 10px rgba(0,0,0,.18); }
+.edit-big { width: 100%; padding: 14px 16px; border-radius: 16px; border: 2px dashed var(--accent); background: var(--accent-soft); color: var(--accent); font-weight: 700; font-size: 15px; cursor: pointer; }
