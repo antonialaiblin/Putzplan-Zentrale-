@@ -121,6 +121,10 @@ async function load() {
   if (!state.view || !state.weeks.has(state.view)) state.view = state.current;
   syncLang();
   render();
+  maybeAskProfile();
+}
+/** Wer noch keinen Geburtstag/kein Geschlecht eingetragen hat, wird einmal pro Besuch gefragt */
+function maybeAskProfile() {
   const me = memberOf(state.me);
   if (me && (!me.birthday || !me.gender) && !state.askedProfile && !$('#profile-dialog').open) {
     state.askedProfile = true;
@@ -340,6 +344,7 @@ document.addEventListener('click', async (e) => {
     render();
     if (state.money) renderMoney();
     renderShop();
+    maybeAskProfile();
     return;
   }
   if (e.target.closest('[data-open-settings]')) {
