@@ -115,6 +115,7 @@ async function load() {
   state.events = data.events || [];
   state.polls = data.polls || [];
   state.surveys = data.surveys || [];
+  state.swapRequests = data.swapRequests || [];
   state.cleanerContact = data.cleanerContact || null;
   state.today = data.today;
   state.current = data.current;
@@ -143,6 +144,7 @@ async function ensureWeek(monday) {
 // ---------------- Rendern ----------------
 function render() {
   renderMe();
+  renderSwapInbox();
   renderHome();
   renderSurveys();
   renderCal();
@@ -233,7 +235,10 @@ function renderWeek() {
         return `<label class="check${c ? ' done' : ''}"><input type="checkbox" data-check="${esc(key)}" ${c ? 'checked' : ''}>
           <span>${esc(T(it.label))}${c?.by ? `<small>${L('erledigt von', 'done by')} ${esc(c.by)}</small>` : ''}</span></label>`;
       }).join('')}
-      ${t.person ? `<div class="actions"><button class="ghost small" data-swap="${t.key}">${L('Tauschen', 'Swap')}</button></div>` : ''}
+      ${t.person ? (() => {
+        const req = openSwaps().find((r) => r.monday === w.monday && r.task === t.key);
+        return `<div class="actions">${req ? `<span class="muted small">⏳ ${L(`Tausch-Anfrage an ${esc(req.to)} läuft`, `Swap request to ${esc(req.to)} pending`)}</span>` : ''}<button class="ghost small" data-swap="${t.key}">${L('Tauschen', 'Swap')}</button></div>`;
+      })() : ''}
     </article>`;
   }
   $('#week').innerHTML = html;
@@ -370,6 +375,17 @@ document.addEventListener('click', async (e) => {
     setTimeout(() => { $('#settings').open = true; $('#settings').scrollIntoView({ behavior: 'smooth' }); }, 50);
     return;
   }
+  const ans = e.target.closest('[data-swap-answer]');
+  const canc = e.target.closest('[data-swap-cancel]');
+  if (ans || canc) {
+    try {
+      if (canc) await api('swap/cancel', { id: canc.dataset.swapCancel, by: state.me });
+      else await api('swap/answer', { id: ans.dataset.swapAnswer, name: state.me, accept: ans.dataset.accept === '1' });
+      await reloadWeeks();
+      toast(canc ? L('Anfrage zurückgezogen', 'Request withdrawn') : ans.dataset.accept === '1' ? L('Getauscht, der Putzplan ist angepasst', 'Swapped, the rota has been updated') : L('Abgelehnt', 'Declined'));
+    } catch (err) { toast(err.message); await reloadWeeks(); }
+    return;
+  }
   const swapBtn = e.target.closest('[data-swap]');
   if (swapBtn) { openSwap(swapBtn.dataset.swap); return; }
 
@@ -455,26 +471,74 @@ async function go(days) {
   } catch (e) { toast(e.message); }
 }
 
+const openSwaps = () => (state.swapRequests || []).filter((r) => r.status === 'open' && addDays(r.monday, 6) >= (state.today || ''));
+const taskTitle = (key) => T({ woche: 'Wochendienst', 'bad-vorne': 'Vorderes Bad + extra Klo', 'bad-hinten': 'Hinteres Bad' }[key] || key);
+const weekOf = (m) => L(`Woche ab ${ddmm(m)}`, `week of ${ddmm(m)}`);
+
 function openSwap(taskKey) {
   const w = state.weeks.get(state.view);
   const t = w.tasks.find((x) => x.key === taskKey);
-  $('#swap-title').textContent = L(`${t.title} tauschen`, `Swap: ${T(t.title)}`);
-  $('#swap-text').textContent = L(`Wer übernimmt diese Woche (${ddmm(w.monday)} – ${ddmm(w.sunday)}) statt ${t.person}? Sagt am besten auch kurz in der WG-Gruppe Bescheid.`,
-    `Who takes over this week (${ddmm(w.monday)} – ${ddmm(w.sunday)}) instead of ${t.person}? Best to also give a quick heads-up in the flat group.`);
-  $('#swap-people').innerHTML = state.people.filter((p) => p !== t.person)
-    .map((p) => `<button type="button" data-swap-to="${esc(p)}">${esc(p)}${p === t.planned ? L(' (laut Plan)', ' (as planned)') : ''}</button>`).join('');
   const dlg = $('#swap-dialog');
-  $('#swap-people').onclick = async (e) => {
-    const b = e.target.closest('[data-swap-to]');
-    if (!b) return;
-    const person = b.dataset.swapTo === t.planned ? null : b.dataset.swapTo;
-    const nw = await api('swap', { monday: state.view, task: taskKey, person });
-    state.weeks.set(nw.monday, nw);
-    dlg.close();
-    render();
-    toast(L('Getauscht', 'Swapped'));
+  $('#swap-title').textContent = L(`${t.title} tauschen`, `Swap: ${T(t.title)}`);
+  const box = $('#swap-people');
+  if (!state.me) { toast(L('Wähle zuerst oben aus, wer du bist.', 'First choose who you are at the top.')); return; }
+  if (state.me !== t.person) {
+    $('#swap-text').textContent = L(`Diese Woche ist ${t.person} dran. Nur ${t.person} kann für diesen Dienst eine Tausch-Anfrage stellen.`,
+      `${t.person} is on duty this week. Only ${t.person} can send a swap request for this duty.`);
+    box.innerHTML = '';
+    dlg.showModal();
+    return;
+  }
+  $('#swap-text').textContent = L(`Wen möchtest du fragen, ob er oder sie „${t.title}“ in der ${weekOf(w.monday)} übernimmt? Die Person bekommt eine Nachricht und muss zustimmen, erst dann wird getauscht.`,
+    `Who do you want to ask to take over "${T(t.title)}" in the ${weekOf(w.monday)}? They get a notification and have to accept before anything changes.`);
+  const step1 = () => {
+    box.innerHTML = state.people.filter((p) => p !== t.person)
+      .map((p) => `<button type="button" data-swap-to="${esc(p)}">${avatar(p, 'sm')}${esc(p)}</button>`).join('');
+  };
+  const step2 = (to) => {
+    // Dienste der anderen Person in den nächsten Wochen, die ich im Gegenzug übernehmen kann
+    const opts = [...state.weeks.values()].filter((x) => x.monday >= state.current).sort((a, b) => (a.monday < b.monday ? -1 : 1))
+      .flatMap((x) => x.tasks.filter((y) => y.person === to).map((y) => ({ monday: x.monday, task: y.key, label: `${T(y.title)} · ${weekOf(x.monday)}` })));
+    box.innerHTML = `<div class="swap-step">
+      <p><strong>${L(`Anfrage an ${esc(to)}`, `Request to ${esc(to)}`)}</strong></p>
+      <label class="field"><span>${L(`Übernimmst du dafür einen Dienst von ${esc(to)}? (optional)`, `Will you take over one of ${esc(to)}'s duties in return? (optional)`)}</span>
+        <select id="swap-back"><option value="">${L('Nein, einfach nur abgeben', 'No, just hand it over')}</option>
+        ${opts.map((o) => `<option value="${o.monday}|${o.task}">${esc(o.label)}</option>`).join('')}</select></label>
+      <div class="row end"><button type="button" class="ghost" data-swap-backstep>${L('Zurück', 'Back')}</button><button type="button" data-swap-send="${esc(to)}">${L('Anfrage senden', 'Send request')}</button></div></div>`;
+  };
+  step1();
+  box.onclick = async (e) => {
+    const p = e.target.closest('[data-swap-to]');
+    if (p) { step2(p.dataset.swapTo); return; }
+    if (e.target.closest('[data-swap-backstep]')) { step1(); return; }
+    const send = e.target.closest('[data-swap-send]');
+    if (!send) return;
+    const [bm, bt] = ($('#swap-back').value || '|').split('|');
+    try {
+      const r = await api('swap/request', { monday: w.monday, task: taskKey, by: state.me, to: send.dataset.swapSend, back: bm ? { monday: bm, task: bt } : null });
+      state.swapRequests = r.swapRequests;
+      dlg.close();
+      render();
+      toast(L(`Anfrage an ${send.dataset.swapSend} geschickt`, `Request sent to ${send.dataset.swapSend}`));
+    } catch (err) { toast(err.message); }
   };
   dlg.showModal();
+}
+
+function renderSwapInbox() {
+  const me = state.me;
+  const reqs = openSwaps();
+  const inc = reqs.filter((r) => r.to === me);
+  const out = reqs.filter((r) => r.by === me);
+  const html = !me || (!inc.length && !out.length) ? '' : `<section class="card inbox"><h2>${L('Tauschen 🔁', 'Swaps 🔁')}</h2>
+    ${inc.map((r) => `<div class="swap-req"><p>${L(`<strong>${esc(r.by)}</strong> möchte mit dir Putzdienst tauschen: Du übernimmst <strong>${taskTitle(r.task)}</strong> (${weekOf(r.monday)})`,
+      `<strong>${esc(r.by)}</strong> would like to swap cleaning duty with you: you take over <strong>${taskTitle(r.task)}</strong> (${weekOf(r.monday)})`)}${r.back
+      ? L(`, dafür übernimmt ${esc(r.by)} dein <strong>${taskTitle(r.back.task)}</strong> (${weekOf(r.back.monday)}).`, `, and ${esc(r.by)} takes over your <strong>${taskTitle(r.back.task)}</strong> (${weekOf(r.back.monday)}).`) : '.'}</p>
+      <div class="row"><button class="small" data-swap-answer="${esc(r.id)}" data-accept="1">${L('Zusagen', 'Accept')}</button><button class="ghost small" data-swap-answer="${esc(r.id)}" data-accept="0">${L('Ablehnen', 'Decline')}</button></div></div>`).join('')}
+    ${out.map((r) => `<div class="row"><span class="small">⏳ ${L(`Warte auf ${esc(r.to)}: ${taskTitle(r.task)} (${weekOf(r.monday)})`, `Waiting for ${esc(r.to)}: ${taskTitle(r.task)} (${weekOf(r.monday)})`)}</span>
+      <button class="link small" data-swap-cancel="${esc(r.id)}">${L('zurückziehen', 'withdraw')}</button></div>`).join('')}
+  </section>`;
+  for (const id of ['#swap-inbox', '#swap-inbox-home']) if ($(id)) $(id).innerHTML = html;
 }
 
 async function reloadWeeks() {

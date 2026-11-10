@@ -1,6 +1,7 @@
 import { DurableObject } from 'cloudflare:workers';
 import { computeWeek, simulate, mondayOf, addDays, berlinNow, INITIAL_MEMBERS, CYCLE_START } from './plan.js';
-import { weeklyMessages, fridayMessages, ausfallMessages, cleanerAskMessage, cleanerVisitMessages, meetingPrepMessages, dayLabel } from './messages.js';
+import { weeklyMessages, fridayMessages, ausfallMessages, cleanerAskMessage, cleanerVisitMessages, meetingPrepMessages, dayLabel, ddmm } from './messages.js';
+import { tr } from '../public/i18n.js';
 import { buildIcs, ICS_KINDS } from './ics.js';
 import { generateVapidKeys, vapidPublicRaw, sendPush } from './webpush.js';
 import { balancesByCurrency, peopleIn, parseSplitwise, computeParts, parseAmount, parseEuro, CURRENCIES, SHOP_CATEGORIES } from './money.js';
@@ -65,6 +66,10 @@ export class Putzplan extends DurableObject {
     return names.includes(c) ? c : null;
   }
   /** Umfragen: {id, question, options:[{id,text}], multi, by, votes:{Name:[optId]}, status, at, doneNotified} */
+  /** Tausch-Anfragen: {id, by, to, monday, task, back: {monday, task}|null, status: open|accepted|declined, at} */
+  async swapRequests() {
+    return (await this.ctx.storage.get('swapRequests')) || [];
+  }
   async surveys() {
     return (await this.ctx.storage.get('surveys')) || [];
   }
@@ -205,6 +210,7 @@ export class Putzplan extends DurableObject {
     const validMonday = (m) => typeof m === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(m) && mondayOf(m) === m;
     const isDay = (d) => typeof d === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(d);
     const isTime = (t) => typeof t === 'string' && /^\d{2}:\d{2}$/.test(t);
+    const rid = () => `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
 
     // Kalender-Abo für Apple/Google Kalender
     if (path === '/calendar.ics' && request.method === 'GET') {
@@ -225,7 +231,7 @@ export class Putzplan extends DurableObject {
       const from = validMonday(url.searchParams.get('from')) ? url.searchParams.get('from') : addDays(current, -7);
       const count = Math.min(Math.max(Number(url.searchParams.get('count')) || 12, 1), 30);
       const weeks = await this.weeks([...Array(count)].map((_, i) => addDays(from, i * 7)));
-      return json({ people: PEOPLE, members: await this.members(), absences: await this.absences(), events: await this.events(), polls: await this.polls(), surveys: await this.surveys(), cleanerContact: await this.cleanerContact(), current, today: berlinNow().day, weeks });
+      return json({ people: PEOPLE, members: await this.members(), absences: await this.absences(), events: await this.events(), polls: await this.polls(), surveys: await this.surveys(), swapRequests: await this.swapRequests(), cleanerContact: await this.cleanerContact(), current, today: berlinNow().day, weeks });
     }
 
     if (path === '/check' && request.method === 'POST') {
@@ -246,6 +252,76 @@ export class Putzplan extends DurableObject {
       else delete ov.swaps[task];
       await this.ctx.storage.put(`ov:${monday}`, ov);
       return json(await this.week(monday));
+    }
+
+    // Tauschen nur mit Zustimmung der anderen Person
+    if (path.startsWith('/swap/') && request.method === 'POST') {
+      const TASKS = ['woche', 'bad-vorne', 'bad-hinten'];
+      let list = (await this.swapRequests()).filter((r) => r.status === 'open' || Date.now() - r.at < 14 * 864e5);
+      const save = async () => { await this.ctx.storage.put('swapRequests', list); return json({ swapRequests: list }); };
+      const taskOf = async (monday, key) => (await this.week(monday)).tasks.find((t) => t.key === key);
+      const wk = (m, l) => (l === 'en' ? `the week of ${ddmm(m, l)}` : `der Woche ab ${ddmm(m, l)}`);
+      if (path === '/swap/request') {
+        const { monday, task, by, to, back } = body;
+        if (!validMonday(monday) || !TASKS.includes(task) || !PEOPLE.includes(by) || !PEOPLE.includes(to) || by === to) return json({ error: 'bad request' }, 400);
+        const t = await taskOf(monday, task);
+        if (!t || t.person !== by) return json({ error: 'Nur wer gerade dran ist, kann diesen Dienst tauschen.' }, 400);
+        let b = null;
+        if (back && validMonday(back.monday) && TASKS.includes(back.task)) {
+          const bt = await taskOf(back.monday, back.task);
+          if (!bt || bt.person !== to) return json({ error: 'Diesen Dienst hat die andere Person nicht.' }, 400);
+          b = { monday: back.monday, task: back.task };
+        }
+        list = list.filter((r) => !(r.status === 'open' && r.monday === monday && r.task === task));
+        const r = { id: rid(), by, to, monday, task, back: b, status: 'open', at: Date.now() };
+        list.push(r);
+        const bTitle = b ? (await taskOf(b.monday, b.task)).title : '';
+        await this.pushToPerson(to, (l) => {
+          const L = pick(l);
+          return {
+            title: L(`🔁 ${by} möchte mit dir Putzdienst tauschen`, `🔁 ${by} would like to swap cleaning duty with you`),
+            body: L(`Du übernimmst „${t.title}“ in ${wk(monday, 'de')}`, `You take over "${tr(t.title, 'en')}" in ${wk(monday, 'en')}`)
+              + (b ? L(`, dafür übernimmt ${by} dein „${bTitle}“ in ${wk(b.monday, 'de')}.`, `, and ${by} takes over your "${tr(bTitle, 'en')}" in ${wk(b.monday, 'en')}.`) : '.')
+              + L(' Tipp hier, um zuzusagen oder abzulehnen.', ' Tap to accept or decline.'),
+            url: '/#plan',
+          };
+        });
+        return save();
+      }
+      const r = list.find((x) => x.id === body.id && x.status === 'open');
+      if (!r) return json({ error: 'Diese Anfrage gibt es nicht mehr.' }, 404);
+      if (path === '/swap/cancel') {
+        list = list.filter((x) => x !== r);
+        return save();
+      }
+      if (path === '/swap/answer') {
+        if (body.name !== r.to) return json({ error: 'Nur die angefragte Person kann antworten.' }, 400);
+        const t = await taskOf(r.monday, r.task);
+        if (body.accept) {
+          if (!t || t.person !== r.by) return json({ error: 'Der Dienst hat sich inzwischen geändert. Die Anfrage ist nicht mehr gültig.' }, 400);
+          const apply = async (monday, task, person, planned) => {
+            const ov = await this.overrides(monday);
+            ov.swaps = ov.swaps || {};
+            if (person === planned) delete ov.swaps[task]; else ov.swaps[task] = person;
+            await this.ctx.storage.put(`ov:${monday}`, ov);
+          };
+          await apply(r.monday, r.task, r.to, t.planned);
+          if (r.back) {
+            const bt = await taskOf(r.back.monday, r.back.task);
+            if (bt && bt.person === r.to) await apply(r.back.monday, r.back.task, r.by, bt.planned);
+          }
+        }
+        r.status = body.accept ? 'accepted' : 'declined';
+        r.answeredAt = Date.now();
+        await this.pushToPerson(r.by, (l) => {
+          const L = pick(l);
+          return body.accept
+            ? { title: L(`✅ ${r.to} hat dem Tausch zugestimmt`, `✅ ${r.to} accepted the swap`), body: L(`${r.to} übernimmt „${t.title}“ in ${wk(r.monday, 'de')}. Der Putzplan ist angepasst.`, `${r.to} takes over "${tr(t.title, 'en')}" in ${wk(r.monday, 'en')}. The rota has been updated.`), url: '/#plan' }
+            : { title: L(`❌ ${r.to} kann leider nicht tauschen`, `❌ ${r.to} can't swap`), body: L(`Frag am besten jemand anderen für „${t.title}“ in ${wk(r.monday, 'de')}.`, `Best ask someone else for "${tr(t.title, 'en')}" in ${wk(r.monday, 'en')}.`), url: '/#plan' };
+        });
+        return save();
+      }
+      return json({ error: 'bad request' }, 400);
     }
 
     if (path === '/ausfall' && request.method === 'POST') {
@@ -487,7 +563,6 @@ export class Putzplan extends DurableObject {
     }
 
     // ---------- Kalender ----------
-    const rid = () => `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
     const calState = async () => json({ events: await this.events(), polls: await this.polls(), absences: await this.absences() });
     const TYPES = ['urlaub', 'meeting', 'sonstiges'];
     const label = (t) => ({ urlaub: 'Urlaub', meeting: 'WG-Meeting', sonstiges: 'Termin' }[t]);

@@ -395,3 +395,12 @@ img.logo { padding: 0; object-fit: cover; }
 label.check-row { display: flex; gap: 10px; align-items: center; justify-content: flex-start; margin: 8px 0; }
 label.check-row input { width: 20px; height: 20px; flex: none; margin: 0; }
 label.check-row span { flex: 1; }
+
+/* Tausch-Anfragen */
+.swap-req { padding: 8px 0; border-bottom: 1px solid var(--line); }
+.swap-req p { margin: 0 0 8px; }
+.swap-step select { width: 100%; }
+#swap-people button { display: inline-flex; align-items: center; }
+.task .actions { display: flex; align-items: center; justify-content: flex-end; gap: 10px; }
+.inbox .swap-req .row { justify-content: flex-start; gap: 8px; }
+.swap-req:last-child { border-bottom: 0; }
