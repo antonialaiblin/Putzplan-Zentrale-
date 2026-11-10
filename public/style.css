@@ -484,3 +484,21 @@ body.not-home:not(.no-me) main { padding-top: calc(16px + env(safe-area-inset-to
 .note .react-chip span { color: rgba(0,0,0,.55); font-size: 11px; }
 .note .react-chip[aria-pressed="true"] { background: rgba(255,255,255,.55); border-color: rgba(0,0,0,.4); }
 .note .react-plus { border-color: rgba(0,0,0,.3); color: rgba(0,0,0,.55); padding: 1px 6px; font-size: 11px; }
+
+/* Gamification */
+.confetti { position: fixed; inset: 0; width: 100vw; height: 100vh; pointer-events: none; z-index: 9999; }
+.streak-line { margin: 8px 0 0; font-size: 14px; }
+.badges-card { cursor: pointer; }
+.b-icons { display: flex; flex-wrap: wrap; gap: 8px; font-size: 28px; margin: 4px 0 6px; }
+.b-icons sup, .b-row sup { font-size: 10px; font-weight: 700; color: var(--muted); }
+.bdg-list { display: grid; gap: 8px; width: 100%; }
+.bdg { display: flex; gap: 10px; align-items: center; padding: 8px 10px; border: 1px solid var(--line); border-radius: 12px; }
+.bdg .b-icon { font-size: 28px; }
+.bdg small { display: block; color: var(--muted); font-size: 12px; }
+.bdg .stars { font-size: 12px; }
+.bdg.locked { opacity: .5; }
+.bdg.locked .b-icon { filter: grayscale(1); }
+.b-row { width: 100%; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin: 6px 0; font-size: 18px; }
+.b-row strong { font-size: 15px; margin-right: 4px; }
+.plan-streak { margin: 0 4px 12px; }
+#swap-people .add-h { width: 100%; }

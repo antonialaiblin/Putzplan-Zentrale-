@@ -209,6 +209,59 @@ export class Putzplan extends DurableObject {
     if (changed) await this.ctx.storage.put('recurring', list);
     return list;
   }
+  /** Zähler für Abzeichen (Einkäufe, übernommene Dienste) */
+  async bump(person, what) {
+    if (!(await this.names()).includes(person)) return;
+    const s = (await this.ctx.storage.get('stats')) || {};
+    s[person] = s[person] || {};
+    s[person][what] = (s[person][what] || 0) + 1;
+    await this.ctx.storage.put('stats', s);
+  }
+  /** WG-Serie und Abzeichen aus dem Putzplan berechnen */
+  async gami() {
+    const current = mondayOf(berlinNow().day);
+    const mondays = [];
+    for (let m = CYCLE_START; m <= current && mondays.length < 400; m = addDays(m, 7)) mondays.push(m);
+    const weeks = mondays.length ? await this.weeks(mondays) : [];
+    const keysOf = (w) => w.tasks.flatMap((t) => t.items.map((it) => ({ k: `${t.key}:${it.id}`, owner: it.person || t.person, task: t })));
+    const complete = (w) => { const ks = keysOf(w); return ks.length > 0 && ks.every((x) => w.checks[x.k]); };
+    // Serie: abgeschlossene Wochen rückwärts zählen, die laufende Woche zählt mit, sobald sie fertig ist
+    let streak = 0;
+    for (let i = weeks.length - 2; i >= 0; i--) { if (complete(weeks[i])) streak++; else break; }
+    const cur = weeks[weeks.length - 1];
+    const curDone = !!cur && complete(cur);
+    if (curDone) streak++;
+    let best = 0; let run = 0;
+    for (const w of weeks) { if (complete(w)) best = Math.max(best, ++run); else if (w.monday !== current) run = 0; }
+    // Zahlen pro Person
+    const PEOPLE = await this.names();
+    const stats = (await this.ctx.storage.get('stats')) || {};
+    const per = Object.fromEntries(PEOPLE.map((p) => [p, { tasks: 0, baths: 0, rescue: stats[p]?.rescue || 0, punctual: 0, bought: stats[p]?.bought || 0, fridge: 0 }]));
+    for (const w of weeks) {
+      const deadline = Date.parse(`${addDays(w.monday, 4)}T17:00:00Z`);
+      for (const t of w.tasks) {
+        if (!t.items.length) continue;
+        const all = t.items.every((it) => w.checks[`${t.key}:${it.id}`]);
+        const doers = new Set(t.items.map((it) => w.checks[`${t.key}:${it.id}`]?.by).filter((p) => per[p]));
+        for (const it of t.items) {
+          const c = w.checks[`${t.key}:${it.id}`];
+          if (c?.by && per[c.by] && t.key === 'kuehlschrank' && it.person === c.by) per[c.by].fridge++;
+        }
+        if (t.key === 'kuehlschrank') continue;
+        for (const p of doers) {
+          if (all) per[p].tasks++;
+          if (all && t.key.startsWith('bad-')) per[p].baths++;
+          if (t.person && t.person !== p) per[p].rescue++;
+        }
+      }
+      if (w.monday === current && !curDone) continue;
+      for (const p of PEOPLE) {
+        const own = keysOf(w).filter((x) => x.owner === p);
+        if (own.length && own.every((x) => w.checks[x.k] && w.checks[x.k].at <= deadline)) per[p].punctual++;
+      }
+    }
+    return { streak, best, current: curDone, stats: per };
+  }
   async reactions() {
     return (await this.ctx.storage.get('reactions')) || {};
   }
@@ -279,7 +332,7 @@ export class Putzplan extends DurableObject {
       const from = validMonday(url.searchParams.get('from')) ? url.searchParams.get('from') : addDays(current, -7);
       const count = Math.min(Math.max(Number(url.searchParams.get('count')) || 12, 1), 30);
       const weeks = await this.weeks([...Array(count)].map((_, i) => addDays(from, i * 7)));
-      return json({ people: PEOPLE, members: await this.members(), absences: await this.absences(), events: await this.events(), polls: await this.polls(), surveys: await this.surveysFor(url.searchParams.get('me')), swapRequests: await this.swapRequests(), board: await this.board(), reactions: await this.reactions(), cleanerContact: await this.cleanerContact(), current, today: berlinNow().day, weeks });
+      return json({ people: PEOPLE, members: await this.members(), absences: await this.absences(), events: await this.events(), polls: await this.polls(), surveys: await this.surveysFor(url.searchParams.get('me')), swapRequests: await this.swapRequests(), board: await this.board(), reactions: await this.reactions(), gami: await this.gami(), cleanerContact: await this.cleanerContact(), current, today: berlinNow().day, weeks });
     }
 
     if (path === '/check' && request.method === 'POST') {
@@ -288,7 +341,7 @@ export class Putzplan extends DurableObject {
       const k = `check:${monday}:${key}`;
       if (done) await this.ctx.storage.put(k, { by: PEOPLE.includes(by) ? by : null, at: Date.now() });
       else await this.ctx.storage.delete(k);
-      return json(await this.week(monday));
+      return json({ ...(await this.week(monday)), gami: await this.gami() });
     }
 
     // ---------- Reaktionen (Emoji auf erledigte Dienste und Pinnwand-Zettel) ----------
@@ -400,6 +453,7 @@ export class Putzplan extends DurableObject {
             await this.ctx.storage.put(`ov:${monday}`, ov);
           };
           await apply(r.monday, r.task, r.to, t.planned);
+          if (!r.back) await this.bump(r.to, 'rescue');
           if (r.back) {
             const bt = await taskOf(r.back.monday, r.back.task);
             if (bt && bt.person === r.to) await apply(r.back.monday, r.back.task, r.by, bt.planned);
@@ -893,6 +947,7 @@ export class Putzplan extends DurableObject {
       const item = await this.ctx.storage.get(key);
       if (item) {
         await this.ctx.storage.delete(key);
+        await this.bump(body.by, 'bought');
         // Optional direkt als Ausgabe in die WG-Kasse
         const amount = parseEuro(body.price);
         if (amount && PEOPLE.includes(body.by)) {

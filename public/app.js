@@ -169,6 +169,7 @@ async function load() {
   state.swapRequests = data.swapRequests || [];
   state.board = data.board || [];
   state.reactions = data.reactions || {};
+  state.gami = data.gami || null;
   state.cleanerContact = data.cleanerContact || null;
   state.today = data.today;
   state.current = data.current;
@@ -274,6 +275,7 @@ function renderWeek() {
     html += `<div class="banner"><p>🏖️ ${L(`${names} ${w.away.length > 1 ? 'sind' : 'ist'} diese Woche weg und wurde${w.away.length > 1 ? 'n' : ''} im Plan übersprungen.`,
       `${names} ${w.away.length > 1 ? 'are' : 'is'} away this week and ${w.away.length > 1 ? 'were' : 'was'} skipped on the rota.`, `${names} är borta den här veckan och hoppas över i schemat.`)}</p></div>`;
   }
+  if (w.monday === state.current && state.gami) html += `<p class="streak-line plan-streak">${streakLine()}</p>`;
   const tasks = [...w.tasks].sort((a, b) => (b.person === state.me) - (a.person === state.me));
   for (const t of tasks) {
     const items = t.items;
@@ -316,6 +318,97 @@ function renderUpcoming() {
       <td>${p('woche')}</td><td>${p('bad-vorne')}</td><td>${p('bad-hinten')}</td></tr>`);
   }
   $('#upcoming').innerHTML = rows.join('');
+}
+
+// ---------------- Gamification ----------------
+function cheer() {
+  const list = [
+    L('Erledigt! Die WG verneigt sich 🙇', 'Done! The flat bows to you 🙇', 'Klart! Kollektivet bugar sig 🙇'),
+    L('Glänzt wie neu ✨', 'Shiny as new ✨', 'Skiner som ny ✨'),
+    L('Haussegen gerettet 🏡', 'House peace saved 🏡', 'Husfriden räddad 🏡'),
+    L('Legendär. Einfach legendär. 🏆', 'Legendary. Simply legendary. 🏆', 'Legendariskt. Helt enkelt legendariskt. 🏆'),
+    L('Die Staubmäuse haben keine Chance 🐭💨', 'The dust bunnies stand no chance 🐭💨', 'Dammråttorna har ingen chans 🐭💨'),
+    L('Danke! Du bist ein Schatz 💛', "Thanks! You're a gem 💛", 'Tack! Du är en pärla 💛'),
+    L('Check! Weiter so 💪', 'Check! Keep it up 💪', 'Check! Fortsätt så 💪'),
+  ];
+  return list[Math.floor(Math.random() * list.length)];
+}
+function confetti(n = 120) {
+  if (matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+  const c = document.createElement('canvas');
+  c.className = 'confetti';
+  const dpr = devicePixelRatio || 1;
+  c.width = innerWidth * dpr; c.height = innerHeight * dpr;
+  document.body.appendChild(c);
+  const x = c.getContext('2d'); x.scale(dpr, dpr);
+  const colors = ['#ffcc33', '#ff6b6b', '#6cc4a8', '#5aa9ff', '#c38bff', '#ff9f43'];
+  const ps = Array.from({ length: n }, () => ({
+    x: innerWidth / 2 + (Math.random() - 0.5) * 80, y: innerHeight * 0.45,
+    vx: (Math.random() - 0.5) * 14, vy: -Math.random() * 14 - 4, r: Math.random() * Math.PI, vr: (Math.random() - 0.5) * 0.4,
+    w: 6 + Math.random() * 6, h: 4 + Math.random() * 4, c: colors[Math.floor(Math.random() * colors.length)],
+  }));
+  const t0 = performance.now();
+  const step = (t) => {
+    x.clearRect(0, 0, innerWidth, innerHeight);
+    for (const p of ps) {
+      p.vy += 0.35; p.vx *= 0.99; p.x += p.vx; p.y += p.vy; p.r += p.vr;
+      x.save(); x.translate(p.x, p.y); x.rotate(p.r); x.fillStyle = p.c; x.fillRect(-p.w / 2, -p.h / 2, p.w, p.h); x.restore();
+    }
+    if (t - t0 < 2600) requestAnimationFrame(step); else c.remove();
+  };
+  requestAnimationFrame(step);
+}
+const BADGES = [
+  { id: 'tasks', icon: '🧽', name: () => L('Putzteufel', 'Clean machine', 'Städdjävul'), desc: (n) => L(`${n} Dienste komplett erledigt`, `${n} duties fully done`, `${n} tjänster helt klara`), tiers: [1, 10, 25, 50] },
+  { id: 'baths', icon: '🚿', name: () => L('Bad-Profi', 'Bathroom pro', 'Badrumsproffs'), desc: (n) => L(`${n}× Bad geputzt`, `${n}× bathroom cleaned`, `${n}× badrum städat`), tiers: [1, 10, 25] },
+  { id: 'punctual', icon: '⏰', name: () => L('Immer pünktlich', 'Always on time', 'Alltid i tid'), desc: (n) => L(`${n} Wochen alles vor Freitag 18 Uhr erledigt`, `${n} weeks with everything done before Friday 6 pm`, `${n} veckor med allt klart före fredag kl. 18`), tiers: [3, 10, 25] },
+  { id: 'rescue', icon: '🦸', name: (p) => L(G(p, 'Retterin', 'Retter', 'Retter:in'), 'Rescuer', 'Räddare'), desc: (n) => L(`${n}× für jemand anderen eingesprungen`, `${n}× stepped in for someone`, `${n}× hoppat in för någon`), tiers: [1, 5, 15] },
+  { id: 'bought', icon: '🛒', name: (p) => L(G(p, 'Einkaufsheldin', 'Einkaufsheld', 'Einkaufsheld:in'), 'Shopping hero', 'Inköpshjälte'), desc: (n) => L(`${n} Sachen von der Einkaufsliste gekauft`, `${n} things bought from the list`, `${n} saker köpta från listan`), tiers: [5, 20, 50] },
+  { id: 'fridge', icon: '🧊', name: () => L('Kühlschrank-Ordnung', 'Fridge keeper', 'Kylskåpsordning'), desc: (n) => L(`${n}× Kühlschrankfach geputzt`, `${n}× fridge shelf cleaned`, `${n}× kylskåpshylla städad`), tiers: [1, 6, 12] },
+];
+function badgesOf(p) {
+  const s = state.gami?.stats?.[p] || {};
+  return BADGES.map((b) => {
+    const n = s[b.id] || 0;
+    const level = b.tiers.filter((t) => n >= t).length;
+    return { ...b, n, level, next: b.tiers[level] };
+  });
+}
+function badgeHtml(b, p) {
+  const stars = b.level ? '⭐'.repeat(b.level) : '';
+  return `<div class="bdg${b.level ? '' : ' locked'}"><span class="b-icon">${b.icon}</span><div><strong>${esc(b.name(p))}</strong> <span class="stars">${stars}</span>
+    <small>${b.desc(b.n)}${b.next ? ` · ${L(`nächste Stufe bei ${b.next}`, `next level at ${b.next}`, `nästa nivå vid ${b.next}`)}` : ` · ${L('höchste Stufe!', 'top level!', 'högsta nivån!')}`}</small></div></div>`;
+}
+function streakLine() {
+  const g = state.gami;
+  if (!g) return '';
+  return g.streak
+    ? `🔥 ${L(`WG-Serie: <strong>${g.streak} ${g.streak === 1 ? 'Woche' : 'Wochen'}</strong> alles erledigt`, `Flat streak: <strong>${g.streak} ${g.streak === 1 ? 'week' : 'weeks'}</strong> all done`, `Kollektivets svit: <strong>${g.streak} ${g.streak === 1 ? 'vecka' : 'veckor'}</strong> allt klart`)}${g.best > g.streak ? ` <span class="muted small">(${L('Rekord', 'record', 'rekord')}: ${g.best})</span>` : ''}`
+    : `🔥 ${L('Startet eine WG-Serie: Diese Woche alles erledigen!', 'Start a flat streak: get everything done this week!', 'Starta en svit: gör allt den här veckan!')}`;
+}
+function checkNewBadges() {
+  if (!state.me || !state.gami) return;
+  const key = `badges:${state.me}`;
+  let seen = {};
+  try { seen = JSON.parse(localStorage.getItem(key) || '{}'); } catch { /* egal */ }
+  const now = Object.fromEntries(badgesOf(state.me).map((b) => [b.id, b.level]));
+  const fresh = badgesOf(state.me).find((b) => b.level > (seen[b.id] ?? b.level));
+  try { localStorage.setItem(key, JSON.stringify(now)); } catch { /* egal */ }
+  if (fresh) setTimeout(() => { confetti(160); toast(`${L('Neues Abzeichen', 'New badge', 'Nytt märke')}: ${fresh.icon} ${fresh.name(state.me)} ${'⭐'.repeat(fresh.level)}`); }, 1400);
+}
+function openBadges() {
+  const me = state.me;
+  $('#swap-title').textContent = L('🏅 Abzeichen', '🏅 Badges', '🏅 Märken');
+  $('#swap-text').innerHTML = streakLine();
+  const others = state.people.filter((p) => p !== me);
+  $('#swap-people').innerHTML = `<h3 class="add-h">${L('Deine', 'Yours', 'Dina')}</h3><div class="bdg-list">${badgesOf(me).map((b) => badgeHtml(b, me)).join('')}</div>
+    <h3 class="add-h">${L('Die anderen', 'The others', 'De andra')}</h3>${others.map((p) => `<p class="b-row">${avatar(p, 'sm')} <strong>${esc(p)}</strong> ${badgesOf(p).filter((b) => b.level).map((b) => `<span title="${esc(b.name(p))}">${b.icon}${b.level > 1 ? `<sup>${b.level}</sup>` : ''}</span>`).join(' ') || `<span class="muted small">${L('noch keine', 'none yet', 'inga än')}</span>`}</p>`).join('')}`;
+  $('#swap-people').onclick = null;
+  const dlg = $('#swap-dialog');
+  const btn = dlg.querySelector('button[value=cancel]');
+  btn.textContent = L('Schließen', 'Close', 'Stäng');
+  dlg.addEventListener('close', () => { btn.textContent = L('Abbrechen', 'Cancel', 'Avbryt'); }, { once: true });
+  dlg.showModal();
 }
 
 // ---------------- Reaktionen ----------------
@@ -469,6 +562,7 @@ document.addEventListener('click', async (e) => {
     return;
   }
   if (e.target.closest('[data-note-add]')) { openNoteDialog(); return; }
+  if (e.target.closest('[data-open-badges]') && !state.editHome) { openBadges(); return; }
   const nd = e.target.closest('[data-note-del]');
   if (nd) {
     if (!confirm(L('Zettel von der Pinnwand abnehmen?', 'Take this note off the board?', 'Ta ner lappen från anslagstavlan?'))) return;
@@ -581,10 +675,24 @@ document.addEventListener('change', async (e) => {
   const done = e.target.checked;
   e.target.closest('.check').classList.toggle('done', done);
   try {
+    const before = state.gami;
     const w = await api('check', { monday: state.view, key, done, by: state.me });
+    if (w.gami) state.gami = w.gami;
     state.weeks.set(w.monday, w);
     renderWeek();
-    if (done) toast(L('Super, danke! ✨', 'Great, thanks! ✨', `Toppen, tack! ✨`));
+    renderHome();
+    if (done) {
+      const t = w.tasks.find((x) => key.startsWith(`${x.key}:`));
+      const taskDone = t && t.items.every((it) => w.checks[`${t.key}:${it.id}`]);
+      if (state.gami?.current && !before?.current && w.monday === state.current) {
+        confetti(220);
+        toast(L(`Die ganze WG hat diese Woche alles erledigt! 🔥 Serie: ${state.gami.streak}`, `The whole flat got everything done this week! 🔥 Streak: ${state.gami.streak}`, `Hela kollektivet har gjort allt den här veckan! 🔥 Svit: ${state.gami.streak}`));
+      } else if (taskDone) {
+        confetti(110);
+        toast(cheer());
+      } else toast(L('Super, danke! ✨', 'Great, thanks! ✨', `Toppen, tack! ✨`));
+      checkNewBadges();
+    }
   } catch (err) {
     e.target.checked = !done;
     toast(L(`Konnte nicht speichern: ${err.message}`, `Could not save: ${err.message}`, `Kunde inte spara: ${err.message}`));
@@ -1134,6 +1242,7 @@ const WIDGETS = {
   birthdays: { de: 'Nächste Geburtstage', en: 'Next birthdays', sv: 'Nästa födelsedagar', size: 's' },
   holiday: { de: 'Nächster Feiertag', en: 'Next holiday', sv: 'Nästa helgdag', size: 's' },
   shoplist: { de: 'Einkaufsliste', en: 'Shopping list', sv: 'Inköpslista', size: 'w' },
+  badges: { de: 'Abzeichen & WG-Serie', en: 'Badges & streak', sv: 'Märken & svit', size: 'w' },
 };
 const SHORTCUTS = {
   shop: { icon: '🛒', de: 'Einkauf eintragen', en: 'Add to shopping', sv: 'Lägg till inköp' },
@@ -1146,7 +1255,7 @@ const SHORTCUTS = {
   note: { icon: '📌', de: 'Zettel anpinnen', en: 'Pin a note', sv: 'Sätt upp en lapp' },
   invite: { icon: '➕', de: 'Mitglied einladen', en: 'Invite member', sv: 'Bjud in medlem' },
 };
-const DEFAULT_HOME = ['week', 'board', 'plan', 'shop', 'money', 'cal', 'meetings', 'rules'].map((id) => ({ id, size: WIDGETS[id].size }));
+const DEFAULT_HOME = ['week', 'badges', 'board', 'plan', 'shop', 'money', 'cal', 'meetings', 'rules'].map((id) => ({ id, size: WIDGETS[id].size }));
 const widgetName = (id) => (id.startsWith('sc:') ? L(SHORTCUTS[id.slice(3)]?.de || id, SHORTCUTS[id.slice(3)]?.en || id, SHORTCUTS[id.slice(3)]?.sv || id) : L(WIDGETS[id]?.de || id, WIDGETS[id]?.en || id, WIDGETS[id]?.sv || id));
 function homeLayout() {
   if (state.homeDraft) return state.homeDraft;
@@ -1299,12 +1408,20 @@ function renderHome() {
       ${me ? (mine.length ? `<div class="big">${mine.map(esc).join(', ')}</div>
         ${total ? `<p>${L(`${done} von ${total} erledigt`, `${done} of ${total} done`, `${done} av ${total} klart`)}</p><div class="progress"><b style="width:${Math.round((done / total) * 100)}%"></b></div>` : ''}`
         : `<div class="big">${L('Frei diese Woche 🎉', 'Free this week 🎉', `Ledig den här veckan 🎉`)}</div>`) : `<p>${L('Tipp oben auf deinen Namen.', 'Tap your name above.', `Tryck på ditt namn ovan.`)}</p>`}
-      </a>`;
+      ${state.gami ? `<p class="streak-line">${streakLine()}</p>` : ''}</a>`;
     const t = (k) => w.tasks.find((x) => x.key === k);
     tiles.plan = `<a class="card __CLS__" href="#plan"><h3>${L('Putzplan', 'Cleaning', `Städning`)}</h3>
       <p>${L('Wochendienst', 'Weekly duty', `Veckotjänst`)}: <strong>${esc(t('woche')?.person || '–')}</strong></p>
       <p>${L('Bad vorne', 'Front bath', `Främre badrum`)}: ${esc(t('bad-vorne')?.person || '–')}</p><p>${L('Bad hinten', 'Back bath', `Bakre badrum`)}: ${esc(t('bad-hinten')?.person || '–')}</p>
       <p class="muted">${w.cleaner ? `🧹 ${L('Putzkraft', 'Cleaner', `Städhjälp`)} ${cleanerWhen(w)}${w.cleanerConfirmed ? ' ✓' : ''}` : w.ausfall ? L('⚠️ Putzkraft fällt aus', '⚠️ Cleaner cancelled', `⚠️ Städhjälpen inställd`) : L('Ohne Putzkraft', 'No cleaner', `Ingen städhjälp`)}</p></a>`;
+  }
+  if (me && state.gami) {
+    const mine = badgesOf(me);
+    const got = mine.filter((b) => b.level);
+    const soon = mine.filter((b) => b.next).sort((a, b) => (b.n / b.next) - (a.n / a.next))[0];
+    tiles.badges = `<div class="card __CLS__ badges-card" data-open-badges role="button" tabindex="0"><h3>🏅 ${L('Abzeichen', 'Badges', 'Märken')}</h3>
+      <div class="b-icons">${got.length ? got.map((b) => `<span title="${esc(b.name(me))}">${b.icon}${b.level > 1 ? `<sup>${b.level}</sup>` : ''}</span>`).join('') : `<span class="muted small">${L('Noch keine, das erste kommt mit dem ersten erledigten Dienst.', 'None yet, the first comes with your first finished duty.', 'Inga än, det första kommer med din första klara tjänst.')}</span>`}</div>
+      ${soon ? `<p class="muted small">${L('Als Nächstes', 'Up next', 'Nästa')}: ${soon.icon} ${esc(soon.name(me))} (${soon.n}/${soon.next})</p>` : ''}</div>`;
   }
   const sh = state.shop;
   tiles.shop = `<a class="card __CLS__" href="#einkauf"><h3>${L('Einkauf', 'Shopping', `Handla`)}</h3>${sh
