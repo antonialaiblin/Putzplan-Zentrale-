@@ -228,3 +228,47 @@ input:focus, select:focus { outline: 2px solid var(--accent); outline-offset: 0;
 .cat-row .ic { flex: 0 0 56px; text-align: center; }
 .cat-row .lb { flex: 1; }
 .cat-row button { flex: none; padding: 8px 10px; }
+
+/* ---------- 6 Tabs ---------- */
+.tabbar { gap: 2px; padding-left: 4px; padding-right: 4px; }
+.tabbar a { font-size: 11px; padding: 6px 2px; }
+.tabbar a span { font-size: 20px; }
+.two-seg { grid-template-columns: 1fr 1fr; }
+
+/* ---------- Übersicht ---------- */
+.dash { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin: 12px 0; }
+.dash .card { margin: 0; text-decoration: none; color: inherit; display: block; }
+.dash .wide { grid-column: 1 / -1; }
+.dash h3 { margin: 0 0 6px; font-size: 13px; color: var(--muted); font-weight: 600; text-transform: uppercase; letter-spacing: .04em; }
+.dash .big { font-size: 22px; font-weight: 700; }
+.dash p { margin: 4px 0 0; font-size: 14px; }
+.dash ul { margin: 6px 0 0; padding-left: 18px; font-size: 14px; }
+.progress { height: 8px; background: var(--bg); border-radius: 4px; overflow: hidden; margin-top: 8px; }
+.progress b { display: block; height: 100%; background: var(--done); }
+.members { display: grid; gap: 6px; }
+.member { display: flex; justify-content: space-between; align-items: center; padding: 6px 0; border-top: 1px solid var(--line); }
+.member:first-child { border-top: none; }
+.member small { color: var(--muted); }
+.tag { font-size: 12px; padding: 2px 8px; border-radius: 999px; background: var(--accent-soft); color: var(--accent); }
+.tag.away { background: var(--mine); color: var(--text); }
+
+/* ---------- Kalender ---------- */
+.cal { display: grid; grid-template-columns: repeat(7, 1fr); gap: 3px; margin-top: 12px; }
+.cal .dow { font-size: 11px; color: var(--muted); text-align: center; padding: 2px 0; }
+.cal .day { min-height: 54px; background: var(--bg); border-radius: 8px; padding: 3px; font-size: 12px; display: flex; flex-direction: column; gap: 2px; overflow: hidden; }
+.cal .day.out { opacity: .35; }
+.cal .day.today { outline: 2px solid var(--accent); }
+.cal .day .n { font-weight: 600; font-size: 11px; color: var(--muted); display: flex; justify-content: space-between; }
+.cal .pill { font-size: 10px; line-height: 1.3; border-radius: 4px; padding: 0 3px; background: var(--mine); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cal-legend { margin: 10px 0 0; }
+.cal-today-dot { display: inline-block; width: 10px; height: 10px; border: 2px solid var(--accent); border-radius: 3px; vertical-align: -1px; }
+.abs { display: flex; justify-content: space-between; gap: 10px; padding: 10px 0; border-top: 1px solid var(--line); align-items: center; }
+.abs:first-child { border-top: none; }
+.abs small { display: block; color: var(--muted); }
+
+/* ---------- Auszug ---------- */
+#leave-dialog .check { border-top: none; padding: 6px 0; }
+.bye { text-align: center; }
+.bye .bye-emoji { font-size: 48px; }
+.bye p { line-height: 1.55; }
+.bye .row { justify-content: center; }

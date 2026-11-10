@@ -1,11 +1,11 @@
-import { PEOPLE, itemsFor, addDays } from './plan.js';
+import { itemsFor, addDays } from './plan.js';
 
 const ddmm = (s) => `${s.slice(8, 10)}.${s.slice(5, 7)}.`;
 
 /** Sonntags-Nachricht pro Person für die kommende Woche. */
 export function weeklyMessages(week) {
   const msgs = {};
-  for (const person of PEOPLE) {
+  for (const person of week.people) {
     const lines = [];
     for (const t of week.tasks) {
       if (t.key === 'woche' && t.person === person) {
@@ -28,7 +28,7 @@ export function weeklyMessages(week) {
 /** Freitags-Erinnerung pro Person an noch nicht abgehakte Aufgaben. */
 export function fridayMessages(week) {
   const msgs = {};
-  for (const person of PEOPLE) {
+  for (const person of week.people) {
     const open = itemsFor(week, person).filter((x) => !week.checks[x.checkKey]).map((x) => x.item.short);
     if (!open.length) continue;
     msgs[person] = {
@@ -43,7 +43,7 @@ export function fridayMessages(week) {
 export function ausfallMessages(week) {
   const msgs = {};
   const when = `am Mi ${ddmm(addDays(week.monday, 2))}`;
-  for (const person of PEOPLE) {
+  for (const person of week.people) {
     const mine = [];
     for (const t of week.tasks) {
       if (t.person !== person) continue;

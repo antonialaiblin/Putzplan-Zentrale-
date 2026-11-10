@@ -25,7 +25,7 @@ test('Wochendienst und Putzkraft wie in der Tabelle', () => {
 test('Baddienst wie in der Tabelle, nie gleich Wochendienst in der Putzwoche', () => {
   const expected = [
     ['2026-11-09', 'Mo', 'Toni'], ['2026-11-23', 'Simon', 'Johanna'], ['2026-12-07', 'Leo', 'Toni'],
-    ['2026-12-21', 'Mo', 'Johanna'], ['2027-01-04', 'Simon', 'Toni'], ['2027-01-18', 'Mo', 'Toni'],
+    ['2026-12-21', 'Mo', 'Johanna'], ['2027-01-04', 'Simon', 'Toni'], ['2027-01-18', 'Leo', 'Johanna'],
   ];
   for (const [monday, vorne, hinten] of expected) {
     for (const m of [monday, monday.replace(/\d\d$/, (d) => String(+d + 7).padStart(2, '0'))]) {
@@ -108,4 +108,31 @@ test('Ausfall-Nachricht', async () => {
   assert.match(m.Mo.body, /Vorderes Bad \+ extra Klo putzen/);
   assert.match(m.Johanna.body, /ändert sich diese Woche nichts/);
   assert.match(m.Leo.body, /Mi 18\.11\./);
+});
+
+import { INITIAL_MEMBERS } from '../src/plan.js';
+
+test('Urlaub: wer weg ist, wird übersprungen und ist danach dran', () => {
+  const absences = [{ person: 'Toni', from: '2026-11-21', to: '2026-12-01' }]; // ganze Woche ab 23.11.
+  const ctx = { absences };
+  assert.equal(person(computeWeek('2026-11-23', {}, ctx), 'woche'), 'Johanna');
+  assert.equal(person(computeWeek('2026-11-30', {}, ctx), 'woche'), 'Toni');
+  assert.equal(person(computeWeek('2026-12-07', {}, ctx), 'woche'), 'Mo');
+  const w = computeWeek('2026-11-23', {}, ctx);
+  assert.deepEqual(w.away, ['Toni']);
+  assert.ok(!w.tasks.find((t) => t.key === 'kuehlschrank').items.some((i) => i.person === 'Toni'));
+});
+
+test('Neues Mitglied kommt in die Rotation, Ausgezogene fliegen raus', () => {
+  const members = [
+    ...INITIAL_MEMBERS.map((m) => (m.name === 'Mo' ? { ...m, until: '2026-11-23' } : m)),
+    { name: 'Lina', side: 'vorne', since: '2026-11-23', until: null },
+  ];
+  const ctx = { members };
+  const seq = ['2026-11-23', '2026-11-30', '2026-12-07', '2026-12-14', '2026-12-21', '2026-12-28'].map((m) => person(computeWeek(m, {}, ctx), 'woche'));
+  assert.deepEqual(seq, ['Toni', 'Johanna', 'Simon', 'Leo', 'Lina', 'Toni']);
+  assert.ok(!computeWeek('2026-11-30', {}, ctx).people.includes('Mo'));
+  const vorne = ['2026-11-23', '2026-12-07', '2026-12-21', '2027-01-04'].map((m) => person(computeWeek(m, {}, ctx), 'bad-vorne'));
+  assert.ok(vorne.includes('Lina'));
+  assert.ok(!vorne.includes('Mo'));
 });

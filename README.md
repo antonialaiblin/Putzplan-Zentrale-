@@ -9,6 +9,9 @@ Die WG-Website zu „Mission Haussegen“:
 - **WG-Kasse** wie Splitwise: Ausgaben eintragen, gleich, nach Prozent, Anteilen oder genauen Beträgen aufteilen,
   in Euro oder anderen Währungen (jede Währung wird getrennt abgerechnet), sehen, wer wem wie viel schuldet, Rückzahlungen abhaken
 - **Hausregeln** zum Nachlesen
+- **Übersicht** mit allem auf einen Blick
+- **Mitglieder:** per Link einladen, Profil mit Zimmer vorne/hinten anlegen, Auszug mit Checkliste
+- **Kalender:** Urlaub eintragen; wer mind. 4 Tage einer Woche weg ist, wird im Putzplan übersprungen und ist danach als Erstes dran
 - lässt sich wie eine App auf den Home-Bildschirm legen
 - **Erinnerungen aufs Handy:** Sonntag 19 Uhr der Plan für die neue Woche,
   Freitag 18 Uhr eine Erinnerung, falls noch etwas nicht abgehakt ist
@@ -36,7 +39,7 @@ Danach wird jede Änderung in diesem Repository automatisch veröffentlicht.
 
 ## Plan ändern
 
-Personen, Reihenfolge und Aufgaben stehen in `src/plan.js`, die Uhrzeiten der
+Die Startbesetzung und die Aufgaben stehen in `src/plan.js` (danach rotiert der Plan automatisch als faire Warteschlange), die Uhrzeiten der
 Erinnerungen in `src/worker.js` (`SCHEDULE`).
 
 ## Entwicklung

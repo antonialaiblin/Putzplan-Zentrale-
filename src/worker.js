@@ -1,5 +1,5 @@
 import { DurableObject } from 'cloudflare:workers';
-import { PEOPLE, computeWeek, mondayOf, addDays, berlinNow } from './plan.js';
+import { computeWeek, simulate, mondayOf, addDays, berlinNow, INITIAL_MEMBERS, CYCLE_START } from './plan.js';
 import { weeklyMessages, fridayMessages, ausfallMessages } from './messages.js';
 import { generateVapidKeys, vapidPublicRaw, sendPush } from './webpush.js';
 import { balancesByCurrency, peopleIn, parseSplitwise, computeParts, parseAmount, parseEuro, CURRENCIES, SHOP_CATEGORIES } from './money.js';
@@ -23,8 +23,32 @@ export class Putzplan extends DurableObject {
   async overrides(monday) {
     return (await this.ctx.storage.get(`ov:${monday}`)) || {};
   }
-  async week(monday) {
-    const w = computeWeek(monday, await this.overrides(monday), (await this.ctx.storage.get('ausfaelle')) || []);
+  // ---------- Mitglieder & Abwesenheiten ----------
+  async members() {
+    return (await this.ctx.storage.get('members')) || INITIAL_MEMBERS;
+  }
+  async absences() {
+    return (await this.ctx.storage.get('absences')) || [];
+  }
+  /** Alle, die gerade wohnen oder schon zugesagt haben (noch nicht ausgezogen). */
+  async names() {
+    const now = mondayOf(berlinNow().day);
+    return (await this.members()).filter((m) => !m.until || m.until > now).map((m) => m.name);
+  }
+  async planCtx() {
+    return { members: await this.members(), absences: await this.absences(), ausfaelle: (await this.ctx.storage.get('ausfaelle')) || [] };
+  }
+  async weeks(mondays) {
+    const ctx = await this.planCtx();
+    const last = mondays.reduce((a, b) => (a > b ? a : b), CYCLE_START);
+    ctx.plan = simulate(ctx, last);
+    const out = [];
+    for (const m of mondays) out.push(await this.week(m, ctx));
+    return out;
+  }
+  async week(monday, ctx) {
+    ctx ||= await this.planCtx();
+    const w = computeWeek(monday, await this.overrides(monday), ctx);
     const checks = {};
     for (const [k, v] of await this.ctx.storage.list({ prefix: `check:${monday}:` })) {
       checks[k.slice(`check:${monday}:`.length)] = v;
@@ -57,12 +81,13 @@ export class Putzplan extends DurableObject {
   }
   async money() {
     const all = [...(await this.ctx.storage.list({ prefix: 'exp:' })).values()];
-    const former = peopleIn(all).filter((p) => !PEOPLE.includes(p));
+    const people = await this.names();
+    const former = [...new Set([...(await this.members()).map((m) => m.name), ...peopleIn(all)])].filter((p) => !people.includes(p));
     return {
-      people: PEOPLE,
+      people,
       former,
       currencies: CURRENCIES,
-      byCurrency: balancesByCurrency(all, [...PEOPLE, ...former]),
+      byCurrency: balancesByCurrency(all, [...people, ...former]),
       expenses: all.sort((a, b) => b.at - a.at).slice(0, 100),
       total: all.length,
     };
@@ -77,15 +102,15 @@ export class Putzplan extends DurableObject {
     const path = url.pathname.replace(/^\/api/, '');
     if (!(await this.ctx.storage.get('origin'))) await this.ctx.storage.put('origin', url.origin);
     const body = request.method === 'POST' ? await request.json().catch(() => ({})) : {};
+    const PEOPLE = await this.names();
     const validMonday = (m) => typeof m === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(m) && mondayOf(m) === m;
 
     if (path === '/weeks' && request.method === 'GET') {
       const current = mondayOf(berlinNow().day);
       const from = validMonday(url.searchParams.get('from')) ? url.searchParams.get('from') : addDays(current, -7);
       const count = Math.min(Math.max(Number(url.searchParams.get('count')) || 12, 1), 30);
-      const weeks = [];
-      for (let i = 0; i < count; i++) weeks.push(await this.week(addDays(from, i * 7)));
-      return json({ people: PEOPLE, current, today: berlinNow().day, weeks });
+      const weeks = await this.weeks([...Array(count)].map((_, i) => addDays(from, i * 7)));
+      return json({ people: PEOPLE, members: await this.members(), absences: await this.absences(), current, today: berlinNow().day, weeks });
     }
 
     if (path === '/check' && request.method === 'POST') {
@@ -153,6 +178,52 @@ export class Putzplan extends DurableObject {
         body: `Hallo ${entry.person}, die Erinnerungen funktionieren!`,
       });
       return json(r, r.ok ? 200 : 502);
+    }
+
+    // ---------- Mitglieder ----------
+    const isDay = (d) => typeof d === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(d);
+    if (path === '/members/join' && request.method === 'POST') {
+      const name = typeof body.name === 'string' ? body.name.trim().replace(/\s+/g, ' ').slice(0, 20) : '';
+      const side = body.side === 'hinten' ? 'hinten' : body.side === 'vorne' ? 'vorne' : null;
+      if (!name || !side) return json({ error: 'Bitte Namen und Zimmer (vorne/hinten) angeben.' }, 400);
+      const members = await this.members();
+      if (members.some((m) => m.name.toLowerCase() === name.toLowerCase() && (!m.until || m.until > mondayOf(berlinNow().day)))) {
+        return json({ error: `${name} gibt es schon. Nimm z.B. noch den ersten Buchstaben vom Nachnamen dazu.` }, 400);
+      }
+      // Ab nächstem Montag im Putzplan, die laufende Woche bleibt, wie sie ist
+      const since = addDays(mondayOf(berlinNow().day), 7);
+      const rest = members.filter((m) => !(m.name.toLowerCase() === name.toLowerCase()));
+      await this.ctx.storage.put('members', [...rest, { name, side, since, until: null }]);
+      return json({ ok: true, name, since, members: await this.members() });
+    }
+    if (path === '/members/leave' && request.method === 'POST') {
+      const members = await this.members();
+      const m = members.find((x) => x.name === body.name && !x.until);
+      if (!m) return json({ error: 'Mitglied nicht gefunden.' }, 404);
+      const day = isDay(body.date) ? body.date : berlinNow().day;
+      // Ab dem Montag nach dem Auszug nicht mehr im Plan
+      const until = addDays(mondayOf(day), 7);
+      if (members.filter((x) => !x.until && x.name !== m.name).length < 1) return json({ error: 'Die letzte Person kann nicht ausziehen 😉' }, 400);
+      await this.ctx.storage.put('members', members.map((x) => (x === m ? { ...x, until: until < x.since ? x.since : until, leftNote: body.checklist || null } : x)));
+      // Benachrichtigungen dieser Person abmelden
+      for (const [k, v] of await this.subscriptions()) if (v.person === m.name) await this.ctx.storage.delete(k);
+      return json({ ok: true, until, members: await this.members() });
+    }
+
+    // ---------- Abwesenheiten (Urlaub) ----------
+    if (path === '/absences/add' && request.method === 'POST') {
+      const { person, from, to } = body;
+      if (!PEOPLE.includes(person) || !isDay(from) || !isDay(to) || to < from) return json({ error: 'Bitte Person, Von und Bis angeben.' }, 400);
+      const list = await this.absences();
+      list.push({ id: `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`, person, from, to, note: typeof body.note === 'string' ? body.note.trim().slice(0, 60) : '' });
+      list.sort((a, b) => (a.from < b.from ? -1 : 1));
+      await this.ctx.storage.put('absences', list);
+      return json({ absences: list });
+    }
+    if (path === '/absences/delete' && request.method === 'POST') {
+      const list = (await this.absences()).filter((a) => a.id !== body.id);
+      await this.ctx.storage.put('absences', list);
+      return json({ absences: list });
     }
 
     // ---------- Einkaufsliste ----------
@@ -225,7 +296,7 @@ export class Putzplan extends DurableObject {
     }
     if (path === '/money/import' && request.method === 'POST') {
       if (typeof body.csv !== 'string' || body.csv.length > 2_000_000) return json({ error: 'Keine Datei.' }, 400);
-      const r = parseSplitwise(body.csv, PEOPLE);
+      const r = parseSplitwise(body.csv, [...PEOPLE, ...(await this.members()).map((m) => m.name)]);
       if (r.error) return json({ error: r.error }, 400);
       if (!r.entries.length) return json({ error: 'In der Datei wurden keine Einträge gefunden.' }, 400);
       // Feste IDs: nochmal importieren überschreibt statt doppelt einzutragen

@@ -39,7 +39,11 @@ function toast(msg) {
 async function load() {
   const data = await api('weeks?count=12');
   state.people = data.people;
+  state.members = data.members;
+  state.absences = data.absences;
+  state.today = data.today;
   state.current = data.current;
+  if (state.me && !state.people.includes(state.me)) { state.me = null; store.set('me', ''); }
   for (const w of data.weeks) state.weeks.set(w.monday, w);
   if (!state.view || !state.weeks.has(state.view)) state.view = state.current;
   render();
@@ -54,6 +58,8 @@ async function ensureWeek(monday) {
 // ---------------- Rendern ----------------
 function render() {
   renderMe();
+  renderHome();
+  renderCal();
   renderWeek();
   renderUpcoming();
   renderNotify();
@@ -61,7 +67,9 @@ function render() {
 
 function renderMe() {
   const pick = $('#pick-me');
-  pick.hidden = !!state.me;
+  const joining = location.hash === '#beitreten' || state.joining;
+  $('#join').hidden = !joining;
+  pick.hidden = !!state.me || joining;
   $('#change-me').hidden = !state.me;
   $('#who-line').textContent = state.me ? `Hallo ${state.me} 👋` : 'Mission Haussegen';
   $('#people-buttons').innerHTML = state.people.map((p) => `<button data-me="${esc(p)}">${esc(p)}</button>`).join('');
@@ -91,6 +99,9 @@ function renderWeek() {
     html += '<div class="banner"><p>🫧 <strong>Woche ohne Putzkraft.</strong> Wir putzen selbst.</p></div>';
   }
 
+  if (w.away && w.away.length) {
+    html += `<div class="banner"><p>🏖️ <strong>${w.away.map(esc).join(', ')}</strong> ${w.away.length > 1 ? 'sind' : 'ist'} diese Woche weg und wurde${w.away.length > 1 ? 'n' : ''} im Plan übersprungen.</p></div>`;
+  }
   const tasks = [...w.tasks].sort((a, b) => (b.person === state.me) - (a.person === state.me));
   for (const t of tasks) {
     const items = t.items;
@@ -287,11 +298,14 @@ function openSwap(taskKey) {
 }
 
 // ---------------- Tabs ----------------
-const TABS = { plan: 'plan', einkauf: 'shop', kasse: 'money', regeln: 'rules' };
-function currentTab() { return TABS[location.hash.slice(1)] || 'plan'; }
+const TABS = { start: 'home', plan: 'plan', einkauf: 'shop', kasse: 'money', kalender: 'cal', regeln: 'rules' };
+function currentTab() { return TABS[location.hash.slice(1)] || 'home'; }
 function showTab() {
   const tab = currentTab();
-  for (const t of ['plan', 'shop', 'money', 'rules']) $(`#tab-${t}`).hidden = t !== tab;
+  for (const t of ['home', 'plan', 'shop', 'money', 'cal', 'rules']) $(`#tab-${t}`).hidden = t !== tab;
+  renderMe();
+  if (tab === 'home') { renderHome(); loadMoney(); loadShop(); }
+  if (tab === 'cal') renderCal();
   document.querySelectorAll('.tabbar a').forEach((a) => a.classList.toggle('active', a.dataset.tab === tab));
   if (tab === 'shop') loadShop();
   if (tab === 'money') loadMoney();
@@ -317,7 +331,7 @@ state.shop = null;
 state.shopCat = store.get('shopCat') || 'allgemein';
 
 async function loadShop() {
-  try { state.shop = await api('shop'); renderShop(); } catch (e) { toast(e.message); }
+  try { state.shop = await api('shop'); renderShop(); renderHome(); } catch (e) { toast(e.message); }
 }
 function renderShop() {
   const sh = state.shop;
@@ -429,7 +443,7 @@ const MODE_HINT = {
 };
 
 async function loadMoney() {
-  try { state.money = await api('money'); renderMoney(); } catch (e) { toast(e.message); }
+  try { state.money = await api('money'); renderMoney(); renderHome(); } catch (e) { toast(e.message); }
 }
 function renderMoney() {
   const m = state.money;
@@ -589,6 +603,234 @@ $('#tab-money').addEventListener('click', async (e) => {
     try { state.money = await api('money/delete', { id: d.dataset.del }); renderMoney(); } catch (err) { toast(err.message); }
   }
 });
+
+// ---------------- Übersicht (Dashboard) ----------------
+const fmtDay = (d) => new Date(`${d}T12:00:00Z`).toLocaleDateString('de-DE', { weekday: 'short', day: '2-digit', month: '2-digit' });
+function absentNow(day) { return (state.absences || []).filter((a) => a.from <= day && a.to >= day); }
+
+function renderHome() {
+  const el = $('#home');
+  if (!el || !state.current) return;
+  const w = state.weeks.get(state.current);
+  const me = state.me;
+  let html = '<div class="dash">';
+  if (w) {
+    const mine = [];
+    let done = 0;
+    let total = 0;
+    for (const t of w.tasks) {
+      for (const it of t.items) {
+        const owner = it.person || t.person;
+        if (owner !== me) continue;
+        total++;
+        if (w.checks[`${t.key}:${it.id}`]) done++;
+      }
+      if (t.person === me && t.key !== 'kuehlschrank') mine.push(t.title + (t.key.startsWith('bad-') && !t.cleaningWeek ? ' (nur Klopapier)' : ''));
+    }
+    if (w.tasks.some((t) => t.key === 'kuehlschrank' && t.items.some((i) => i.person === me))) mine.push('Kühlschrankfach');
+    html += `<a class="card wide" href="#plan"><h3>Deine Woche</h3>
+      ${me ? (mine.length ? `<div class="big">${mine.map(esc).join(', ')}</div>
+        ${total ? `<p>${done} von ${total} erledigt</p><div class="progress"><b style="width:${Math.round((done / total) * 100)}%"></b></div>` : ''}`
+        : `<div class="big">Frei diese Woche 🎉</div>`) : '<p>Tipp oben auf deinen Namen.</p>'}
+      </a>`;
+    const t = (k) => w.tasks.find((x) => x.key === k);
+    html += `<a class="card" href="#plan"><h3>Putzplan</h3>
+      <p>Wochendienst: <strong>${esc(t('woche')?.person || '–')}</strong></p>
+      <p>Bad vorne: ${esc(t('bad-vorne')?.person || '–')}</p><p>Bad hinten: ${esc(t('bad-hinten')?.person || '–')}</p>
+      <p class="muted">${w.cleaner ? `🧹 Putzkraft Mi ${ddmm(w.cleanerDay)}` : w.ausfall ? '⚠️ Putzkraft fällt aus' : 'Ohne Putzkraft'}</p></a>`;
+  }
+  const sh = state.shop;
+  html += `<a class="card" href="#einkauf"><h3>Einkauf</h3>${sh
+    ? (sh.items.length ? `<div class="big">${sh.items.length}</div><p>${sh.items.slice(0, 3).map((i) => esc(i.name)).join(', ')}${sh.items.length > 3 ? ' …' : ''}</p>` : '<p>Alles da 🎉</p>')
+    : '<p class="muted">…</p>'}</a>`;
+  const m = state.money;
+  if (m) {
+    const eur = m.byCurrency.EUR;
+    const v = me ? eur.balances[me] || 0 : null;
+    const owe = me ? eur.transfers.filter((x) => x.from === me) : [];
+    html += `<a class="card" href="#kasse"><h3>Kasse</h3>${me
+      ? `<div class="big" style="color:${v > 0 ? 'var(--done)' : v < 0 ? 'var(--warn)' : 'inherit'}">${v > 0 ? '+' : ''}${money(v)}</div>
+        <p>${owe.length ? owe.map((x) => `an ${esc(x.to)}: ${money(x.amount)}`).join('<br>') : v > 0 ? 'Du bekommst Geld zurück' : 'Du bist quitt'}</p>`
+      : ''}</a>`;
+  } else {
+    html += '<a class="card" href="#kasse"><h3>Kasse</h3><p class="muted">…</p></a>';
+  }
+  const today = state.today;
+  const now = absentNow(today);
+  const next = (state.absences || []).filter((a) => a.from > today).slice(0, 3);
+  html += `<a class="card" href="#kalender"><h3>Wer ist weg?</h3>
+    ${now.length ? `<p>${now.map((a) => `🏖️ <strong>${esc(a.person)}</strong> bis ${ddmm(a.to)}`).join('<br>')}</p>` : '<p>Alle da</p>'}
+    ${next.length ? `<p class="muted">${next.map((a) => `${esc(a.person)} ab ${ddmm(a.from)}`).join('<br>')}</p>` : ''}</a>`;
+  html += '<a class="card wide" href="#regeln"><h3>Hausregeln</h3><p>Mission Haussegen 📜 Alles zum WG-Seelenfrieden</p></a>';
+  html += '</div>';
+  el.innerHTML = html;
+
+  $('#members-list').innerHTML = (state.members || [])
+    .filter((x) => !x.until || x.until > state.current)
+    .map((x) => {
+      const away = now.some((a) => a.person === x.name);
+      const future = x.since > state.current;
+      const leaving = x.until;
+      return `<div class="member"><span><strong>${esc(x.name)}</strong> <small>Zimmer ${x.side}</small></span>
+        <span>${away ? '<span class="tag away">im Urlaub</span> ' : ''}${future ? `<span class="tag">ab ${ddmm(x.since)}</span>` : ''}${leaving ? `<span class="tag away">zieht aus</span>` : ''}</span></div>`;
+    }).join('');
+  $('#leave-open').hidden = !me;
+}
+
+// ---------------- Mitglieder ----------------
+document.addEventListener('click', (e) => {
+  if (e.target.closest('[data-open-join]')) { state.joining = true; renderMe(); $('#join-name').focus(); }
+});
+$('#join-side').addEventListener('click', (e) => {
+  const b = e.target.closest('[data-side]');
+  if (!b) return;
+  state.joinSide = b.dataset.side;
+  document.querySelectorAll('#join-side [data-side]').forEach((x) => x.setAttribute('aria-checked', x === b));
+});
+$('#join-cancel').onclick = () => {
+  state.joining = false;
+  if (location.hash === '#beitreten') history.replaceState(null, '', '#start');
+  renderMe();
+  showTab();
+};
+$('#join').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  if (!state.joinSide) { toast('Bitte vorne oder hinten wählen'); return; }
+  try {
+    const r = await api('members/join', { name: $('#join-name').value, side: state.joinSide });
+    state.me = r.name;
+    store.set('me', r.name);
+    state.joining = false;
+    history.replaceState(null, '', '#start');
+    state.weeks.clear();
+    await load();
+    showTab();
+    toast(`Willkommen, ${r.name}! Ab ${ddmm(r.since)} bist du im Putzplan.`);
+  } catch (err) { toast(err.message); }
+});
+$('#invite').onclick = async () => {
+  const url = `${location.origin}/#beitreten`;
+  const text = 'Komm in unsere WG-Zentrale! Leg dir dort dein Profil an:';
+  try {
+    if (navigator.share) { await navigator.share({ title: 'WG-Zentrale', text, url }); return; }
+  } catch { return; }
+  try { await navigator.clipboard.writeText(`${text} ${url}`); toast('Einladungslink kopiert, schick ihn einfach weiter'); } catch { prompt('Diesen Link verschicken:', url); }
+};
+$('#leave-open').onclick = async () => {
+  if (!state.money) { try { state.money = await api('money'); } catch { /* egal */ } }
+  const eur = state.money?.byCurrency?.EUR;
+  const v = eur ? eur.balances[state.me] || 0 : 0;
+  const owe = eur ? eur.transfers.filter((x) => x.from === state.me) : [];
+  $('#leave-balance').innerHTML = v < 0
+    ? `<div class="banner"><p>⚠️ Laut WG-Kasse schuldest du noch <strong>${money(-v)}</strong>${owe.length ? ` (${owe.map((x) => `${esc(x.to)}: ${money(x.amount)}`).join(', ')})` : ''}. Bitte vorher ausgleichen.</p></div>`
+    : v > 0 ? `<div class="banner"><p>💶 Du bekommst laut WG-Kasse noch <strong>${money(v)}</strong> zurück. Sprecht das am besten vorher ab.</p></div>`
+      : '<div class="banner"><p>✅ Deine WG-Kasse ist ausgeglichen.</p></div>';
+  $('#leave-form').reset();
+  $('#leave-date').value = state.today;
+  const dlg = $('#leave-dialog');
+  dlg.returnValue = '';
+  dlg.onclose = async () => {
+    if (dlg.returnValue !== 'ok') return;
+    const name = state.me;
+    try {
+      await api('members/leave', { name, date: $('#leave-date').value });
+      const sub = await currentSubscription().catch(() => null);
+      if (sub) { await sub.unsubscribe().catch(() => {}); }
+      $('#bye-title').textContent = `Schade, dass du gehst, ${name}!`;
+      $('#bye-text').textContent = 'Wir werden dich wirklich vermissen: die Gespräche in der Küche, das gemeinsame Kochen und sogar deine Putzwochen. Danke für die schöne Zeit mit dir! Pass auf dich auf, komm uns besuchen, und für einen Kaffee oder eine Party bist du hier immer willkommen. 💛';
+      $('#bye-dialog').showModal();
+      state.me = null;
+      store.set('me', '');
+      state.weeks.clear();
+      await load();
+    } catch (err) { toast(err.message); }
+  };
+  dlg.showModal();
+};
+// Fragebogen: Abschicken nur, wenn alles abgehakt ist (Browser prüft "required")
+$('#leave-form').addEventListener('submit', (e) => {
+  if (e.submitter?.value === 'ok' && !$('#leave-form').checkValidity()) { e.preventDefault(); $('#leave-form').reportValidity(); }
+});
+
+// ---------------- Kalender ----------------
+state.calMonth = null;
+const MONTHS = ['Januar', 'Februar', 'März', 'April', 'Mai', 'Juni', 'Juli', 'August', 'September', 'Oktober', 'November', 'Dezember'];
+function renderCal() {
+  if (!state.today || !$('#cal-grid')) return;
+  if (!state.calMonth) state.calMonth = state.today.slice(0, 7);
+  const [y, mo] = state.calMonth.split('-').map(Number);
+  $('#cal-title').textContent = `${MONTHS[mo - 1]} ${y}`;
+  const first = `${state.calMonth}-01`;
+  const dow = (new Date(`${first}T12:00:00Z`).getUTCDay() + 6) % 7;
+  const start = addDays(first, -dow);
+  const abs = state.absences || [];
+  let html = ['Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So'].map((d) => `<div class="dow">${d}</div>`).join('');
+  for (let i = 0; i < 42; i++) {
+    const d = addDays(start, i);
+    if (i >= 35 && d.slice(0, 7) !== state.calMonth) break;
+    const wk = state.weeks.get(addDays(d, -((new Date(`${d}T12:00:00Z`).getUTCDay() + 6) % 7)));
+    const cleaner = wk && wk.cleaner && wk.cleanerDay === d;
+    const away = abs.filter((a) => a.from <= d && a.to >= d);
+    html += `<div class="day${d.slice(0, 7) !== state.calMonth ? ' out' : ''}${d === state.today ? ' today' : ''}">
+      <span class="n">${+d.slice(8)}${cleaner ? '<span title="Putzkraft">🧹</span>' : ''}</span>
+      ${away.map((a) => `<span class="pill" title="${esc(a.person)}">${esc(a.person)}</span>`).join('')}</div>`;
+  }
+  $('#cal-grid').innerHTML = html;
+
+  const sel = $('#abs-person');
+  const prev = (state.absTouched && sel.value) || state.me;
+  sel.innerHTML = state.people.map((p) => `<option${p === prev ? ' selected' : ''}>${esc(p)}</option>`).join('');
+  const upcoming = abs.filter((a) => a.to >= state.today);
+  $('#abs-list').innerHTML = upcoming.length
+    ? upcoming.map((a) => `<div class="abs"><div><strong>${esc(a.person)}</strong> ${fmtDay(a.from)} – ${fmtDay(a.to)}
+        ${a.note ? `<small>${esc(a.note)}</small>` : ''}</div><button class="link small" data-abs-del="${esc(a.id)}">löschen</button></div>`).join('')
+    : '<p class="empty">Gerade ist niemand als abwesend eingetragen.</p>';
+}
+async function ensureCalWeeks() {
+  const [y, mo] = state.calMonth.split('-').map(Number);
+  const first = `${state.calMonth}-01`;
+  const from = addDays(first, -((new Date(`${first}T12:00:00Z`).getUTCDay() + 6) % 7));
+  if (state.weeks.has(from) && state.weeks.has(addDays(from, 35))) return;
+  try {
+    const data = await api(`weeks?from=${from}&count=6`);
+    for (const w of data.weeks) state.weeks.set(w.monday, w);
+  } catch { /* Anzeige ohne Putzkraft-Tage */ }
+  void y; void mo;
+}
+async function moveCal(n) {
+  const [y, mo] = state.calMonth.split('-').map(Number);
+  const d = new Date(Date.UTC(y, mo - 1 + n, 1));
+  state.calMonth = d.toISOString().slice(0, 7);
+  renderCal();
+  await ensureCalWeeks();
+  renderCal();
+}
+$('#cal-prev').onclick = () => moveCal(-1);
+$('#cal-next').onclick = () => moveCal(1);
+$('#abs-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const from = $('#abs-from').value;
+  const to = $('#abs-to').value;
+  if (to < from) { toast('„Bis“ liegt vor „Von“'); return; }
+  try {
+    await api('absences/add', { person: $('#abs-person').value, from, to, note: $('#abs-note').value });
+    $('#abs-form').reset();
+    state.weeks.clear();
+    await load();
+    toast('Eingetragen, der Putzplan wurde angepasst');
+  } catch (err) { toast(err.message); }
+});
+$('#abs-list').addEventListener('click', async (e) => {
+  const b = e.target.closest('[data-abs-del]');
+  if (!b || !confirm('Abwesenheit löschen? Der Putzplan wird dann wieder zurückgerechnet.')) return;
+  try {
+    await api('absences/delete', { id: b.dataset.absDel });
+    state.weeks.clear();
+    await load();
+  } catch (err) { toast(err.message); }
+});
+$('#abs-person').addEventListener('change', () => { state.absTouched = true; });
+$('#abs-from').addEventListener('change', () => { if (!$('#abs-to').value || $('#abs-to').value < $('#abs-from').value) $('#abs-to').value = $('#abs-from').value; });
 
 // ---------------- Start ----------------
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js');

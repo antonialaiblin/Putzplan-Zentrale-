@@ -60,22 +60,108 @@ const WOCHE_EXTRA = [
 ];
 const BAD_UMFANG = 'Klo, Waschbecken, Dusche/Wanne, Spiegel, Boden saugen, Handtücher checken';
 
+// ---------- Mitglieder & automatische Rotation ----------
+// Startbesetzung laut "Mission Haussegen". Die Reihenfolgen ergeben genau die Tabellen
+// aus dem Dokument; danach läuft alles als faire Warteschlange weiter.
+export const INITIAL_MEMBERS = [
+  { name: 'Simon', side: 'vorne' },
+  { name: 'Leo', side: 'vorne' },
+  { name: 'Toni', side: 'hinten' },
+  { name: 'Johanna', side: 'hinten' },
+  { name: 'Mo', side: 'vorne' },
+].map((m) => ({ ...m, since: CYCLE_START, until: null }));
+const INITIAL_QUEUES = {
+  woche: ['Simon', 'Leo', 'Toni', 'Johanna', 'Mo'],
+  vorne: ['Mo', 'Simon', 'Leo'],
+  hinten: ['Toni', 'Johanna'],
+};
+export const ABSENT_MIN_DAYS = 4; // ab so vielen Tagen Abwesenheit in einer Woche wird verschoben
+
+/** An wie vielen Tagen (Mo–So) ist die Person in dieser Woche weg? */
+export function daysAway(name, monday, absences) {
+  let days = 0;
+  for (let i = 0; i < 7; i++) {
+    const d = addDays(monday, i);
+    if (absences.some((a) => a.person === name && a.from <= d && a.to >= d)) days++;
+  }
+  return days;
+}
+
+function takeNext(queue, ok) {
+  if (!queue.length) return null;
+  let i = queue.findIndex(ok);
+  if (i < 0) i = 0;
+  const [n] = queue.splice(i, 1);
+  queue.push(n);
+  return n;
+}
+
+/**
+ * Spielt den Plan Woche für Woche ab Zyklusstart durch.
+ * Wer im Urlaub ist, wird übersprungen und ist danach als Erstes wieder dran.
+ * Neue Mitglieder kommen hinten in die Warteschlange, Ausgezogene fliegen raus.
+ * Nach einem Putzkraft-Ausfall wiederholt die Folgewoche die Besetzung (Plan rutscht eine Woche).
+ */
+export function simulate(ctx = {}, until) {
+  const members = ctx.members || INITIAL_MEMBERS;
+  const ausfaelle = ctx.ausfaelle || [];
+  const absences = ctx.absences || [];
+  const q = { woche: [...INITIAL_QUEUES.woche], vorne: [...INITIAL_QUEUES.vorne], hinten: [...INITIAL_QUEUES.hinten] };
+  const out = new Map();
+  let prev = null;
+  let bath = { vorne: null, hinten: null };
+  for (let m = CYCLE_START; m <= until; m = addDays(m, 7)) {
+    const active = members.filter((x) => x.since <= m && (!x.until || x.until > m));
+    const names = active.map((x) => x.name);
+    for (const key of ['woche', 'vorne', 'hinten']) {
+      const fits = (n) => names.includes(n) && (key === 'woche' || active.find((x) => x.name === n).side === key);
+      q[key] = q[key].filter(fits);
+      for (const n of names) if (fits(n) && !q[key].includes(n)) q[key].push(n);
+    }
+    const away = (n) => daysAway(n, m, absences) >= ABSENT_MIN_DAYS;
+    const shift = ausfaelle.filter((a) => a < m).length;
+    const e = weekIndex(m) - shift;
+    let a;
+    if (prev && e === prev.e) {
+      a = { ...prev }; // Woche nach Putzkraft-Ausfall: alles eine Woche später
+    } else {
+      const woche = takeNext(q.woche, (n) => !away(n));
+      for (const side of ['vorne', 'hinten']) {
+        const gone = bath[side] && !names.includes(bath[side]);
+        if (e % 2 === 0 || gone || !bath[side]) bath[side] = takeNext(q[side], (n) => !away(n) && n !== woche);
+      }
+      a = { woche, vorne: bath.vorne, hinten: bath.hinten };
+    }
+    a = { ...a, e, shift, people: names, away: names.filter(away) };
+    out.set(m, a);
+    prev = a;
+  }
+  return out;
+}
+
+/** Besetzung vor dem Zyklusstart (nur für die Anzeige der Vorwoche). */
+function legacyAssignment(monday) {
+  const cyc = mod(weekIndex(monday), 10);
+  const period = Math.floor(cyc / 2);
+  return {
+    woche: WOCHENDIENST[cyc], vorne: BAD_VORNE[period], hinten: BAD_HINTEN[period],
+    e: weekIndex(monday), shift: 0, people: PEOPLE, away: [],
+  };
+}
+
 /**
  * Berechnet eine Woche.
  * @param {string} monday  "YYYY-MM-DD" eines Montags
  * @param {object} ov      Änderungen: { swaps: {"woche": "Leo", ...}, ausfall: true }
- * @param {string[]} ausfaelle  Montage aller Wochen, in denen die Putzkraft ausgefallen ist
+ * @param {object|string[]} ctx  { members, ausfaelle, absences, plan (Map aus simulate) } oder nur die Ausfall-Liste
  */
-export function computeWeek(monday, ov = {}, ausfaelle = []) {
-  // Nach jedem Putzkraft-Ausfall rutscht der ganze Plan (inkl. Putzkraft-Rhythmus)
-  // ab der Folgewoche um eine Woche nach hinten.
-  const shift = ausfaelle.filter((m) => m < monday).length;
-  const idx = weekIndex(monday) - shift;
-  const cyc = mod(idx, 10);
-  const plannedCleaner = cyc % 2 === 1;
+export function computeWeek(monday, ov = {}, ctx = {}) {
+  if (Array.isArray(ctx)) ctx = { ausfaelle: ctx };
+  const asg = monday < CYCLE_START ? legacyAssignment(monday) : (ctx.plan || simulate(ctx, monday)).get(monday);
+  const { e, shift } = asg;
+  const plannedCleaner = mod(e, 2) === 1;
   const ausfall = plannedCleaner && !!ov.ausfall;
   const cleaner = plannedCleaner && !ausfall;
-  const period = Math.floor(cyc / 2);
   const swaps = ov.swaps || {};
   const sunday = addDays(monday, 6);
 
@@ -87,25 +173,22 @@ export function computeWeek(monday, ov = {}, ausfaelle = []) {
   const firstOfMonth = [0, 1, 2, 3, 4, 5, 6].map((n) => addDays(monday, n)).find((d) => d.endsWith('-01'));
   if (firstOfMonth) wItems.push({ id: 'spuelbuerste', short: 'Neue Spülbürste', label: 'Neue Spülbürste kaufen (Monatswechsel)' });
   if (!cleaner) wItems.push(...WOCHE_EXTRA);
-  tasks.push({
-    key: 'woche',
-    title: 'Wochendienst',
-    person: swaps.woche || WOCHENDIENST[cyc],
-    planned: WOCHENDIENST[cyc],
-    items: wItems,
-  });
+  if (asg.woche) {
+    tasks.push({ key: 'woche', title: 'Wochendienst', person: swaps.woche || asg.woche, planned: asg.woche, items: wItems });
+  }
 
   // Bäder: geputzt wird in der Woche ohne Putzkraft, Klopapier gilt beide Wochen
   const bathCleaning = !cleaner;
-  for (const [key, title, list] of [
-    ['bad-vorne', 'Vorderes Bad + extra Klo', BAD_VORNE],
-    ['bad-hinten', 'Hinteres Bad', BAD_HINTEN],
+  for (const [key, title, side] of [
+    ['bad-vorne', 'Vorderes Bad + extra Klo', 'vorne'],
+    ['bad-hinten', 'Hinteres Bad', 'hinten'],
   ]) {
+    if (!asg[side]) continue;
     tasks.push({
       key,
       title,
-      person: swaps[key] || list[period],
-      planned: list[period],
+      person: swaps[key] || asg[side],
+      planned: asg[side],
       note: bathCleaning
         ? `${BAD_UMFANG}. Außerdem 2 Wochen lang fürs Klopapier zuständig.`
         : 'Putzkraft-Woche: nur Klopapier checken und bei Bedarf kaufen.',
@@ -122,15 +205,17 @@ export function computeWeek(monday, ov = {}, ausfaelle = []) {
       title: 'Kühlschrank (Monatsende)',
       person: null, // alle
       note: 'Bis Sonntag eigenes Fach putzen und Abgelaufenes wegwerfen.',
-      items: PEOPLE.map((p) => ({ id: p, short: 'Kühlschrankfach', label: p, person: p })),
+      items: asg.people.filter((p) => !asg.away.includes(p)).map((p) => ({ id: p, short: 'Kühlschrankfach', label: p, person: p })),
     });
   }
 
   return {
     monday,
     sunday,
-    cycleWeek: cyc + 1,
+    cycleWeek: mod(e, 10) + 1,
     shift,
+    people: asg.people,
+    away: asg.away,
     plannedCleaner,
     ausfall,
     cleaner,

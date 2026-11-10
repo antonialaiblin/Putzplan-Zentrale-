@@ -32,9 +32,65 @@
       <h2>Wer bist du?</h2>
       <p class="muted">Damit ich dir deine Aufgaben zeigen und dich erinnern kann.</p>
       <div class="people" id="people-buttons"></div>
+      <p class="small" style="margin:14px 0 0">Neu in der WG? <button type="button" class="link" data-open-join>Mitglied werden</button></p>
     </section>
 
-    <div id="tab-plan" class="tab">
+    <!-- Beitreten -->
+    <form id="join" class="card" hidden>
+      <h2>Willkommen in der WG! 🎉</h2>
+      <p class="muted">Leg dein Profil an. Ab nächstem Montag bist du automatisch im Putzplan.</p>
+      <label class="field"><span>Dein Name (so sehen dich die anderen)</span><input id="join-name" maxlength="20" required autocomplete="given-name"></label>
+      <fieldset class="field"><legend>Wo ist dein Zimmer? (für den Baddienst)</legend>
+        <div class="seg two-seg" id="join-side" role="radiogroup">
+          <button type="button" role="radio" aria-checked="false" data-side="vorne">Vorne</button>
+          <button type="button" role="radio" aria-checked="false" data-side="hinten">Hinten</button>
+        </div>
+      </fieldset>
+      <div class="row end"><button type="button" class="ghost" id="join-cancel">Abbrechen</button><button type="submit">Mitglied werden</button></div>
+    </form>
+
+    <!-- Übersicht -->
+    <div id="tab-home" class="tab" hidden>
+      <div id="home"></div>
+      <section class="card">
+        <h2>Unsere WG</h2>
+        <div id="members-list" class="members"></div>
+        <div class="row" style="margin-top:12px">
+          <button type="button" id="invite">Mitglied einladen</button>
+          <button type="button" class="ghost" id="leave-open">Ich ziehe aus</button>
+        </div>
+      </section>
+    </div>
+
+    <!-- Kalender -->
+    <div id="tab-cal" class="tab" hidden>
+      <section class="card">
+        <div class="row" style="justify-content:space-between;flex-wrap:nowrap">
+          <button class="ghost icon" id="cal-prev" aria-label="Vorheriger Monat">‹</button>
+          <h2 id="cal-title" style="margin:0"></h2>
+          <button class="ghost icon" id="cal-next" aria-label="Nächster Monat">›</button>
+        </div>
+        <div class="cal" id="cal-grid"></div>
+        <p class="muted small cal-legend">🧹 Putzkraft · Name = wer weg ist · <span class="cal-today-dot"></span> heute</p>
+      </section>
+      <form class="card" id="abs-form">
+        <h2>Abwesenheit eintragen</h2>
+        <p class="muted small">Wer mindestens 4 Tage einer Woche weg ist, wird im Putzplan übersprungen und ist danach als Erstes wieder dran.</p>
+        <label class="field"><span>Wer?</span><select id="abs-person"></select></label>
+        <div class="row two">
+          <label class="field"><span>Von</span><input type="date" id="abs-from" required></label>
+          <label class="field"><span>Bis</span><input type="date" id="abs-to" required></label>
+        </div>
+        <label class="field"><span>Notiz (optional)</span><input id="abs-note" maxlength="60" placeholder="z.B. Heimaturlaub, Erasmus"></label>
+        <div class="row end"><button type="submit">Eintragen</button></div>
+      </form>
+      <section class="card">
+        <h2>Wer ist wann weg?</h2>
+        <div id="abs-list"></div>
+      </section>
+    </div>
+
+    <div id="tab-plan" class="tab" hidden>
     <!-- Erinnerungen -->
     <section id="notify" class="card notify" hidden>
       <div id="notify-body"></div>
@@ -160,9 +216,11 @@
   </main>
 
   <nav class="tabbar" aria-label="Bereiche">
+    <a href="#start" data-tab="home"><span aria-hidden="true">🏠</span>Übersicht</a>
     <a href="#plan" data-tab="plan"><span aria-hidden="true">🧽</span>Putzplan</a>
     <a href="#einkauf" data-tab="shop"><span aria-hidden="true">🛒</span>Einkauf<b class="badge" id="shop-badge" hidden></b></a>
-    <a href="#kasse" data-tab="money"><span aria-hidden="true">💶</span>WG-Kasse</a>
+    <a href="#kasse" data-tab="money"><span aria-hidden="true">💶</span>Kasse</a>
+    <a href="#kalender" data-tab="cal"><span aria-hidden="true">📅</span>Kalender</a>
     <a href="#regeln" data-tab="rules"><span aria-hidden="true">📜</span>Regeln</a>
   </nav>
 
@@ -199,6 +257,36 @@
         <button value="cancel" class="ghost" formnovalidate>Abbrechen</button>
         <button value="ok">Speichern</button>
       </div>
+    </form>
+  </dialog>
+
+  <dialog id="leave-dialog">
+    <form method="dialog" id="leave-form">
+      <div id="leave-step1">
+        <h2>Du ziehst aus? 🥲</h2>
+        <p class="muted">Bevor du gehst, kurz alles abhaken:</p>
+        <div id="leave-balance"></div>
+        <label class="check"><input type="checkbox" required> <span>Meine Schulden in der WG-Kasse sind bezahlt</span></label>
+        <label class="check"><input type="checkbox" required> <span>Schlüssel abgegeben (oder geklärt, an wen)</span></label>
+        <label class="check"><input type="checkbox" required> <span>Kühlschrankfach und Vorräte geräumt</span></label>
+        <label class="check"><input type="checkbox" required> <span>Meine Sachen aus Bad, Küche und Flur mitgenommen</span></label>
+        <label class="check"><input type="checkbox" required> <span>Zimmer übergeben bzw. Nachmieter*in geklärt</span></label>
+        <label class="check"><input type="checkbox" required> <span>Meine Putzdienste bis zum Auszug sind erledigt oder getauscht</span></label>
+        <label class="field"><span>Auszugsdatum</span><input type="date" id="leave-date" required></label>
+        <div class="row end">
+          <button value="cancel" class="ghost" formnovalidate>Abbrechen</button>
+          <button value="ok">Auszug eintragen</button>
+        </div>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="bye-dialog">
+    <form method="dialog" class="bye">
+      <div class="bye-emoji">💛</div>
+      <h2 id="bye-title"></h2>
+      <p id="bye-text"></p>
+      <div class="row end"><button value="ok">Danke & tschüss</button></div>
     </form>
   </dialog>
 
