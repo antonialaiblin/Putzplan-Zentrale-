@@ -120,6 +120,7 @@
       <div class="row cal-actions">
         <button type="button" id="ev-open">+ Eintrag</button>
         <button type="button" class="ghost" id="poll-open">🗳️ WG-Meeting anfragen</button>
+        <button type="button" class="ghost" id="cleaner-open">🧹 Putzkraft</button>
       </div>
       <form class="card" id="ev-form" hidden>
         <h2>Neuer Eintrag</h2>
@@ -394,8 +395,9 @@
   <dialog id="cleaner-dialog">
     <form method="dialog" id="cleaner-form">
       <h2>Wann kommt die Putzkraft? 🧹</h2>
-      <p class="muted" id="cleaner-week"></p>
-      <label class="field"><span>Tag</span><input type="date" id="cleaner-date" required></label>
+      <label class="field"><span>Was möchtest du eintragen?</span><select id="cleaner-which"></select></label>
+      <p class="muted small" id="cleaner-week"></p>
+      <label class="field"><span>Neuer Tag</span><input type="date" id="cleaner-date" required></label>
       <label class="field"><span>Uhrzeit (optional)</span><input type="time" id="cleaner-time"></label>
       <div class="row end">
         <button value="cancel" class="ghost" formnovalidate>Abbrechen</button>

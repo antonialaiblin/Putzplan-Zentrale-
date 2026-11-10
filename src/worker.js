@@ -202,6 +202,8 @@ export class Putzplan extends DurableObject {
     const body = request.method === 'POST' ? await request.json().catch(() => ({})) : {};
     const PEOPLE = await this.names();
     const validMonday = (m) => typeof m === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(m) && mondayOf(m) === m;
+    const isDay = (d) => typeof d === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(d);
+    const isTime = (t) => typeof t === 'string' && /^\d{2}:\d{2}$/.test(t);
 
     if (path === '/weeks' && request.method === 'GET') {
       const current = mondayOf(berlinNow().day);
@@ -272,6 +274,94 @@ export class Putzplan extends DurableObject {
       return json(week);
     }
 
+    // Putzkraft verschieben (auch in eine andere Woche) oder zusätzlich eintragen
+    if ((path === '/cleaner/move' || path === '/cleaner/extra') && request.method === 'POST') {
+      const by = PEOPLE.includes(body.by) ? body.by : null;
+      const date = body.date;
+      const time = isTime(body.time) ? body.time : '';
+      if (!isDay(date)) return json({ error: 'Bitte ein gültiges Datum angeben.' }, 400);
+      const target = mondayOf(date);
+      const tov = await this.overrides(target);
+      let fromDay = null;
+      if (path === '/cleaner/move') {
+        const from = body.from;
+        if (!validMonday(from)) return json({ error: 'bad request' }, 400);
+        const src = await this.week(from);
+        if (!src.cleaner) return json({ error: 'In dieser Woche ist keine Putzkraft geplant.' }, 400);
+        fromDay = src.cleanerDay;
+        const sov = await this.overrides(from);
+        if (from === target) {
+          // gleiche Woche: nur Tag/Uhrzeit ändern
+          if (src.extra) sov.extra = { ...sov.extra, date, time }; else Object.assign(sov, { cleanerDate: date, cleanerTime: time, cleanerConfirmed: true });
+          await this.ctx.storage.put(`ov:${from}`, sov);
+        } else {
+          const tw = await this.week(target);
+          if (tw.cleaner) return json({ error: 'In dieser Woche kommt die Putzkraft schon.' }, 400);
+          const origin = src.extra ? src.extraFrom : from; // ursprüngliche Woche merken
+          if (src.extra) delete sov.extra; else sov.movedTo = date;
+          await this.ctx.storage.put(`ov:${from}`, sov);
+          if (origin && origin !== from && origin !== target) {
+            const oov = await this.overrides(origin);
+            oov.movedTo = date;
+            await this.ctx.storage.put(`ov:${origin}`, oov);
+          }
+          if (origin === target) { // zurück in die ursprüngliche Woche
+            const t2 = await this.overrides(target);
+            delete t2.movedTo;
+            Object.assign(t2, { cleanerDate: date, cleanerTime: time, cleanerConfirmed: true });
+            await this.ctx.storage.put(`ov:${target}`, t2);
+          } else {
+            tov.extra = { date, time, ...(origin && origin !== target ? { from: origin } : {}) };
+            await this.ctx.storage.put(`ov:${target}`, tov);
+          }
+        }
+      } else {
+        const tw = await this.week(target);
+        if (tw.cleaner) return json({ error: 'In dieser Woche kommt die Putzkraft schon.' }, 400);
+        tov.extra = { date, time };
+        await this.ctx.storage.put(`ov:${target}`, tov);
+      }
+      const week = await this.week(target);
+      const when = (l) => `${fmtD(date, l)}${time ? `${l === 'en' ? ' at' : ' um'} ${time}` : ''}`;
+      for (const p of PEOPLE) {
+        if (p === by) continue;
+        await this.pushToPerson(p, (l) => {
+          const L = pick(l);
+          const head = fromDay && fromDay !== date
+            ? L(`Die Putzkraft kommt nicht am ${fmtD(fromDay)}, sondern am ${when(l)}.`, `The cleaner is not coming on ${fmtD(fromDay, 'en')} but on ${when(l)}.`)
+            : fromDay ? L(`Die Putzkraft kommt am ${when(l)}.`, `The cleaner comes on ${when(l)}.`)
+              : L(`Zusätzlicher Termin: Die Putzkraft kommt am ${when(l)}.`, `Extra visit: the cleaner comes on ${when(l)}.`);
+          return { title: L('Putzkraft-Termin 🧹', 'Cleaner appointment 🧹'), body: `${head} ${L('Der Putzplan ist angepasst.', 'The cleaning rota has been updated.')}${by ? L(` (von ${by})`, ` (by ${by})`) : ''}`, url: '/#plan' };
+        });
+      }
+      return json(week);
+    }
+    if (path === '/cleaner/extra/remove' && request.method === 'POST') {
+      if (!validMonday(body.monday)) return json({ error: 'bad request' }, 400);
+      const ov = await this.overrides(body.monday);
+      const from = ov.extra?.from;
+      delete ov.extra;
+      await this.ctx.storage.put(`ov:${body.monday}`, ov);
+      if (from) { // verschobenen Termin zurück in die ursprüngliche Woche
+        const sov = await this.overrides(from);
+        delete sov.movedTo;
+        await this.ctx.storage.put(`ov:${from}`, sov);
+      }
+      return json(await this.week(body.monday));
+    }
+    if (path === '/cleaner/unmove' && request.method === 'POST') {
+      if (!validMonday(body.monday)) return json({ error: 'bad request' }, 400);
+      const ov = await this.overrides(body.monday);
+      if (ov.movedTo) {
+        const t = mondayOf(ov.movedTo);
+        const tov = await this.overrides(t);
+        if (tov.extra?.from === body.monday) { delete tov.extra; await this.ctx.storage.put(`ov:${t}`, tov); }
+        delete ov.movedTo;
+        await this.ctx.storage.put(`ov:${body.monday}`, ov);
+      }
+      return json(await this.week(body.monday));
+    }
+
     if (path === '/vapid') {
       return json({ publicKey: vapidPublicRaw((await this.vapid()).publicJwk) });
     }
@@ -303,7 +393,6 @@ export class Putzplan extends DurableObject {
 
     const str = (v, max) => (typeof v === 'string' ? v.trim().slice(0, max) : '');
     // ---------- Mitglieder ----------
-    const isDay = (d) => typeof d === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(d);
     if (path === '/members/join' && request.method === 'POST') {
       const name = typeof body.name === 'string' ? body.name.trim().replace(/\s+/g, ' ').slice(0, 20) : '';
       const side = body.side === 'hinten' ? 'hinten' : body.side === 'vorne' ? 'vorne' : null;
@@ -384,7 +473,6 @@ export class Putzplan extends DurableObject {
 
     // ---------- Kalender ----------
     const rid = () => `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
-    const isTime = (t) => typeof t === 'string' && /^\d{2}:\d{2}$/.test(t);
     const calState = async () => json({ events: await this.events(), polls: await this.polls(), absences: await this.absences() });
     const TYPES = ['urlaub', 'meeting', 'sonstiges'];
     const label = (t) => ({ urlaub: 'Urlaub', meeting: 'WG-Meeting', sonstiges: 'Termin' }[t]);
@@ -713,7 +801,7 @@ export class Putzplan extends DurableObject {
       if (contact && !(await this.ctx.storage.get(flag))) {
         await this.ctx.storage.put(flag, Date.now());
         const week = await this.week(monday);
-        if (week.plannedCleaner && !week.ausfall && !week.cleanerConfirmed) {
+        if (week.cleaner && !week.cleanerConfirmed) {
           done.push([contact, await this.pushToPerson(contact, cleanerAskMessage(week, contact, (await this.langs())[contact]))]);
         }
       }

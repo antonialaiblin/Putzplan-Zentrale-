@@ -275,7 +275,8 @@ input:focus, select:focus { outline: 2px solid var(--accent); outline-offset: 0;
 
 .three-seg { grid-template-columns: repeat(3, 1fr); }
 .cal-actions { margin: 12px 0; }
-.cal-actions button { flex: 1; }
+.cal-actions { flex-wrap: wrap; }
+.cal-actions button { flex: 1 1 auto; }
 .cal .pill.meeting, .pill-demo.meeting { background: var(--accent-soft); color: var(--accent); }
 .cal .pill.sonstiges, .pill-demo.sonstiges { background: var(--bg); border: 1px solid var(--line); }
 .cal .pill.pending { opacity: .55; }

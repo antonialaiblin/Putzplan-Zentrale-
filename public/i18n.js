@@ -108,6 +108,9 @@ export const EN = {
   'Wann kommt die Putzkraft? 🧹': 'When is the cleaner coming? 🧹',
   'Tag': 'Day',
   'Uhrzeit (optional)': 'Time (optional)',
+  'Was möchtest du eintragen?': 'What would you like to enter?',
+  'Neuer Tag': 'New day',
+  '🧹 Putzkraft': '🧹 Cleaner',
   'Speichern': 'Save',
 
   // Aufgaben (kommen vom Server)

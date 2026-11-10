@@ -184,7 +184,19 @@ function renderWeek() {
   const contact = state.cleanerContact;
   const contactLine = `<p class="muted small">${L('Zuständig für die Putzkraft', 'In charge of the cleaner')}: <strong>${contact ? esc(contact) : L('niemand', 'nobody')}</strong>
     <button class="link" data-cleaner-contact>${L('ändern', 'change')}</button></p>`;
-  if (w.plannedCleaner) {
+  const whenD = (d) => `${wd(d)} ${ddmm(d)}`;
+  if (w.extra) {
+    html += `<div class="banner"><p>${L(`🧹 <strong>Putzkraft kommt ${cleanerWhen(w)}</strong> ✓ <span class="muted">(${w.extraFrom ? `verschoben aus der Woche ab ${ddmm(w.extraFrom)}` : 'Zusatztermin'})</span> und putzt Bäder, Böden und Müll.`,
+      `🧹 <strong>The cleaner comes ${cleanerWhen(w)}</strong> ✓ <span class="muted">(${w.extraFrom ? `moved from the week of ${ddmm(w.extraFrom)}` : 'extra visit'})</span> and cleans bathrooms, floors and bins.`)}</p>
+      <div class="row"><button class="link" data-cleaner-visit>${L('Termin ändern', 'Change date')}</button>
+      <button class="link" data-cleaner-extra-remove>${w.extraFrom ? L('Zurück in die alte Woche', 'Back to the original week') : L('Zusatztermin löschen', 'Delete extra visit')}</button></div>
+      ${contactLine}</div>`;
+  } else if (w.movedTo) {
+    html += `<div class="banner"><p>${L(`📅 <strong>Putzkraft wurde auf ${whenD(w.movedTo)} verschoben.</strong> Diese Woche putzen wir selbst.`,
+      `📅 <strong>The cleaner was moved to ${whenD(w.movedTo)}.</strong> This week we clean ourselves.`)}</p>
+      <div class="row"><button class="link" data-cleaner-unmove>${L('Verschiebung rückgängig', 'Undo move')}</button></div>
+      ${contactLine}</div>`;
+  } else if (w.plannedCleaner) {
     const isContact = state.me && state.me === contact;
     html += `<div class="banner"><p>${w.ausfall
       ? L('⚠️ <strong>Putzkraft fällt aus.</strong> Diese Woche putzen wir selbst (Intensivputz). Ab nächster Woche ist der Plan eine Woche später dran.',
@@ -196,7 +208,8 @@ function renderWeek() {
       <button class="link" data-ausfall="${w.ausfall ? 0 : 1}">${w.ausfall ? L('Doch nicht ausgefallen', 'Not cancelled after all') : L('Putzkraft fällt aus?', 'Cleaner cancelled?')}</button></div>
       ${contactLine}</div>`;
   } else {
-    html += `<div class="banner"><p>${L('🫧 <strong>Woche ohne Putzkraft.</strong> Wir putzen selbst.', '🫧 <strong>Week without the cleaner.</strong> We clean ourselves.')}</p>${contactLine}</div>`;
+    html += `<div class="banner"><p>${L('🫧 <strong>Woche ohne Putzkraft.</strong> Wir putzen selbst.', '🫧 <strong>Week without the cleaner.</strong> We clean ourselves.')}</p>
+      <div class="row"><button class="link" data-cleaner-add>${L('Putzkraft kommt diese Woche doch?', 'Cleaner coming this week after all?')}</button></div>${contactLine}</div>`;
   }
 
   if (w.away && w.away.length) {
@@ -237,7 +250,7 @@ function renderUpcoming() {
       return t.person === state.me ? `<span class="me">${name}</span>` : name;
     };
     rows.push(`<tr class="${i === 0 ? 'current' : ''}${w.cleaner ? ' pk' : ''}"><td>${ddmm(w.monday)}</td>
-      <td>${w.plannedCleaner ? (w.ausfall ? L('fällt aus', 'cancelled') : wd(w.cleanerDay)) : '–'}</td>
+      <td>${w.cleaner ? wd(w.cleanerDay) : w.ausfall ? L('fällt aus', 'cancelled') : w.movedTo ? L('verschoben', 'moved') : '–'}</td>
       <td>${p('woche')}</td><td>${p('bad-vorne')}</td><td>${p('bad-hinten')}</td></tr>`);
   }
   $('#upcoming').innerHTML = rows.join('');
@@ -359,7 +372,22 @@ document.addEventListener('click', async (e) => {
   const swapBtn = e.target.closest('[data-swap]');
   if (swapBtn) { openSwap(swapBtn.dataset.swap); return; }
 
-  if (e.target.closest('[data-cleaner-visit]')) { openCleanerVisit(); return; }
+  if (e.target.closest('[data-cleaner-visit]')) { openCleaner(state.view); return; }
+  if (e.target.closest('[data-cleaner-add]')) { openCleaner('', state.view); return; }
+  if (e.target.closest('[data-cleaner-extra-remove]') || e.target.closest('[data-cleaner-unmove]')) {
+    const w = state.weeks.get(state.view);
+    const undo = !!e.target.closest('[data-cleaner-unmove]');
+    const q = undo ? L('Verschiebung rückgängig machen? Die Putzkraft kommt dann wieder in dieser Woche.', 'Undo the move? The cleaner then comes in this week again.')
+      : w.extraFrom ? L('Termin zurück in die ursprüngliche Woche legen?', 'Move the visit back to the original week?')
+        : L('Zusatztermin löschen?', 'Delete the extra visit?');
+    if (!confirm(q)) return;
+    try {
+      await api(undo ? 'cleaner/unmove' : 'cleaner/extra/remove', { monday: state.view });
+      await reloadWeeks();
+      toast(L('Erledigt, der Putzplan ist angepasst', 'Done, the rota has been updated'));
+    } catch (err) { toast(err.message); }
+    return;
+  }
   if (e.target.closest('[data-cleaner-contact]')) { openCleanerContact(); return; }
   const ausfall = e.target.closest('[data-ausfall]');
   if (ausfall) {
@@ -448,22 +476,48 @@ function openSwap(taskKey) {
   dlg.showModal();
 }
 
-function openCleanerVisit() {
-  const w = state.weeks.get(state.view);
+async function reloadWeeks() {
+  const view = state.view;
+  state.weeks.clear();
+  await load();
+  if (view && view !== state.view) { await ensureWeek(view); state.view = view; }
+  render();
+}
+
+/**
+ * Putzkraft-Termin verschieben (auch in eine andere Woche) oder zusätzlich eintragen.
+ * from: Montag der Woche, deren Termin verschoben wird ('' = Zusatztermin); near: Woche für den Vorschlag
+ */
+function openCleaner(from = null, near = null) {
   const dlg = $('#cleaner-dialog');
+  const sel = $('#cleaner-which');
   const d = $('#cleaner-date');
-  d.min = w.monday; d.max = w.sunday; d.value = w.cleanerDay;
-  $('#cleaner-time').value = w.cleanerTime || '';
-  $('#cleaner-week').textContent = L(`Woche ${ddmm(w.monday)} – ${ddmm(w.sunday)} – alle bekommen eine kurze Nachricht mit dem Termin.`,
-    `Week ${ddmm(w.monday)} – ${ddmm(w.sunday)} – everyone gets a short notification with the date.`);
+  const t = $('#cleaner-time');
+  const weeks = [...state.weeks.values()].filter((w) => w.cleaner && w.sunday >= state.today).sort((a, b) => (a.monday < b.monday ? -1 : 1));
+  sel.innerHTML = weeks.map((w) => `<option value="${w.monday}">${L(`Termin ${cleanerWhen(w)} verschieben`, `Move visit on ${cleanerWhen(w)}`)}</option>`).join('')
+    + `<option value="">${L('➕ Zusätzlicher Termin', '➕ Extra visit')}</option>`;
+  if (from === null) from = weeks.length ? weeks[0].monday : '';
+  if (from && !weeks.some((w) => w.monday === from)) from = '';
+  sel.value = from;
+  d.min = state.today;
+  const fill = () => {
+    const w = sel.value && state.weeks.get(sel.value);
+    if (w) { d.value = w.cleanerDay; t.value = w.cleanerTime || ''; } else { d.value = near && near > state.today ? addDays(near, 2) : ''; t.value = ''; }
+    $('#cleaner-week').textContent = w
+      ? L('Du kannst auch einen Tag in einer anderen Woche wählen. Der Putzplan passt sich an, und alle bekommen eine kurze Nachricht.', 'You can also pick a day in another week. The rota adjusts and everyone gets a short notification.')
+      : L('Für eine Woche, in der die Putzkraft sonst nicht kommt. Der Putzplan passt sich an, und alle bekommen eine kurze Nachricht.', 'For a week in which the cleaner would not come otherwise. The rota adjusts and everyone gets a short notification.');
+  };
+  sel.onchange = fill;
+  fill();
   $('#cleaner-form').onsubmit = async (e) => {
     if (e.submitter?.value !== 'ok') return;
     e.preventDefault();
     try {
-      const nw = await api('cleaner/visit', { monday: w.monday, date: d.value, time: $('#cleaner-time').value, by: state.me });
-      state.weeks.set(nw.monday, nw);
+      const body = { date: d.value, time: t.value, by: state.me };
+      const nw = sel.value ? await api('cleaner/move', { ...body, from: sel.value }) : await api('cleaner/extra', body);
       dlg.close();
-      render();
+      await reloadWeeks();
+      if (state.weeks.has(nw.monday) && location.hash === '#plan') { state.view = nw.monday; render(); }
       toast(L('Eingetragen, alle wurden benachrichtigt', 'Saved, everyone has been notified'));
     } catch (err) { toast(err.message); }
   };
@@ -1368,6 +1422,7 @@ function renderEvForm() {
   $('#ev-people').innerHTML = state.people.map((p) => `<button type="button" class="chip" aria-pressed="${state.evPeople.has(p)}" data-evp="${esc(p)}">${esc(p)}</button>`).join('');
   $('#ev-people-hint').textContent = t === 'urlaub' ? L('Andere, die du hinzufügst, müssen selbst bestätigen, dass sie dabei sind.', 'Anyone else you add has to confirm themselves that they are in.') : '';
 }
+$('#cleaner-open').onclick = () => openCleaner();
 $('#ev-open').onclick = () => {
   $('#ev-form').hidden = false; $('#poll-form').hidden = true;
   state.evType = 'urlaub'; state.evPeople = null;

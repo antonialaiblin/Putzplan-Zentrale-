@@ -164,9 +164,14 @@ export function computeWeek(monday, ov = {}, ctx = {}) {
   const { e, shift } = asg;
   const plannedCleaner = mod(e, 2) === 1;
   const ausfall = plannedCleaner && !!ov.ausfall;
-  const cleaner = plannedCleaner && !ausfall;
-  const swaps = ov.swaps || {};
   const sunday = addDays(monday, 6);
+  // In eine andere Woche verschoben (ohne dass der Plan rutscht)?
+  const movedTo = plannedCleaner && !ausfall && ov.movedTo ? ov.movedTo : null;
+  const regular = plannedCleaner && !ausfall && !movedTo;
+  // Zusätzlicher (oder hierher verschobener) Termin in einer Woche ohne Putzkraft
+  const extra = !regular && ov.extra && ov.extra.date >= monday && ov.extra.date <= sunday ? ov.extra : null;
+  const cleaner = regular || !!extra;
+  const swaps = ov.swaps || {};
 
   const tasks = [];
 
@@ -223,9 +228,12 @@ export function computeWeek(monday, ov = {}, ctx = {}) {
     ausfall,
     cleaner,
     // Standard Mittwoch; die/der Zuständige kann Tag und Uhrzeit für die Woche ändern
-    cleanerDay: plannedCleaner ? (ov.cleanerDate && ov.cleanerDate >= monday && ov.cleanerDate <= sunday ? ov.cleanerDate : addDays(monday, 2)) : null,
-    cleanerTime: plannedCleaner && ov.cleanerTime ? ov.cleanerTime : '',
-    cleanerConfirmed: plannedCleaner && !!ov.cleanerConfirmed,
+    cleanerDay: extra ? extra.date : plannedCleaner ? (ov.cleanerDate && ov.cleanerDate >= monday && ov.cleanerDate <= sunday ? ov.cleanerDate : addDays(monday, 2)) : null,
+    cleanerTime: extra ? extra.time || '' : plannedCleaner && ov.cleanerTime ? ov.cleanerTime : '',
+    cleanerConfirmed: extra ? true : plannedCleaner && !!ov.cleanerConfirmed,
+    extra: !!extra,
+    extraFrom: extra?.from || null,
+    movedTo,
     tasks,
   };
 }
