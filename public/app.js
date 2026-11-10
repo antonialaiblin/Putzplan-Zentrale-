@@ -236,7 +236,15 @@ function render() {
 function renderMe() {
   const pick = $('#pick-me');
   const acct = state.account;
-  const joining = !state.me && !!acct && (location.hash === '#beitreten' || state.joining);
+  // Alle Personen vergeben: direkt Vorname eingeben, Person wird automatisch angelegt
+  const allTaken = !!acct && !acct.person && state.people.length > 0 && state.people.every((p) => memberOf(p)?.claimed);
+  const joining = !state.me && !!acct && (location.hash === '#beitreten' || state.joining || allTaken);
+  $('#join').classList.toggle('quick', allTaken);
+  $('#join-birthday').required = !allTaken;
+  $('#join-title').textContent = allTaken ? L('Wie heißt du? 👋', "What's your name? 👋", 'Vad heter du? 👋') : L('Willkommen in der WG! 🎉', 'Welcome to the flat! 🎉', 'Välkommen till kollektivet! 🎉');
+  $('#join-text').textContent = allTaken
+    ? L('Gib deinen Vornamen ein, dann wirst du automatisch angelegt. Ab nächstem Montag bist du im Putzplan.', "Enter your first name and you'll be added automatically. You're on the cleaning rota from next Monday.", 'Skriv ditt förnamn så läggs du till automatiskt. Från nästa måndag är du med i städschemat.')
+    : L('Leg dein Profil an. Ab nächstem Montag bist du automatisch im Putzplan.', "Create your profile. From next Monday you're automatically on the cleaning rota.", 'Skapa din profil. Från nästa måndag är du automatiskt med i städschemat.');
   $('#join').hidden = !joining;
   pick.hidden = !!state.me || joining;
   // Ohne Account: Start / Anmelden / Registrieren, mit Account ohne Person: Person wählen
@@ -1722,11 +1730,12 @@ $('#join-cancel').onclick = () => {
 $('#join').addEventListener('submit', async (e) => {
   e.preventDefault();
   if (!state.joinSide) { toast(L('Bitte vorne oder hinten wählen', 'Please choose front or back', `Välj fram eller bak`)); return; }
-  if (!joinProfile.gender) { toast(L('Bitte dein Geschlecht angeben', 'Please choose your gender', `Välj ditt kön`)); return; }
+  const quick = $('#join').classList.contains('quick');
+  if (!quick && !joinProfile.gender) { toast(L('Bitte dein Geschlecht angeben', 'Please choose your gender', `Välj ditt kön`)); return; }
   try {
     const r = await api('members/join', {
       name: $('#join-name').value, side: state.joinSide, lang: state.lang,
-      birthday: $('#join-birthday').value, gender: joinProfile.gender, photo: joinProfile.photo || undefined,
+      birthday: $('#join-birthday').value || undefined, gender: joinProfile.gender || undefined, photo: joinProfile.photo || undefined, quick,
     });
     state.me = r.name;
     store.set('me', r.name);
@@ -1735,6 +1744,11 @@ $('#join').addEventListener('submit', async (e) => {
     state.weeks.clear();
     await load();
     showTab();
+    if (quick) {
+      // Danach wie beim ersten Mal: Profil ergänzen (überspringbar), dann Einstellungen offen
+      openProfile(true);
+      $('#profile-dialog').addEventListener('close', () => { $('#settings').open = true; setTimeout(() => $('#settings').scrollIntoView({ behavior: 'smooth', block: 'start' }), 50); }, { once: true });
+    }
     toast(L(`Willkommen als ${G(r.name, 'neue Mitbewohnerin', 'neuer Mitbewohner', 'neue:r Mitbewohner:in')}, ${r.name}! Ab ${ddmm(r.since)} bist du im Putzplan.`, `Welcome, ${r.name}! You're on the cleaning rota from ${ddmm(r.since)}.`, `Välkommen, ${r.name}! Du är med i städschemat från ${ddmm(r.since)}.`));
   } catch (err) { toast(err.message); }
 });

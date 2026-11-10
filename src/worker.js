@@ -753,7 +753,7 @@ export class Putzplan extends DurableObject {
       const since = addDays(mondayOf(berlinNow().day), 7);
       const rest = members.filter((m) => !(m.name.toLowerCase() === name.toLowerCase()));
       const lang = ['en', 'sv'].includes(body.lang) ? body.lang : 'de';
-      const prof = this.checkProfile(body);
+      const prof = this.checkProfile(body, { requireAll: !body.quick });
       if (prof.error) return json({ error: prof.error }, 400);
       const photo = await this.savePhoto(name, body.photo || undefined);
       await this.ctx.storage.put('members', [...rest, { name, side, since, until: null, lang, ...prof.fields, ...(photo ? { photo } : {}) }]);

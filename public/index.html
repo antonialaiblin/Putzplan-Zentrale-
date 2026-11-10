@@ -64,8 +64,8 @@
 
     <!-- Beitreten -->
     <form id="join" class="card" hidden>
-      <h2>Willkommen in der WG! 🎉</h2>
-      <p class="muted">Leg dein Profil an. Ab nächstem Montag bist du automatisch im Putzplan.</p>
+      <h2 id="join-title">Willkommen in der WG! 🎉</h2>
+      <p class="muted" id="join-text">Leg dein Profil an. Ab nächstem Montag bist du automatisch im Putzplan.</p>
       <label class="field"><span>Dein Name (so sehen dich die anderen)</span><input id="join-name" maxlength="20" required autocomplete="given-name"></label>
       <fieldset class="field"><legend>Wo ist dein Zimmer? (für den Baddienst)</legend>
         <div class="seg two-seg" id="join-side" role="radiogroup">
@@ -73,21 +73,21 @@
           <button type="button" role="radio" aria-checked="false" data-side="hinten">Hinten</button>
         </div>
       </fieldset>
-      <div class="photo-pick">
+      <div class="photo-pick join-extra">
         <span class="avatar big" id="join-photo-preview"></span>
         <div><button type="button" class="ghost small" id="join-photo-btn">Foto wählen</button>
           <button type="button" class="link small" id="join-photo-del" hidden>Foto entfernen</button>
           <input type="file" id="join-photo" accept="image/*" hidden></div>
       </div>
-      <label class="field"><span>Geburtstag</span><input type="date" id="join-birthday" required></label>
-      <fieldset class="field"><legend>Geschlecht (damit die App dich richtig anspricht)</legend>
+      <label class="field join-extra"><span>Geburtstag</span><input type="date" id="join-birthday" required></label>
+      <fieldset class="field join-extra"><legend>Geschlecht (damit die App dich richtig anspricht)</legend>
         <div class="seg three-seg" id="join-gender" role="radiogroup">
           <button type="button" role="radio" aria-checked="false" data-gender="w">Weiblich</button>
           <button type="button" role="radio" aria-checked="false" data-gender="m">Männlich</button>
           <button type="button" role="radio" aria-checked="false" data-gender="d">Divers</button>
         </div>
       </fieldset>
-      <fieldset class="field"><legend>Sprache / Language / Språk</legend>
+      <fieldset class="field join-extra"><legend>Sprache / Language / Språk</legend>
         <div class="seg three-seg" id="join-lang" role="radiogroup">
           <button type="button" role="radio" aria-checked="true" data-jlang="de">Deutsch</button>
           <button type="button" role="radio" aria-checked="false" data-jlang="en">English</button>

@@ -515,3 +515,4 @@ body.not-home:not(.no-me) main { padding-top: calc(16px + env(safe-area-inset-to
 #people-buttons button.taken { opacity: .5; cursor: not-allowed; }
 .acct-row { width: 100%; display: flex; flex-direction: column; gap: 6px; padding: 10px 0; border-top: 1px solid var(--line); }
 .acct-row > div:first-child { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+#join.quick .join-extra, #join.quick #join-cancel { display: none !important; }
