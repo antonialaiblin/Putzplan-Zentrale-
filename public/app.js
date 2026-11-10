@@ -395,7 +395,6 @@ async function renderNotify() {
     <button id="push-on">${L('Erinnerungen aktivieren', 'Turn on reminders', `Slå på påminnelser`)}</button>`;
   $('#push-on').onclick = enablePush;
   nudge(true);
-  if (!state.settingsOpened) { state.settingsOpened = true; $('#settings').open = true; }
 }
 
 async function enablePush() {
@@ -425,7 +424,13 @@ document.addEventListener('click', async (e) => {
     render();
     if (state.money) renderMoney();
     renderShop();
-    maybeAskProfile();
+    // Erstes Mal: Profil einrichten (überspringbar), danach Einstellungen aufgeklappt zeigen
+    state.askedProfile = true;
+    openProfile(true);
+    $('#profile-dialog').addEventListener('close', () => {
+      $('#settings').open = true;
+      setTimeout(() => $('#settings').scrollIntoView({ behavior: 'smooth', block: 'start' }), 50);
+    }, { once: true });
     return;
   }
   const notesBtn = e.target.closest('#home [data-notes]');
@@ -1589,6 +1594,7 @@ function openProfile(intro = false) {
   const m = memberOf(state.me);
   if (!m) return;
   $('#profile-intro').hidden = !intro;
+  $('#profile-form button[value=cancel]').textContent = intro ? L('Überspringen', 'Skip', 'Hoppa över') : L('Abbrechen', 'Cancel', 'Avbryt');
   $('#profile-name').value = m.name;
   $('#profile-birthday').value = m.birthday || '';
   $('#profile-birthday').max = state.today;
