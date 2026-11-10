@@ -10,6 +10,8 @@ export const SCHEDULE = {
   friday: { dow: 4, hour: 18 }, // Freitag 18 Uhr: Erinnerung an offene Aufgaben
 };
 
+const fmtD = (d) => new Date(`${d}T12:00:00Z`).toLocaleDateString('de-DE', { weekday: 'short', day: '2-digit', month: '2-digit', timeZone: 'UTC' });
+
 const json = (data, status = 200) =>
   new Response(JSON.stringify(data), { status, headers: { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' } });
 
@@ -27,8 +29,27 @@ export class Putzplan extends DurableObject {
   async members() {
     return (await this.ctx.storage.get('members')) || INITIAL_MEMBERS;
   }
+  /** Kalender-Einträge: {id, type: urlaub|meeting|sonstiges, title, from, to, time, note, participants:[{name, ok}], by} */
+  async events() {
+    let ev = await this.ctx.storage.get('events');
+    if (!ev) {
+      // Alte Urlaubs-Einträge übernehmen
+      ev = ((await this.ctx.storage.get('absences')) || []).map((a) => ({
+        id: a.id, type: 'urlaub', title: a.note || '', from: a.from, to: a.to, time: '', note: '', by: a.person,
+        participants: [{ name: a.person, ok: true }],
+      }));
+      await this.ctx.storage.put('events', ev);
+    }
+    return ev;
+  }
+  /** Für den Putzplan: bestätigte Urlaube pro Person */
   async absences() {
-    return (await this.ctx.storage.get('absences')) || [];
+    return (await this.events())
+      .filter((e) => e.type === 'urlaub')
+      .flatMap((e) => e.participants.filter((p) => p.ok).map((p) => ({ id: e.id, person: p.name, from: e.from, to: e.to, note: e.title })));
+  }
+  async polls() {
+    return (await this.ctx.storage.get('polls')) || [];
   }
   /** Alle, die gerade wohnen oder schon zugesagt haben (noch nicht ausgezogen). */
   async names() {
@@ -110,7 +131,7 @@ export class Putzplan extends DurableObject {
       const from = validMonday(url.searchParams.get('from')) ? url.searchParams.get('from') : addDays(current, -7);
       const count = Math.min(Math.max(Number(url.searchParams.get('count')) || 12, 1), 30);
       const weeks = await this.weeks([...Array(count)].map((_, i) => addDays(from, i * 7)));
-      return json({ people: PEOPLE, members: await this.members(), absences: await this.absences(), current, today: berlinNow().day, weeks });
+      return json({ people: PEOPLE, members: await this.members(), absences: await this.absences(), events: await this.events(), polls: await this.polls(), current, today: berlinNow().day, weeks });
     }
 
     if (path === '/check' && request.method === 'POST') {
@@ -180,6 +201,7 @@ export class Putzplan extends DurableObject {
       return json(r, r.ok ? 200 : 502);
     }
 
+    const str = (v, max) => (typeof v === 'string' ? v.trim().slice(0, max) : '');
     // ---------- Mitglieder ----------
     const isDay = (d) => typeof d === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(d);
     if (path === '/members/join' && request.method === 'POST') {
@@ -210,24 +232,101 @@ export class Putzplan extends DurableObject {
       return json({ ok: true, until, members: await this.members() });
     }
 
-    // ---------- Abwesenheiten (Urlaub) ----------
-    if (path === '/absences/add' && request.method === 'POST') {
-      const { person, from, to } = body;
-      if (!PEOPLE.includes(person) || !isDay(from) || !isDay(to) || to < from) return json({ error: 'Bitte Person, Von und Bis angeben.' }, 400);
-      const list = await this.absences();
-      list.push({ id: `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`, person, from, to, note: typeof body.note === 'string' ? body.note.trim().slice(0, 60) : '' });
-      list.sort((a, b) => (a.from < b.from ? -1 : 1));
-      await this.ctx.storage.put('absences', list);
-      return json({ absences: list });
+    // ---------- Kalender ----------
+    const rid = () => `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+    const isTime = (t) => typeof t === 'string' && /^\d{2}:\d{2}$/.test(t);
+    const calState = async () => json({ events: await this.events(), polls: await this.polls(), absences: await this.absences() });
+    const TYPES = ['urlaub', 'meeting', 'sonstiges'];
+    const label = (t) => ({ urlaub: 'Urlaub', meeting: 'WG-Meeting', sonstiges: 'Termin' }[t]);
+
+    if (path === '/events/add' && request.method === 'POST') {
+      const type = TYPES.includes(body.type) ? body.type : 'sonstiges';
+      const by = PEOPLE.includes(body.by) ? body.by : null;
+      const from = body.from;
+      const to = type === 'meeting' ? from : body.to || from;
+      if (!isDay(from) || !isDay(to) || to < from) return json({ error: 'Bitte ein gültiges Datum angeben.' }, 400);
+      if (type === 'meeting' && !isTime(body.time)) return json({ error: 'Bitte eine Uhrzeit fürs Meeting angeben.' }, 400);
+      let names = Array.isArray(body.participants) ? [...new Set(body.participants.filter((p) => PEOPLE.includes(p)))] : [];
+      if (!names.length) names = type === 'meeting' ? PEOPLE : by ? [by] : [];
+      if (!names.length) return json({ error: 'Wer ist dabei?' }, 400);
+      // Bei Urlaub müssen andere selbst zustimmen; Meetings/Termine gelten direkt
+      const participants = names.map((n) => ({ name: n, ok: type !== 'urlaub' || n === by }));
+      const ev = { id: rid(), type, title: str(body.title, 60), from, to, time: type !== 'urlaub' && isTime(body.time) ? body.time : '', note: str(body.note, 200), by, participants };
+      await this.ctx.storage.put('events', [...(await this.events()), ev].sort((a, b) => (a.from + a.time < b.from + b.time ? -1 : 1)));
+      const when = `${fmtD(from)}${to !== from ? ` – ${fmtD(to)}` : ''}${ev.time ? ` um ${ev.time}` : ''}`;
+      for (const p of participants) {
+        if (p.name === by) continue;
+        if (type === 'urlaub') {
+          await this.pushToPerson(p.name, { title: 'Urlaub bestätigen? 🏖️', body: `${by || 'Jemand'} hat dich beim Urlaub ${ev.title ? `„${ev.title}“ ` : ''}${when} eingetragen. Bitte in der Zentrale bestätigen.`, url: '/#kalender' });
+        } else {
+          await this.pushToPerson(p.name, { title: `${type === 'meeting' ? '🗣️ ' : '📅 '}${ev.title || label(type)}`, body: `Neuer Termin: ${when}${by ? ` (von ${by})` : ''}.`, url: '/#kalender' });
+        }
+      }
+      return calState();
     }
-    if (path === '/absences/delete' && request.method === 'POST') {
-      const list = (await this.absences()).filter((a) => a.id !== body.id);
-      await this.ctx.storage.put('absences', list);
-      return json({ absences: list });
+    if (path === '/events/respond' && request.method === 'POST') {
+      const list = await this.events();
+      const ev = list.find((e) => e.id === body.id);
+      if (!ev || !ev.participants.some((p) => p.name === body.name)) return json({ error: 'Eintrag nicht gefunden.' }, 404);
+      ev.participants = body.accept
+        ? ev.participants.map((p) => (p.name === body.name ? { ...p, ok: true } : p))
+        : ev.participants.filter((p) => p.name !== body.name);
+      await this.ctx.storage.put('events', ev.participants.length ? list : list.filter((e) => e !== ev));
+      return calState();
+    }
+    if (path === '/events/delete' && request.method === 'POST') {
+      await this.ctx.storage.put('events', (await this.events()).filter((e) => e.id !== body.id));
+      return calState();
+    }
+    // Alte Route weiter unterstützen
+    if (path === '/absences/add' && request.method === 'POST') {
+      return json({ error: 'Bitte die Seite neu laden.' }, 400);
+    }
+
+    // WG-Meeting anfragen und abstimmen
+    if (path === '/polls/add' && request.method === 'POST') {
+      const by = PEOPLE.includes(body.by) ? body.by : null;
+      const options = (Array.isArray(body.options) ? body.options : [])
+        .filter((o) => isDay(o.date) && isTime(o.time)).slice(0, 8).map((o) => ({ id: rid(), date: o.date, time: o.time }));
+      if (options.length < 1) return json({ error: 'Bitte mindestens einen Terminvorschlag mit Datum und Uhrzeit angeben.' }, 400);
+      const poll = { id: rid(), title: str(body.title, 60) || 'WG-Meeting', note: str(body.note, 200), by, options, votes: by ? { [by]: Object.fromEntries(options.map((o) => [o.id, 'yes'])) } : {}, status: 'open', at: Date.now() };
+      await this.ctx.storage.put('polls', [...(await this.polls()), poll]);
+      for (const p of PEOPLE) {
+        if (p !== by) await this.pushToPerson(p, { title: '🗳️ WG-Meeting: wann passt es dir?', body: `${by || 'Jemand'} wünscht sich ein Meeting${poll.title !== 'WG-Meeting' ? ` („${poll.title}“)` : ''}. Stimm in der Zentrale ab.`, url: '/#kalender' });
+      }
+      return calState();
+    }
+    if (path === '/polls/vote' && request.method === 'POST') {
+      const polls = await this.polls();
+      const poll = polls.find((p) => p.id === body.id && p.status === 'open');
+      if (!poll || !PEOPLE.includes(body.name)) return json({ error: 'Abstimmung nicht gefunden.' }, 404);
+      const v = {};
+      for (const o of poll.options) if (['yes', 'maybe', 'no'].includes(body.votes?.[o.id])) v[o.id] = body.votes[o.id];
+      poll.votes = { ...poll.votes, [body.name]: v };
+      await this.ctx.storage.put('polls', polls);
+      return calState();
+    }
+    if (path === '/polls/close' && request.method === 'POST') {
+      const polls = await this.polls();
+      const poll = polls.find((p) => p.id === body.id && p.status === 'open');
+      const opt = poll?.options.find((o) => o.id === body.optionId);
+      if (!opt) return json({ error: 'Termin nicht gefunden.' }, 404);
+      const ev = { id: rid(), type: 'meeting', title: poll.title, from: opt.date, to: opt.date, time: opt.time, note: poll.note, by: poll.by, participants: PEOPLE.map((n) => ({ name: n, ok: true })), poll: poll.id };
+      poll.status = 'done';
+      poll.eventId = ev.id;
+      await this.ctx.storage.put('polls', polls);
+      await this.ctx.storage.put('events', [...(await this.events()), ev].sort((a, b) => (a.from + a.time < b.from + b.time ? -1 : 1)));
+      for (const p of PEOPLE) {
+        await this.pushToPerson(p, { title: '🗣️ WG-Meeting steht fest', body: `${poll.title}: ${fmtD(opt.date)} um ${opt.time} Uhr. Bis dann!`, url: '/#kalender' });
+      }
+      return calState();
+    }
+    if (path === '/polls/delete' && request.method === 'POST') {
+      await this.ctx.storage.put('polls', (await this.polls()).filter((p) => p.id !== body.id));
+      return calState();
     }
 
     // ---------- Einkaufsliste ----------
-    const str = (v, max) => (typeof v === 'string' ? v.trim().slice(0, max) : '');
     const newId = () => `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 7)}`;
 
     if (path === '/shop' && request.method === 'GET') {

@@ -41,6 +41,8 @@ async function load() {
   state.people = data.people;
   state.members = data.members;
   state.absences = data.absences;
+  state.events = data.events || [];
+  state.polls = data.polls || [];
   state.today = data.today;
   state.current = data.current;
   if (state.me && !state.people.includes(state.me)) { state.me = null; store.set('me', ''); }
@@ -658,9 +660,15 @@ function renderHome() {
   const today = state.today;
   const now = absentNow(today);
   const next = (state.absences || []).filter((a) => a.from > today).slice(0, 3);
-  html += `<a class="card" href="#kalender"><h3>Wer ist weg?</h3>
+  const meet = (state.events || []).find((e) => e.type === 'meeting' && e.from >= today);
+  const openPolls = (state.polls || []).filter((p) => p.status === 'open');
+  const invites = (state.events || []).filter((e) => e.participants.some((p) => p.name === me && !p.ok));
+  html += `<a class="card" href="#kalender"><h3>Kalender</h3>
     ${now.length ? `<p>${now.map((a) => `🏖️ <strong>${esc(a.person)}</strong> bis ${ddmm(a.to)}`).join('<br>')}</p>` : '<p>Alle da</p>'}
-    ${next.length ? `<p class="muted">${next.map((a) => `${esc(a.person)} ab ${ddmm(a.from)}`).join('<br>')}</p>` : ''}</a>`;
+    ${next.length ? `<p class="muted">${next.map((a) => `${esc(a.person)} weg ab ${ddmm(a.from)}`).join('<br>')}</p>` : ''}
+    ${meet ? `<p>🗣️ ${esc(meet.title || 'WG-Meeting')} ${ddmm(meet.from)} ${meet.time}</p>` : ''}
+    ${openPolls.length ? `<p>🗳️ ${openPolls.length} Abstimmung${openPolls.length > 1 ? 'en' : ''} offen</p>` : ''}
+    ${invites.length ? `<p><strong>📬 ${invites.length} Einladung${invites.length > 1 ? 'en' : ''} für dich</strong></p>` : ''}</a>`;
   html += '<a class="card wide" href="#regeln"><h3>Hausregeln</h3><p>Mission Haussegen 📜 Alles zum WG-Seelenfrieden</p></a>';
   html += '</div>';
   el.innerHTML = html;
@@ -754,83 +762,255 @@ $('#leave-form').addEventListener('submit', (e) => {
 
 // ---------------- Kalender ----------------
 state.calMonth = null;
+state.evType = 'urlaub';
+state.evPeople = null;
 const MONTHS = ['Januar', 'Februar', 'März', 'April', 'Mai', 'Juni', 'Juli', 'August', 'September', 'Oktober', 'November', 'Dezember'];
+const TYPE_ICON = { urlaub: '🏖️', meeting: '🗣️', sonstiges: '📅' };
+const TYPE_LABEL = { urlaub: 'Urlaub', meeting: 'WG-Meeting', sonstiges: 'Termin' };
+const dowOf = (d) => (new Date(`${d}T12:00:00Z`).getUTCDay() + 6) % 7;
+
+function applyCal(data) {
+  state.events = data.events;
+  state.polls = data.polls;
+  state.absences = data.absences;
+}
+
 function renderCal() {
   if (!state.today || !$('#cal-grid')) return;
   if (!state.calMonth) state.calMonth = state.today.slice(0, 7);
   const [y, mo] = state.calMonth.split('-').map(Number);
   $('#cal-title').textContent = `${MONTHS[mo - 1]} ${y}`;
   const first = `${state.calMonth}-01`;
-  const dow = (new Date(`${first}T12:00:00Z`).getUTCDay() + 6) % 7;
-  const start = addDays(first, -dow);
-  const abs = state.absences || [];
+  const start = addDays(first, -dowOf(first));
+  const evs = state.events || [];
   let html = ['Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So'].map((d) => `<div class="dow">${d}</div>`).join('');
   for (let i = 0; i < 42; i++) {
     const d = addDays(start, i);
     if (i >= 35 && d.slice(0, 7) !== state.calMonth) break;
-    const wk = state.weeks.get(addDays(d, -((new Date(`${d}T12:00:00Z`).getUTCDay() + 6) % 7)));
+    const wk = state.weeks.get(addDays(d, -dowOf(d)));
     const cleaner = wk && wk.cleaner && wk.cleanerDay === d;
-    const away = abs.filter((a) => a.from <= d && a.to >= d);
+    const pills = [];
+    for (const e of evs) {
+      if (e.from > d || e.to < d) continue;
+      if (e.type === 'urlaub') {
+        for (const p of e.participants) pills.push(`<span class="pill urlaub${p.ok ? '' : ' pending'}" title="${esc(p.name)}: Urlaub">${esc(p.name)}</span>`);
+      } else {
+        pills.push(`<span class="pill ${e.type}" title="${esc(e.title || TYPE_LABEL[e.type])}">${e.time ? `${e.time} ` : ''}${esc(e.title || TYPE_LABEL[e.type])}</span>`);
+      }
+    }
     html += `<div class="day${d.slice(0, 7) !== state.calMonth ? ' out' : ''}${d === state.today ? ' today' : ''}">
-      <span class="n">${+d.slice(8)}${cleaner ? '<span title="Putzkraft">🧹</span>' : ''}</span>
-      ${away.map((a) => `<span class="pill" title="${esc(a.person)}">${esc(a.person)}</span>`).join('')}</div>`;
+      <span class="n">${+d.slice(8)}${cleaner ? '<span title="Putzkraft">🧹</span>' : ''}</span>${pills.join('')}</div>`;
   }
   $('#cal-grid').innerHTML = html;
-
-  const sel = $('#abs-person');
-  const prev = (state.absTouched && sel.value) || state.me;
-  sel.innerHTML = state.people.map((p) => `<option${p === prev ? ' selected' : ''}>${esc(p)}</option>`).join('');
-  const upcoming = abs.filter((a) => a.to >= state.today);
-  $('#abs-list').innerHTML = upcoming.length
-    ? upcoming.map((a) => `<div class="abs"><div><strong>${esc(a.person)}</strong> ${fmtDay(a.from)} – ${fmtDay(a.to)}
-        ${a.note ? `<small>${esc(a.note)}</small>` : ''}</div><button class="link small" data-abs-del="${esc(a.id)}">löschen</button></div>`).join('')
-    : '<p class="empty">Gerade ist niemand als abwesend eingetragen.</p>';
+  renderInbox();
+  renderPolls();
+  renderEvList();
 }
+
+function renderInbox() {
+  const me = state.me;
+  const pending = (state.events || []).filter((e) => e.participants.some((p) => p.name === me && !p.ok));
+  const openPolls = (state.polls || []).filter((p) => p.status === 'open' && !(p.votes || {})[me]);
+  if (!me || (!pending.length && !openPolls.length)) { $('#cal-inbox').innerHTML = ''; return; }
+  $('#cal-inbox').innerHTML = `<section class="card inbox"><h2>Für dich 📬</h2>
+    ${pending.map((e) => `<div class="row"><span><strong>${esc(e.by || 'Jemand')}</strong> hat dich beim Urlaub ${e.title ? `„${esc(e.title)}“ ` : ''}${fmtDay(e.from)} – ${fmtDay(e.to)} eingetragen.</span>
+      <span class="row" style="flex:none"><button class="small" data-respond="${esc(e.id)}" data-accept="1">Bin dabei</button><button class="ghost small" data-respond="${esc(e.id)}" data-accept="0">Nein</button></span></div>`).join('')}
+    ${openPolls.map((p) => `<div class="row"><span>🗳️ Stimm ab: <strong>${esc(p.title)}</strong>${p.by ? ` (von ${esc(p.by)})` : ''}</span><button type="button" class="link small" data-goto-poll="${esc(p.id)}">Zur Abstimmung</button></div>`).join('')}
+  </section>`;
+}
+
+function pollScore(poll, optId) {
+  let yes = 0; let maybe = 0; let no = 0;
+  for (const v of Object.values(poll.votes || {})) {
+    if (v[optId] === 'yes') yes++; else if (v[optId] === 'maybe') maybe++; else if (v[optId] === 'no') no++;
+  }
+  return { yes, maybe, no, score: yes * 2 + maybe };
+}
+function renderPolls() {
+  const open = (state.polls || []).filter((p) => p.status === 'open');
+  $('#polls').innerHTML = open.map((poll) => {
+    const mine = (poll.votes || {})[state.me] || {};
+    const voters = Object.keys(poll.votes || {});
+    const missing = state.people.filter((p) => !voters.includes(p));
+    const best = Math.max(...poll.options.map((o) => pollScore(poll, o.id).score));
+    return `<section class="card poll" id="poll-${esc(poll.id)}">
+      <h2>🗳️ ${esc(poll.title)}</h2>
+      <p class="muted small" style="margin:0 0 6px">Angefragt von ${esc(poll.by || '?')} · abgestimmt: ${voters.length}/${state.people.length}${missing.length ? ` · fehlt noch: ${missing.map(esc).join(', ')}` : ''}</p>
+      ${poll.options.map((o) => {
+        const sc = pollScore(poll, o.id);
+        const who = (v) => voters.filter((n) => poll.votes[n][o.id] === v).map(esc).join(', ');
+        return `<div class="opt${sc.score === best && best > 0 ? ' best' : ''}">
+          <span class="when"><strong>${fmtDay(o.date)}</strong>, ${o.time} Uhr</span>
+          <span class="votes">${state.me ? ['yes', 'maybe', 'no'].map((v) => `<button type="button" class="${v}" aria-pressed="${mine[o.id] === v}" data-vote="${esc(poll.id)}" data-opt="${esc(o.id)}" data-val="${v}" aria-label="${{ yes: 'Passt', maybe: 'Vielleicht', no: 'Passt nicht' }[v]}">${{ yes: '✅', maybe: '🤔', no: '❌' }[v]}</button>`).join('') : ''}</span>
+          <span class="tally">✅ ${sc.yes}${sc.yes ? ` (${who('yes')})` : ''} · 🤔 ${sc.maybe}${sc.maybe ? ` (${who('maybe')})` : ''} · ❌ ${sc.no}${sc.no ? ` (${who('no')})` : ''}
+            · <button type="button" class="link small" data-close="${esc(poll.id)}" data-opt="${esc(o.id)}">Diesen Termin festlegen</button></span>
+        </div>`;
+      }).join('')}
+      <div class="row end" style="margin-top:6px"><button type="button" class="link small" data-poll-del="${esc(poll.id)}">Anfrage löschen</button></div>
+    </section>`;
+  }).join('');
+}
+
+function renderEvList() {
+  const up = (state.events || []).filter((e) => e.to >= state.today);
+  $('#ev-list').innerHTML = up.length
+    ? up.map((e) => {
+      const ppl = e.participants.length === state.people.length && e.type !== 'urlaub'
+        ? 'alle'
+        : e.participants.map((p) => `${esc(p.name)}${p.ok ? '' : ' (wartet auf Zusage)'}`).join(', ');
+      return `<div class="ev"><div>${TYPE_ICON[e.type]} <strong>${esc(e.title || TYPE_LABEL[e.type])}</strong>
+        <small>${fmtDay(e.from)}${e.to !== e.from ? ` – ${fmtDay(e.to)}` : ''}${e.time ? `, ${e.time} Uhr` : ''} · ${ppl}${e.note ? ` · ${esc(e.note)}` : ''}</small></div>
+        <button class="link small" data-ev-del="${esc(e.id)}">löschen</button></div>`;
+    }).join('')
+    : '<p class="empty">Nichts eingetragen.</p>';
+}
+
+// Eintrag-Formular
+function renderEvForm() {
+  const t = state.evType;
+  document.querySelectorAll('#ev-type [data-type]').forEach((b) => b.setAttribute('aria-checked', b.dataset.type === t));
+  $('#ev-time-wrap').hidden = t !== 'meeting';
+  $('#ev-to-wrap').hidden = t === 'meeting';
+  $('#ev-from-label').textContent = t === 'meeting' ? 'Datum' : 'Von';
+  $('#ev-title').placeholder = { urlaub: 'z.B. Heimaturlaub, Skifahren', meeting: 'WG-Meeting', sonstiges: 'z.B. Hausbesichtigung, Party' }[t];
+  if (!state.evPeople) state.evPeople = new Set(t === 'meeting' ? state.people : [state.me].filter(Boolean));
+  $('#ev-people').innerHTML = state.people.map((p) => `<button type="button" class="chip" aria-pressed="${state.evPeople.has(p)}" data-evp="${esc(p)}">${esc(p)}</button>`).join('');
+  $('#ev-people-hint').textContent = t === 'urlaub' ? 'Andere, die du hinzufügst, müssen selbst bestätigen, dass sie dabei sind.' : '';
+}
+$('#ev-open').onclick = () => {
+  $('#ev-form').hidden = false; $('#poll-form').hidden = true;
+  state.evType = 'urlaub'; state.evPeople = null;
+  $('#ev-form').reset(); $('#ev-time').value = '19:00';
+  renderEvForm();
+  $('#ev-form').scrollIntoView({ behavior: 'smooth', block: 'start' });
+};
+$('#ev-cancel').onclick = () => { $('#ev-form').hidden = true; };
+$('#ev-type').addEventListener('click', (e) => {
+  const b = e.target.closest('[data-type]');
+  if (!b) return;
+  state.evType = b.dataset.type;
+  state.evPeople = null;
+  renderEvForm();
+});
+$('#ev-people').addEventListener('click', (e) => {
+  const b = e.target.closest('[data-evp]');
+  if (!b) return;
+  const p = b.dataset.evp;
+  if (state.evPeople.has(p)) state.evPeople.delete(p); else state.evPeople.add(p);
+  b.setAttribute('aria-pressed', state.evPeople.has(p));
+});
+$('#ev-from').addEventListener('change', () => { if (!$('#ev-to').value || $('#ev-to').value < $('#ev-from').value) $('#ev-to').value = $('#ev-from').value; });
+$('#ev-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  if (!state.evPeople.size) { toast('Bitte mindestens eine Person auswählen'); return; }
+  try {
+    const data = await api('events/add', {
+      type: state.evType, title: $('#ev-title').value, from: $('#ev-from').value, to: $('#ev-to').value || $('#ev-from').value,
+      time: state.evType === 'meeting' ? $('#ev-time').value : '', note: $('#ev-note').value, participants: [...state.evPeople], by: state.me,
+    });
+    applyCal(data);
+    $('#ev-form').hidden = true;
+    state.weeks.clear();
+    await load();
+    toast(state.evType === 'urlaub' && state.evPeople.size > 1 ? 'Eingetragen, die anderen müssen noch zustimmen' : 'Eingetragen');
+  } catch (err) { toast(err.message); }
+});
+
+// Meeting-Anfrage
+function pollOptRow(date = '', time = '19:00') {
+  return `<div class="poll-opt-row"><input type="date" value="${date}" required><input type="time" value="${time}" required>
+    <button type="button" class="ghost" data-opt-del aria-label="Entfernen">✕</button></div>`;
+}
+$('#poll-open').onclick = () => {
+  $('#poll-form').hidden = false; $('#ev-form').hidden = true;
+  $('#poll-form').reset();
+  $('#poll-options').innerHTML = [3, 5, 8].map((n) => pollOptRow(addDays(state.today, n))).join('');
+  $('#poll-form').scrollIntoView({ behavior: 'smooth', block: 'start' });
+};
+$('#poll-cancel').onclick = () => { $('#poll-form').hidden = true; };
+$('#poll-add-opt').onclick = () => $('#poll-options').insertAdjacentHTML('beforeend', pollOptRow());
+$('#poll-options').addEventListener('click', (e) => { if (e.target.closest('[data-opt-del]')) e.target.closest('.poll-opt-row').remove(); });
+$('#poll-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const options = [...document.querySelectorAll('#poll-options .poll-opt-row')].map((r) => {
+    const [d, t] = r.querySelectorAll('input');
+    return { date: d.value, time: t.value };
+  });
+  try {
+    applyCal(await api('polls/add', { title: $('#poll-title').value, options, by: state.me }));
+    $('#poll-form').hidden = true;
+    renderCal(); renderHome();
+    toast('Anfrage verschickt, alle können jetzt abstimmen');
+  } catch (err) { toast(err.message); }
+});
+
+// Klicks im Kalender-Reiter
+$('#tab-cal').addEventListener('click', async (e) => {
+  const t = e.target;
+  const go = t.closest('[data-goto-poll]');
+  if (go) { document.getElementById(`poll-${go.dataset.gotoPoll}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' }); return; }
+  try {
+    const vote = t.closest('[data-vote]');
+    if (vote) {
+      const poll = state.polls.find((p) => p.id === vote.dataset.vote);
+      const votes = { ...((poll.votes || {})[state.me] || {}), [vote.dataset.opt]: vote.dataset.val };
+      applyCal(await api('polls/vote', { id: poll.id, name: state.me, votes }));
+      renderCal(); renderHome();
+      return;
+    }
+    const close = t.closest('[data-close]');
+    if (close) {
+      const poll = state.polls.find((p) => p.id === close.dataset.close);
+      const o = poll.options.find((x) => x.id === close.dataset.opt);
+      if (!confirm(`WG-Meeting auf ${fmtDay(o.date)}, ${o.time} Uhr festlegen? Alle bekommen eine Nachricht.`)) return;
+      applyCal(await api('polls/close', { id: poll.id, optionId: o.id, by: state.me }));
+      renderCal(); renderHome();
+      toast('Termin steht 🎉');
+      return;
+    }
+    const pdel = t.closest('[data-poll-del]');
+    if (pdel) {
+      if (!confirm('Anfrage löschen?')) return;
+      applyCal(await api('polls/delete', { id: pdel.dataset.pollDel }));
+      renderCal(); renderHome();
+      return;
+    }
+    const resp = t.closest('[data-respond]');
+    if (resp) {
+      applyCal(await api('events/respond', { id: resp.dataset.respond, name: state.me, accept: resp.dataset.accept === '1' }));
+      state.weeks.clear();
+      await load();
+      toast(resp.dataset.accept === '1' ? 'Bestätigt, schönen Urlaub! 🏖️' : 'Abgelehnt');
+      return;
+    }
+    const del = t.closest('[data-ev-del]');
+    if (del) {
+      if (!confirm('Eintrag löschen?')) return;
+      applyCal(await api('events/delete', { id: del.dataset.evDel }));
+      state.weeks.clear();
+      await load();
+    }
+  } catch (err) { toast(err.message); }
+});
+
 async function ensureCalWeeks() {
-  const [y, mo] = state.calMonth.split('-').map(Number);
   const first = `${state.calMonth}-01`;
-  const from = addDays(first, -((new Date(`${first}T12:00:00Z`).getUTCDay() + 6) % 7));
+  const from = addDays(first, -dowOf(first));
   if (state.weeks.has(from) && state.weeks.has(addDays(from, 35))) return;
   try {
     const data = await api(`weeks?from=${from}&count=6`);
     for (const w of data.weeks) state.weeks.set(w.monday, w);
   } catch { /* Anzeige ohne Putzkraft-Tage */ }
-  void y; void mo;
 }
 async function moveCal(n) {
   const [y, mo] = state.calMonth.split('-').map(Number);
-  const d = new Date(Date.UTC(y, mo - 1 + n, 1));
-  state.calMonth = d.toISOString().slice(0, 7);
+  state.calMonth = new Date(Date.UTC(y, mo - 1 + n, 1)).toISOString().slice(0, 7);
   renderCal();
   await ensureCalWeeks();
   renderCal();
 }
 $('#cal-prev').onclick = () => moveCal(-1);
 $('#cal-next').onclick = () => moveCal(1);
-$('#abs-form').addEventListener('submit', async (e) => {
-  e.preventDefault();
-  const from = $('#abs-from').value;
-  const to = $('#abs-to').value;
-  if (to < from) { toast('„Bis“ liegt vor „Von“'); return; }
-  try {
-    await api('absences/add', { person: $('#abs-person').value, from, to, note: $('#abs-note').value });
-    $('#abs-form').reset();
-    state.weeks.clear();
-    await load();
-    toast('Eingetragen, der Putzplan wurde angepasst');
-  } catch (err) { toast(err.message); }
-});
-$('#abs-list').addEventListener('click', async (e) => {
-  const b = e.target.closest('[data-abs-del]');
-  if (!b || !confirm('Abwesenheit löschen? Der Putzplan wird dann wieder zurückgerechnet.')) return;
-  try {
-    await api('absences/delete', { id: b.dataset.absDel });
-    state.weeks.clear();
-    await load();
-  } catch (err) { toast(err.message); }
-});
-$('#abs-person').addEventListener('change', () => { state.absTouched = true; });
-$('#abs-from').addEventListener('change', () => { if (!$('#abs-to').value || $('#abs-to').value < $('#abs-from').value) $('#abs-to').value = $('#abs-from').value; });
 
 // ---------------- Start ----------------
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js');

@@ -75,7 +75,7 @@ const INITIAL_QUEUES = {
   vorne: ['Mo', 'Simon', 'Leo'],
   hinten: ['Toni', 'Johanna'],
 };
-export const ABSENT_MIN_DAYS = 4; // ab so vielen Tagen Abwesenheit in einer Woche wird verschoben
+export const ABSENT_MIN_DAYS = 7; // nur wer die ganze Woche (Mo–So) weg ist, wird übersprungen
 
 /** An wie vielen Tagen (Mo–So) ist die Person in dieser Woche weg? */
 export function daysAway(name, monday, absences) {
@@ -87,9 +87,10 @@ export function daysAway(name, monday, absences) {
   return days;
 }
 
-function takeNext(queue, ok) {
+function takeNext(queue, ok, fallback = true) {
   if (!queue.length) return null;
   let i = queue.findIndex(ok);
+  if (i < 0 && !fallback) return null; // z.B. ganze Bad-Seite im Urlaub: dann putzt niemand
   if (i < 0) i = 0;
   const [n] = queue.splice(i, 1);
   queue.push(n);
@@ -128,7 +129,7 @@ export function simulate(ctx = {}, until) {
       const woche = takeNext(q.woche, (n) => !away(n));
       for (const side of ['vorne', 'hinten']) {
         const gone = bath[side] && !names.includes(bath[side]);
-        if (e % 2 === 0 || gone || !bath[side]) bath[side] = takeNext(q[side], (n) => !away(n) && n !== woche);
+        if (e % 2 === 0 || gone || !bath[side]) bath[side] = takeNext(q[side], (n) => !away(n) && n !== woche, !q[side].every((n) => away(n)));
       }
       a = { woche, vorne: bath.vorne, hinten: bath.hinten };
     }

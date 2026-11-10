@@ -136,3 +136,8 @@ test('Neues Mitglied kommt in die Rotation, Ausgezogene fliegen raus', () => {
   assert.ok(vorne.includes('Lina'));
   assert.ok(!vorne.includes('Mo'));
 });
+
+test('Kürzer als eine ganze Woche weg: kein Überspringen', () => {
+  const ctx = { absences: [{ person: 'Toni', from: '2026-11-23', to: '2026-11-28' }] }; // Mo–Sa
+  assert.equal(person(computeWeek('2026-11-23', {}, ctx), 'woche'), 'Toni');
+});
