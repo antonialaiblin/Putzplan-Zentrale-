@@ -56,3 +56,26 @@ test('Währungen werden getrennt abgerechnet', () => {
   assert.equal(r.CHF.balances.Leo, 3000);
   assert.deepEqual(r.CHF.transfers, [{ from: 'Mo', to: 'Leo', amount: 3000 }]);
 });
+
+import { parseSplitwise } from '../src/money.js';
+
+test('Splitwise-Import: Netto-Werte und Gesamtbilanz', () => {
+  const csv = [
+    'Datum,Beschreibung,Kategorie,Kosten,Währung,Leonard Penz,Toni,Mo,Wilko Kramer (entfernt)',
+    '',
+    '2026-01-05,Waschpulver,Allgemein,16.00,EUR,0.00,-5.33,-5.34,10.67',
+    '2026-02-01,Toni zahlte Wilko K.,Zahlung,5.33,EUR,0.00,5.33,0.00,-5.33',
+    '"2026-03-01","Spüli, Schwämme",Haushalt,9.00,EUR,-3.00,-3.00,6.00,0.00',
+    '',
+    '2026-11-10,Gesamtbilanz, , ,EUR,-3.00,-3.00,0.66,5.34',
+  ].join('\n');
+  const r = parseSplitwise(csv, P);
+  assert.equal(r.entries.length, 3);
+  assert.equal(r.matches, true);
+  assert.deepEqual(r.people, ['Leo', 'Toni', 'Mo', 'Wilko']);
+  assert.equal(r.entries[1].kind, 'settle');
+  assert.equal(r.entries[2].desc, 'Spüli, Schwämme');
+  const b = balancesByCurrency(r.entries, [...P, 'Wilko']).EUR.balances;
+  assert.equal(b.Wilko, 534);
+  assert.equal(b.Mo, 66);
+});

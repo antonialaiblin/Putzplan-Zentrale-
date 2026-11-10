@@ -2,7 +2,7 @@ import { DurableObject } from 'cloudflare:workers';
 import { PEOPLE, computeWeek, mondayOf, addDays, berlinNow } from './plan.js';
 import { weeklyMessages, fridayMessages, ausfallMessages } from './messages.js';
 import { generateVapidKeys, vapidPublicRaw, sendPush } from './webpush.js';
-import { balancesByCurrency, computeParts, parseAmount, parseEuro, CURRENCIES, SHOP_CATEGORIES } from './money.js';
+import { balancesByCurrency, peopleIn, parseSplitwise, computeParts, parseAmount, parseEuro, CURRENCIES, SHOP_CATEGORIES } from './money.js';
 
 // Wann werden Erinnerungen verschickt? (Berliner Zeit, Mo=0 … So=6)
 export const SCHEDULE = {
@@ -57,10 +57,12 @@ export class Putzplan extends DurableObject {
   }
   async money() {
     const all = [...(await this.ctx.storage.list({ prefix: 'exp:' })).values()];
+    const former = peopleIn(all).filter((p) => !PEOPLE.includes(p));
     return {
       people: PEOPLE,
+      former,
       currencies: CURRENCIES,
-      byCurrency: balancesByCurrency(all, PEOPLE),
+      byCurrency: balancesByCurrency(all, [...PEOPLE, ...former]),
       expenses: all.sort((a, b) => b.at - a.at).slice(0, 100),
       total: all.length,
     };
@@ -220,6 +222,15 @@ export class Putzplan extends DurableObject {
         by: PEOPLE.includes(body.by) ? body.by : null,
       });
       return json(await this.money());
+    }
+    if (path === '/money/import' && request.method === 'POST') {
+      if (typeof body.csv !== 'string' || body.csv.length > 2_000_000) return json({ error: 'Keine Datei.' }, 400);
+      const r = parseSplitwise(body.csv, PEOPLE);
+      if (r.error) return json({ error: r.error }, 400);
+      if (!r.entries.length) return json({ error: 'In der Datei wurden keine Einträge gefunden.' }, 400);
+      // Feste IDs: nochmal importieren überschreibt statt doppelt einzutragen
+      for (const e of r.entries) await this.ctx.storage.put(`exp:${e.id}`, { ...e, by: PEOPLE.includes(body.by) ? body.by : null });
+      return json({ imported: r.entries.length, matches: r.matches, ...(await this.money()) });
     }
     if (path === '/money/delete' && request.method === 'POST') {
       await this.ctx.storage.delete(`exp:${str(body.id, 40)}`);

@@ -308,7 +308,8 @@ function ago(ts) {
   const d = Math.round(h / 24);
   if (d === 1) return 'gestern';
   if (d < 7) return `vor ${d} Tagen`;
-  return new Date(ts).toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit' });
+  const d2 = new Date(ts);
+  return d2.toLocaleDateString('de-DE', d2.getFullYear() === new Date().getFullYear() ? { day: '2-digit', month: '2-digit' } : { day: '2-digit', month: '2-digit', year: 'numeric' });
 }
 
 // ---------------- Einkaufsliste ----------------
@@ -449,9 +450,9 @@ function renderMoney() {
           <button class="ghost small" data-settle='${esc(JSON.stringify({ ...t, currency: c }))}'>Bezahlt</button></span></div>`).join('')
       : '<p class="empty">Alle sind quitt. 🙌</p>';
     if (multi) bHtml += `<p class="cur-head" style="grid-column:1/-1">${c}</p>`;
-    bHtml += m.people.map((p) => {
+    bHtml += [...m.people, ...(m.former || []).filter((p) => balances[p])].map((p) => {
       const v = balances[p] || 0;
-      return `<div class="bal${p === state.me ? ' mine-bal' : ''}"><div class="who">${esc(p)}</div>
+      return `<div class="bal${p === state.me ? ' mine-bal' : ''}"><div class="who">${esc(p)}${m.people.includes(p) ? '' : ' (ausgezogen)'}</div>
         <div class="amt ${v > 0 ? 'pos' : v < 0 ? 'neg' : ''}">${v > 0 ? '+' : ''}${money(v, c)}</div></div>`;
     }).join('');
   }
@@ -471,11 +472,19 @@ function renderMoney() {
     ? m.expenses.map((e) => {
       const cur = e.currency || 'EUR';
       const settleRow = e.kind === 'settle';
-      const parts = e.parts || Object.fromEntries((e.split || []).map((p) => [p, null]));
-      let forWho;
-      if (e.mode && e.mode !== 'equal') forWho = Object.entries(parts).map(([p, v]) => `${esc(p)} ${money(v, cur)}`).join(', ');
-      else forWho = Object.keys(parts).length === m.people.length ? 'für alle' : `für ${Object.keys(parts).map(esc).join(', ')}`;
-      const who = settleRow ? `${esc(e.paidBy)} hat ${esc(Object.keys(parts)[0])} Geld zurückgegeben` : `${esc(e.paidBy)} hat bezahlt · ${forWho}`;
+      let who;
+      if (e.net) { // aus Splitwise importiert
+        const to = Object.entries(e.net).filter(([, v]) => v < 0).map(([p]) => p);
+        who = settleRow
+          ? `${esc(e.paidBy)} hat ${to.map(esc).join(', ')} Geld zurückgegeben · Splitwise`
+          : `${esc(e.paidBy || '?')} hat bezahlt · Splitwise`;
+      } else {
+        const parts = e.parts || Object.fromEntries((e.split || []).map((p) => [p, null]));
+        let forWho;
+        if (e.mode && e.mode !== 'equal') forWho = Object.entries(parts).map(([p, v]) => `${esc(p)} ${money(v, cur)}`).join(', ');
+        else forWho = Object.keys(parts).length === m.people.length ? 'für alle' : `für ${Object.keys(parts).map(esc).join(', ')}`;
+        who = settleRow ? `${esc(e.paidBy)} hat ${esc(Object.keys(parts)[0])} Geld zurückgegeben` : `${esc(e.paidBy)} hat bezahlt · ${forWho}`;
+      }
       return `<div class="exp${settleRow ? ' settle' : ''}"><div class="d">${esc(e.desc)}<small>${who} · ${ago(e.at)}</small></div>
         <div class="r"><strong>${money(e.amount, cur)}</strong><button class="link small" data-del="${esc(e.id)}">löschen</button></div></div>`;
     }).join('')
@@ -546,6 +555,18 @@ $('#money-form').addEventListener('submit', async (e) => {
     $('#m-values').innerHTML = '';
     renderMoney();
     toast('Eingetragen');
+  } catch (err) { toast(err.message); }
+});
+$('#sw-import').addEventListener('click', () => $('#sw-file').click());
+$('#sw-file').addEventListener('change', async () => {
+  const file = $('#sw-file').files[0];
+  $('#sw-file').value = '';
+  if (!file) return;
+  try {
+    const r = await api('money/import', { csv: await file.text(), by: state.me });
+    state.money = r;
+    renderMoney();
+    toast(`${r.imported} Einträge übernommen${r.matches ? ', Salden stimmen mit Splitwise überein ✓' : ''}`);
   } catch (err) { toast(err.message); }
 });
 $('#tab-money').addEventListener('click', async (e) => {

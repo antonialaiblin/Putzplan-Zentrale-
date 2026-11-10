@@ -61,6 +61,10 @@ export function computeParts(amount, mode, people, split, values) {
 export function balances(expenses, people) {
   const bal = Object.fromEntries(people.map((p) => [p, 0]));
   for (const e of expenses) {
+    if (e.net) { // importiert: Netto-Effekt pro Person
+      for (const [p, v] of Object.entries(e.net)) if (p in bal) bal[p] += v;
+      continue;
+    }
     if (!(e.paidBy in bal)) continue;
     let parts = e.parts;
     if (!parts) {
@@ -72,6 +76,17 @@ export function balances(expenses, people) {
     for (const [p, v] of Object.entries(parts)) if (p in bal) bal[p] -= v;
   }
   return bal;
+}
+
+/** Alle Personen, die in Einträgen vorkommen (z.B. ausgezogene Mitbewohner*innen). */
+export function peopleIn(expenses) {
+  const set = new Set();
+  for (const e of expenses) {
+    if (e.paidBy) set.add(e.paidBy);
+    for (const p of Object.keys(e.net || e.parts || {})) set.add(p);
+    for (const p of e.split || []) set.add(p);
+  }
+  return [...set];
 }
 
 /** Salden getrennt nach Währung (es wird nicht umgerechnet). */
@@ -124,3 +139,83 @@ export const SHOP_CATEGORIES = [
   { id: 'kueche', label: 'Küche', icon: '🍳' },
   { id: 'allgemein', label: 'Allgemein', icon: '🛒' },
 ];
+
+// ---------- Splitwise-Import ----------
+
+function parseCsv(text) {
+  const rows = [];
+  let row = [];
+  let cell = '';
+  let q = false;
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (q) {
+      if (ch === '"' && text[i + 1] === '"') { cell += '"'; i++; } else if (ch === '"') q = false; else cell += ch;
+    } else if (ch === '"') q = true;
+    else if (ch === ',') { row.push(cell); cell = ''; } else if (ch === '\n' || ch === '\r') {
+      if (ch === '\r' && text[i + 1] === '\n') i++;
+      row.push(cell); rows.push(row); row = []; cell = '';
+    } else cell += ch;
+  }
+  if (cell || row.length) { row.push(cell); rows.push(row); }
+  return rows;
+}
+
+/** Splitwise-Spaltenname → Vorname aus PEOPLE (z.B. "Leonard Penz" → "Leo"), sonst erster Vorname. */
+function mapName(col, people) {
+  const first = col.replace(/\(entfernt\)|\(removed\)/gi, '').trim().split(/\s+/)[0] || col;
+  return people.find((p) => p === first) || people.find((p) => first.startsWith(p) && p.length >= 3) || first;
+}
+const toCents = (s) => Math.round(parseFloat(String(s).replace(',', '.')) * 100);
+
+/**
+ * Liest einen Splitwise-CSV-Export. Jede Personen-Spalte ist der Netto-Effekt
+ * (bezahlt minus eigener Anteil), das wird 1:1 übernommen.
+ * Gibt {entries, totals, expected, matches, people} oder {error} zurück.
+ */
+export function parseSplitwise(text, people) {
+  const rows = parseCsv(String(text).replace(/^﻿/, ''));
+  const header = rows[0] || [];
+  const iCur = header.findIndex((h) => /währung|currency/i.test(h));
+  if (iCur < 0 || header.length <= iCur + 1) return { error: 'Das sieht nicht nach einem Splitwise-Export aus.' };
+  const names = header.slice(iCur + 1).map((h) => mapName(h, people));
+  const entries = [];
+  const totals = {};
+  let expected = null;
+  rows.slice(1).forEach((r, n) => {
+    if (r.length <= iCur || !r[0]) return;
+    const [date, desc, cat, cost] = r;
+    const currency = (r[iCur] || 'EUR').trim().toUpperCase();
+    const vals = r.slice(iCur + 1).map(toCents);
+    if (/gesamtbilanz|total balance/i.test(desc)) {
+      expected = Object.fromEntries(names.map((p, i) => [p, vals[i] || 0]));
+      return;
+    }
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return;
+    const net = {};
+    names.forEach((p, i) => { if (vals[i]) net[p] = (net[p] || 0) + vals[i]; });
+    const sum = Object.values(net).reduce((a, b) => a + b, 0);
+    if (Math.abs(sum) > 2) return; // kaputte Zeile überspringen
+    for (const [p, v] of Object.entries(net)) {
+      totals[currency] ||= {};
+      totals[currency][p] = (totals[currency][p] || 0) + v;
+    }
+    const pos = Object.entries(net).filter(([, v]) => v > 0).sort((a, b) => b[1] - a[1]);
+    const settleRow = /zahlung|payment/i.test(cat);
+    entries.push({
+      id: `sw-${date}-${String(n).padStart(3, '0')}`,
+      kind: settleRow ? 'settle' : 'expense',
+      source: 'splitwise',
+      desc: (desc || '').trim().slice(0, 80) || 'Ausgabe',
+      category: (cat || '').trim(),
+      amount: toCents(cost) || 0,
+      currency,
+      paidBy: pos[0]?.[0] || null,
+      net,
+      at: Date.UTC(+date.slice(0, 4), +date.slice(5, 7) - 1, +date.slice(8, 10), 11),
+    });
+  });
+  const eur = totals.EUR || {};
+  const matches = expected ? Object.keys({ ...expected, ...eur }).every((p) => Math.abs((expected[p] || 0) - (eur[p] || 0)) <= 1) : null;
+  return { entries, totals, expected, matches, people: [...new Set(names)] };
+}
