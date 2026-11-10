@@ -328,3 +328,5 @@ html[lang="en"] .only-de, html[lang="de"] .only-en { display: none !important; }
 .settings .notify { border-top: 1px solid var(--line); padding: 10px 0; }
 .settings .notify h3 { margin: 0 0 6px; font-size: 1rem; }
 #lang-quick { white-space: nowrap; }
+
+img.logo { padding: 0; object-fit: cover; }
