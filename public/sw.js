@@ -5,7 +5,7 @@ self.addEventListener('activate', (e) => e.waitUntil(self.clients.claim()));
 self.addEventListener('push', (event) => {
   let data = {};
   try { data = event.data ? event.data.json() : {}; } catch { data = { body: event.data && event.data.text() }; }
-  event.waitUntil(self.registration.showNotification(data.title || 'Putzplan-Zentrale', {
+  event.waitUntil(self.registration.showNotification(data.title || 'Zentrale', {
     body: data.body || '',
     icon: '/icons/icon-192.png',
     badge: '/icons/badge-96.png',

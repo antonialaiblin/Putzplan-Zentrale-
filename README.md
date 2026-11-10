@@ -1,12 +1,14 @@
-# Putzplan-Zentrale 🧽
+# Zentrale 🧽
 
-Website für den WG-Putzplan („Mission Haussegen“):
+Die WG-Website zu „Mission Haussegen“:
 
 - zeigt, wer diese Woche Wochendienst und Baddienst hat (10-Wochen-Zyklus ab 09.11.2026)
 - Aufgaben abhaken, Dienste tauschen, „Putzkraft fällt aus“ markieren
 - **Einkaufsliste** (Putzsachen, Bad, Küche, Allgemein): eintragen, was leer ist, und abhaken, wenn's gekauft ist,
   auf Wunsch gleich mit Betrag in die WG-Kasse
-- **WG-Kasse** wie Splitwise: Ausgaben eintragen, gleich aufteilen, sehen, wer wem wie viel schuldet, Rückzahlungen abhaken
+- **WG-Kasse** wie Splitwise: Ausgaben eintragen, gleich, nach Prozent, Anteilen oder genauen Beträgen aufteilen,
+  in Euro oder anderen Währungen (jede Währung wird getrennt abgerechnet), sehen, wer wem wie viel schuldet, Rückzahlungen abhaken
+- **Hausregeln** zum Nachlesen
 - lässt sich wie eine App auf den Home-Bildschirm legen
 - **Erinnerungen aufs Handy:** Sonntag 19 Uhr der Plan für die neue Woche,
   Freitag 18 Uhr eine Erinnerung, falls noch etwas nicht abgehakt ist

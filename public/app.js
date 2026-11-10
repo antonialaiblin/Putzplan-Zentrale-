@@ -209,6 +209,7 @@ document.addEventListener('click', async (e) => {
     state.me = meBtn.dataset.me;
     store.set('me', state.me);
     render();
+    if (state.money) renderMoney();
     return;
   }
   const swapBtn = e.target.closest('[data-swap]');
@@ -286,11 +287,11 @@ function openSwap(taskKey) {
 }
 
 // ---------------- Tabs ----------------
-const TABS = { plan: 'plan', einkauf: 'shop', kasse: 'money' };
+const TABS = { plan: 'plan', einkauf: 'shop', kasse: 'money', regeln: 'rules' };
 function currentTab() { return TABS[location.hash.slice(1)] || 'plan'; }
 function showTab() {
   const tab = currentTab();
-  for (const t of ['plan', 'shop', 'money']) $(`#tab-${t}`).hidden = t !== tab;
+  for (const t of ['plan', 'shop', 'money', 'rules']) $(`#tab-${t}`).hidden = t !== tab;
   document.querySelectorAll('.tabbar a').forEach((a) => a.classList.toggle('active', a.dataset.tab === tab));
   if (tab === 'shop') loadShop();
   if (tab === 'money') loadMoney();
@@ -298,7 +299,6 @@ function showTab() {
 }
 window.addEventListener('hashchange', showTab);
 
-const euro = (cents) => new Intl.NumberFormat('de-DE', { style: 'currency', currency: 'EUR' }).format(cents / 100);
 function ago(ts) {
   const min = Math.round((Date.now() - ts) / 60000);
   if (min < 1) return 'gerade eben';
@@ -383,6 +383,15 @@ $('#shop-list').addEventListener('click', (e) => {
 // ---------------- WG-Kasse ----------------
 state.money = null;
 state.split = null;
+state.mode = 'equal';
+state.cur = store.get('cur') || 'EUR';
+const money = (cents, cur = 'EUR') => new Intl.NumberFormat('de-DE', { style: 'currency', currency: cur }).format(cents / 100);
+const MODE_HINT = {
+  equal: 'Wird gleichmäßig auf die ausgewählten Personen aufgeteilt.',
+  percent: 'Prozent pro Person eintragen, zusammen 100 %.',
+  shares: 'Anteile eintragen, z.B. 2 und 1 heißt: die erste Person zahlt doppelt so viel.',
+  exact: 'Genaue Beträge eintragen, zusammen der Gesamtbetrag.',
+};
 
 async function loadMoney() {
   try { state.money = await api('money'); renderMoney(); } catch (e) { toast(e.message); }
@@ -392,34 +401,96 @@ function renderMoney() {
   if (!m) return;
   if (!state.split) state.split = new Set(m.people);
 
-  $('#money-transfers').innerHTML = m.transfers.length
-    ? m.transfers.map((t) => `<div class="transfer"><span>${esc(t.from)} → ${esc(t.to)}</span>
-        <span class="row"><strong>${euro(t.amount)}</strong>
-        <button class="ghost small" data-settle='${esc(JSON.stringify(t))}'>Bezahlt</button></span></div>`).join('')
-    : '<p class="empty">Alle sind quitt. 🙌</p>';
-  $('#money-balances').innerHTML = m.people.map((p) => {
-    const v = m.balances[p] || 0;
-    return `<div class="bal${p === state.me ? ' mine-bal' : ''}"><div class="who">${esc(p)}</div>
-      <div class="amt ${v > 0 ? 'pos' : v < 0 ? 'neg' : ''}">${v > 0 ? '+' : ''}${euro(v)}</div></div>`;
-  }).join('');
+  // Salden je Währung (EUR immer, andere nur wenn etwas offen ist)
+  const curs = Object.keys(m.byCurrency).filter((c) => c === 'EUR' || Object.values(m.byCurrency[c].balances).some((v) => v));
+  const multi = curs.length > 1;
+  let tHtml = '';
+  let bHtml = '';
+  for (const c of curs) {
+    const { balances, transfers } = m.byCurrency[c];
+    if (multi) tHtml += `<p class="cur-head">${c}</p>`;
+    tHtml += transfers.length
+      ? transfers.map((t) => `<div class="transfer"><span>${esc(t.from)} → ${esc(t.to)}</span>
+          <span class="row"><strong>${money(t.amount, c)}</strong>
+          <button class="ghost small" data-settle='${esc(JSON.stringify({ ...t, currency: c }))}'>Bezahlt</button></span></div>`).join('')
+      : '<p class="empty">Alle sind quitt. 🙌</p>';
+    if (multi) bHtml += `<p class="cur-head" style="grid-column:1/-1">${c}</p>`;
+    bHtml += m.people.map((p) => {
+      const v = balances[p] || 0;
+      return `<div class="bal${p === state.me ? ' mine-bal' : ''}"><div class="who">${esc(p)}</div>
+        <div class="amt ${v > 0 ? 'pos' : v < 0 ? 'neg' : ''}">${v > 0 ? '+' : ''}${money(v, c)}</div></div>`;
+    }).join('');
+  }
+  $('#money-transfers').innerHTML = tHtml;
+  $('#money-balances').innerHTML = bHtml;
 
   const sel = $('#m-paid');
-  const prev = sel.value || state.me || m.people[0];
+  const prev = (state.paidTouched && sel.value) || state.me || m.people[0];
   sel.innerHTML = m.people.map((p) => `<option${p === prev ? ' selected' : ''}>${esc(p)}</option>`).join('');
-  $('#m-split').innerHTML = m.people.map((p) =>
-    `<button type="button" class="chip" aria-pressed="${state.split.has(p)}" data-split="${esc(p)}">${esc(p)}</button>`).join('');
+  const cs = $('#m-cur');
+  if (!cs.options.length) {
+    cs.innerHTML = m.currencies.map((c) => `<option${c === state.cur ? ' selected' : ''}>${c}</option>`).join('');
+  }
+  renderSplit();
 
   $('#money-list').innerHTML = m.expenses.length
     ? m.expenses.map((e) => {
+      const cur = e.currency || 'EUR';
       const settleRow = e.kind === 'settle';
-      const who = settleRow
-        ? `${esc(e.paidBy)} hat ${esc(e.split[0])} Geld zurückgegeben`
-        : `${esc(e.paidBy)} hat bezahlt · ${e.split.length === m.people.length ? 'für alle' : `für ${e.split.map(esc).join(', ')}`}`;
+      const parts = e.parts || Object.fromEntries((e.split || []).map((p) => [p, null]));
+      let forWho;
+      if (e.mode && e.mode !== 'equal') forWho = Object.entries(parts).map(([p, v]) => `${esc(p)} ${money(v, cur)}`).join(', ');
+      else forWho = Object.keys(parts).length === m.people.length ? 'für alle' : `für ${Object.keys(parts).map(esc).join(', ')}`;
+      const who = settleRow ? `${esc(e.paidBy)} hat ${esc(Object.keys(parts)[0])} Geld zurückgegeben` : `${esc(e.paidBy)} hat bezahlt · ${forWho}`;
       return `<div class="exp${settleRow ? ' settle' : ''}"><div class="d">${esc(e.desc)}<small>${who} · ${ago(e.at)}</small></div>
-        <div class="r"><strong>${euro(e.amount)}</strong><button class="link small" data-del="${esc(e.id)}">löschen</button></div></div>`;
+        <div class="r"><strong>${money(e.amount, cur)}</strong><button class="link small" data-del="${esc(e.id)}">löschen</button></div></div>`;
     }).join('')
     : '<p class="empty">Noch nichts eingetragen.</p>';
 }
+
+function renderSplit() {
+  const m = state.money;
+  document.querySelectorAll('#m-mode [data-mode]').forEach((b) => b.setAttribute('aria-checked', b.dataset.mode === state.mode));
+  const equal = state.mode === 'equal';
+  $('#m-split').hidden = !equal;
+  $('#m-values').hidden = equal;
+  if (equal) {
+    $('#m-split').innerHTML = m.people.map((p) =>
+      `<button type="button" class="chip" aria-pressed="${state.split.has(p)}" data-split="${esc(p)}">${esc(p)}</button>`).join('');
+  } else {
+    const unit = state.mode === 'percent' ? '%' : state.mode === 'shares' ? 'Anteile' : $('#m-cur').value || 'EUR';
+    const old = Object.fromEntries([...document.querySelectorAll('#m-values input')].map((i) => [i.name, i.value]));
+    $('#m-values').innerHTML = m.people.map((p) => `<label><span>${esc(p)}</span>
+      <input name="${esc(p)}" inputmode="decimal" placeholder="0" value="${esc(old[p] ?? '')}" aria-label="${esc(p)} in ${unit}"><small class="muted">${unit}</small></label>`).join('');
+  }
+  updateHint();
+}
+function updateHint() {
+  let hint = MODE_HINT[state.mode];
+  if (state.mode !== 'equal') {
+    const nums = [...document.querySelectorAll('#m-values input')].map((i) => Number(i.value.replace(',', '.')) || 0);
+    const sum = nums.reduce((a, b) => a + b, 0);
+    if (state.mode === 'percent') hint += ` Bisher: ${Math.round(sum * 100) / 100} %.`;
+    if (state.mode === 'exact') {
+      const total = Number($('#m-amount').value.replace(',', '.')) || 0;
+      const rest = Math.round((total - sum) * 100);
+      hint += rest ? ` Noch zu verteilen: ${money(rest, $('#m-cur').value)}.` : ' Passt genau.';
+    }
+  }
+  $('#m-hint').textContent = hint;
+}
+$('#m-mode').addEventListener('click', (e) => {
+  const b = e.target.closest('[data-mode]');
+  if (!b) return;
+  state.mode = b.dataset.mode;
+  $('#m-values').innerHTML = '';
+  renderSplit();
+});
+$('#money-form').addEventListener('input', (e) => {
+  if (e.target.closest('#m-values') || e.target.id === 'm-amount') updateHint();
+});
+$('#m-paid').addEventListener('change', () => { state.paidTouched = true; });
+$('#m-cur').addEventListener('change', () => { state.cur = $('#m-cur').value; store.set('cur', state.cur); renderSplit(); });
 $('#m-split').addEventListener('click', (e) => {
   const b = e.target.closest('[data-split]');
   if (!b) return;
@@ -429,13 +500,16 @@ $('#m-split').addEventListener('click', (e) => {
 });
 $('#money-form').addEventListener('submit', async (e) => {
   e.preventDefault();
-  if (!state.split.size) { toast('Bitte mindestens eine Person auswählen'); return; }
+  if (state.mode === 'equal' && !state.split.size) { toast('Bitte mindestens eine Person auswählen'); return; }
+  const values = Object.fromEntries([...document.querySelectorAll('#m-values input')].map((i) => [i.name, i.value.trim()]));
   try {
     state.money = await api('money/add', {
-      desc: $('#m-desc').value, amount: $('#m-amount').value, paidBy: $('#m-paid').value, split: [...state.split], by: state.me,
+      desc: $('#m-desc').value, amount: $('#m-amount').value, currency: $('#m-cur').value, paidBy: $('#m-paid').value,
+      mode: state.mode, split: [...state.split], values, by: state.me,
     });
     $('#m-desc').value = '';
     $('#m-amount').value = '';
+    $('#m-values').innerHTML = '';
     renderMoney();
     toast('Eingetragen');
   } catch (err) { toast(err.message); }
@@ -444,9 +518,11 @@ $('#tab-money').addEventListener('click', async (e) => {
   const s = e.target.closest('[data-settle]');
   if (s) {
     const t = JSON.parse(s.dataset.settle);
-    if (!confirm(`Hat ${t.from} ${t.to} ${euro(t.amount)} zurückgezahlt?`)) return;
+    if (!confirm(`Hat ${t.from} ${t.to} ${money(t.amount, t.currency)} zurückgezahlt?`)) return;
     try {
-      state.money = await api('money/add', { kind: 'settle', desc: 'Rückzahlung', amount: (t.amount / 100).toFixed(2), paidBy: t.from, split: [t.to], by: state.me });
+      state.money = await api('money/add', {
+        kind: 'settle', desc: 'Rückzahlung', amount: (t.amount / 100).toFixed(2), currency: t.currency, paidBy: t.from, split: [t.to], by: state.me,
+      });
       renderMoney();
       toast('Ausgeglichen 👍');
     } catch (err) { toast(err.message); }

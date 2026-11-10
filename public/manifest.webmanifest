@@ -1,7 +1,7 @@
 {
-  "name": "Putzplan-Zentrale",
-  "short_name": "Putzplan",
-  "description": "Wer ist diese Woche dran? Putzplan der WG mit Abhaken und Erinnerungen.",
+  "name": "Zentrale",
+  "short_name": "Zentrale",
+  "description": "Die WG-Zentrale: Putzplan, Einkaufsliste, WG-Kasse und Hausregeln.",
   "lang": "de",
   "start_url": "/",
   "scope": "/",

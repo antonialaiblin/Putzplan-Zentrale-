@@ -2,7 +2,7 @@ import { DurableObject } from 'cloudflare:workers';
 import { PEOPLE, computeWeek, mondayOf, addDays, berlinNow } from './plan.js';
 import { weeklyMessages, fridayMessages, ausfallMessages } from './messages.js';
 import { generateVapidKeys, vapidPublicRaw, sendPush } from './webpush.js';
-import { balances, settle, parseEuro, SHOP_CATEGORIES } from './money.js';
+import { balancesByCurrency, computeParts, parseAmount, parseEuro, CURRENCIES, SHOP_CATEGORIES } from './money.js';
 
 // Wann werden Erinnerungen verschickt? (Berliner Zeit, Mo=0 … So=6)
 export const SCHEDULE = {
@@ -54,11 +54,10 @@ export class Putzplan extends DurableObject {
   }
   async money() {
     const all = [...(await this.ctx.storage.list({ prefix: 'exp:' })).values()];
-    const bal = balances(all, PEOPLE);
     return {
       people: PEOPLE,
-      balances: bal,
-      transfers: settle(bal),
+      currencies: CURRENCIES,
+      byCurrency: balancesByCurrency(all, PEOPLE),
       expenses: all.sort((a, b) => b.at - a.at).slice(0, 100),
       total: all.length,
     };
@@ -145,7 +144,7 @@ export class Putzplan extends DurableObject {
       const entry = typeof body.endpoint === 'string' && (await this.ctx.storage.get(`sub:${await sha(body.endpoint)}`));
       if (!entry) return json({ error: 'Dieses Gerät ist nicht angemeldet.' }, 404);
       const r = await this.push(`sub:${await sha(body.endpoint)}`, entry, {
-        title: 'Putzplan-Zentrale 🧽',
+        title: 'Zentrale 🧽',
         body: `Hallo ${entry.person}, die Erinnerungen funktionieren!`,
       });
       return json(r, r.ok ? 200 : 502);
@@ -174,7 +173,7 @@ export class Putzplan extends DurableObject {
         // Optional direkt als Ausgabe in die WG-Kasse
         const amount = parseEuro(body.price);
         if (amount && PEOPLE.includes(body.by)) {
-          await this.addExpense({ desc: item.name, amount, paidBy: body.by, split: PEOPLE, by: body.by });
+          await this.addExpense({ desc: item.name, amount, currency: 'EUR', paidBy: body.by, mode: 'equal', parts: computeParts(amount, 'equal', PEOPLE, PEOPLE).parts, split: PEOPLE, by: body.by });
         }
       }
       return json(await this.shop());
@@ -185,13 +184,20 @@ export class Putzplan extends DurableObject {
       return json(await this.money());
     }
     if (path === '/money/add' && request.method === 'POST') {
-      const amount = parseEuro(body.amount);
-      const split = Array.isArray(body.split) ? [...new Set(body.split.filter((p) => PEOPLE.includes(p)))] : [];
+      const amount = parseAmount(body.amount);
+      const currency = CURRENCIES.includes(body.currency) ? body.currency : 'EUR';
       const kind = body.kind === 'settle' ? 'settle' : 'expense';
-      if (!amount || !PEOPLE.includes(body.paidBy) || !split.length) return json({ error: 'Bitte Betrag, Person und Aufteilung angeben.' }, 400);
-      if (kind === 'settle' && (split.length !== 1 || split[0] === body.paidBy)) return json({ error: 'Ungültige Rückzahlung.' }, 400);
+      if (!amount) return json({ error: 'Bitte einen gültigen Betrag angeben.' }, 400);
+      if (!PEOPLE.includes(body.paidBy)) return json({ error: 'Wer hat bezahlt?' }, 400);
+      const mode = kind === 'settle' ? 'equal' : (['equal', 'percent', 'shares', 'exact'].includes(body.mode) ? body.mode : 'equal');
+      const { parts, error } = computeParts(amount, mode, PEOPLE, body.split, body.values);
+      if (error) return json({ error }, 400);
+      if (kind === 'settle' && (Object.keys(parts).length !== 1 || parts[body.paidBy])) return json({ error: 'Ungültige Rückzahlung.' }, 400);
       const desc = str(body.desc, 80) || (kind === 'settle' ? 'Rückzahlung' : 'Ausgabe');
-      await this.addExpense({ desc, amount, paidBy: body.paidBy, split, kind, by: PEOPLE.includes(body.by) ? body.by : null });
+      await this.addExpense({
+        desc, amount, currency, paidBy: body.paidBy, mode, parts, split: Object.keys(parts), kind,
+        by: PEOPLE.includes(body.by) ? body.by : null,
+      });
       return json(await this.money());
     }
     if (path === '/money/delete' && request.method === 'POST') {

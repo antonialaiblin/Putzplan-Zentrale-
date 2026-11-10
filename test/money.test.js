@@ -35,3 +35,24 @@ test('Salden und Ausgleich', () => {
   const after = balances([...ex, ...t.map((x) => ({ amount: x.amount, paidBy: x.from, split: [x.to] }))], P);
   assert.ok(Object.values(after).every((v) => v === 0));
 });
+
+import { computeParts, balancesByCurrency } from '../src/money.js';
+
+test('Aufteilen nach Prozent, Anteilen und Beträgen', () => {
+  assert.deepEqual(computeParts(1000, 'percent', P, null, { Toni: '60', Leo: '40' }).parts, { Toni: 600, Leo: 400 });
+  assert.match(computeParts(1000, 'percent', P, null, { Toni: '60', Leo: '30' }).error, /90 %/);
+  assert.deepEqual(computeParts(1000, 'shares', P, null, { Toni: '1', Leo: '2', Mo: '' }).parts, { Toni: 333, Leo: 667 });
+  assert.deepEqual(computeParts(1999, 'exact', P, null, { Toni: '10', Leo: '9,99' }).parts, { Toni: 1000, Leo: 999 });
+  assert.match(computeParts(2000, 'exact', P, null, { Toni: '10' }).error, /10,00/);
+  assert.deepEqual(computeParts(1000, 'equal', P, ['Toni', 'Mo']).parts, { Toni: 500, Mo: 500 });
+});
+
+test('Währungen werden getrennt abgerechnet', () => {
+  const r = balancesByCurrency([
+    { amount: 1000, paidBy: 'Toni', parts: { Toni: 500, Leo: 500 } },
+    { amount: 3000, currency: 'CHF', paidBy: 'Leo', parts: { Mo: 3000 } },
+  ], P);
+  assert.equal(r.EUR.balances.Leo, -500);
+  assert.equal(r.CHF.balances.Leo, 3000);
+  assert.deepEqual(r.CHF.transfers, [{ from: 'Mo', to: 'Leo', amount: 3000 }]);
+});

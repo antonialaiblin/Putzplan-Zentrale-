@@ -3,14 +3,14 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <title>Putzplan-Zentrale</title>
-  <meta name="description" content="Wer ist diese Woche dran? Putzplan der WG mit Abhaken und Erinnerungen.">
+  <title>Zentrale</title>
+  <meta name="description" content="Die WG-Zentrale: Putzplan, Einkaufsliste, WG-Kasse und Hausregeln.">
   <meta name="theme-color" content="#2f6f5e">
   <link rel="manifest" href="/manifest.webmanifest">
   <link rel="icon" href="/icons/icon-192.png">
   <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
   <meta name="apple-mobile-web-app-capable" content="yes">
-  <meta name="apple-mobile-web-app-title" content="Putzplan">
+  <meta name="apple-mobile-web-app-title" content="Zentrale">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
   <link rel="stylesheet" href="/style.css">
 </head>
@@ -19,7 +19,7 @@
     <div class="brand">
       <span class="logo" aria-hidden="true">🧽</span>
       <div>
-        <h1>Putzplan-Zentrale</h1>
+        <h1>Zentrale</h1>
         <p class="sub" id="who-line">Mission Haussegen</p>
       </div>
     </div>
@@ -88,10 +88,21 @@
         <h2>Ausgabe eintragen</h2>
         <label class="field"><span>Wofür?</span><input id="m-desc" placeholder="z.B. Spülmaschinentabs" maxlength="80" required></label>
         <div class="row two">
-          <label class="field"><span>Betrag (€)</span><input id="m-amount" inputmode="decimal" placeholder="12,50" required></label>
-          <label class="field"><span>Bezahlt von</span><select id="m-paid"></select></label>
+          <label class="field"><span>Betrag</span><input id="m-amount" inputmode="decimal" placeholder="12,50" required></label>
+          <label class="field cur"><span>Währung</span><select id="m-cur"></select></label>
         </div>
-        <fieldset class="field"><legend>Für wen? (wird gleich aufgeteilt)</legend><div class="chips" id="m-split"></div></fieldset>
+        <label class="field"><span>Bezahlt von</span><select id="m-paid"></select></label>
+        <fieldset class="field"><legend>Wie aufteilen?</legend>
+          <div class="seg" id="m-mode" role="radiogroup">
+            <button type="button" data-mode="equal" aria-checked="true" role="radio">Gleich</button>
+            <button type="button" data-mode="percent" aria-checked="false" role="radio">Prozent</button>
+            <button type="button" data-mode="shares" aria-checked="false" role="radio">Anteile</button>
+            <button type="button" data-mode="exact" aria-checked="false" role="radio">Beträge</button>
+          </div>
+          <div class="chips" id="m-split"></div>
+          <div id="m-values" class="values" hidden></div>
+          <p class="muted small" id="m-hint"></p>
+        </fieldset>
         <div class="row end"><button type="submit">Eintragen</button></div>
       </form>
       <section class="card">
@@ -99,12 +110,57 @@
         <div id="money-list"></div>
       </section>
     </div>
+    <!-- Hausregeln -->
+    <div id="tab-rules" class="tab rules" hidden>
+      <section class="card intro">
+        <h2>Mission Haussegen 🏡</h2>
+        <p class="muted">Regeln für den WG-Seelenfrieden (Stand 03.11.2026)</p>
+      </section>
+      <details class="card" open><summary>🔇 Allgemeine Regeln</summary><ul>
+        <li><strong>Lautstärke:</strong> Ab 23 Uhr, vor allem unter der Woche, leise sein: in der Küche, im Eingang, im hinteren Bad und überall in der Wohnung, solange nicht klar ist, ob alle noch wach sind.</li>
+        <li><strong>Licht:</strong> Nur in Räumen anlassen, in denen auch jemand ist. Bitte nach Verlassen alle Lichter ausschalten.</li>
+        <li>Wer als Letzte*r die Wohnung verlässt, checkt, dass alle Fenster zu sind, und schließt die Wohnungstür von außen ab.</li>
+        <li><strong>Besuch:</strong> Wer mehr als 3 Leute zum Kochen oder Chillen in die Gemeinschaftsräume einlädt, gibt kurz in der WG-Gruppe Bescheid. Übernachtungsgäste bitte auch ankündigen. Kurzfristig muss natürlich nicht Bescheid gegeben werden ;)</li>
+        <li>Nach Treffen und Partys putzen die jeweiligen Hosts spätestens am Folgetag alles blitzblank.</li>
+        <li><strong>Geld:</strong> Alles, was ihr für die Gemeinschaft ausgebt und was nicht vom Pfandgeld gedeckt werden kann, in die <a href="#kasse">WG-Kasse</a> eintragen.</li>
+      </ul></details>
+      <details class="card"><summary>🍽️ Küche &amp; Spülmaschine</summary><ul>
+        <li>Spülmaschine ausräumen, sobald ihr seht, dass sie sauber ist. Anmachen, wenn sie dreckig und voll ist: nachts Eco-Programm, tagsüber Turbo.</li>
+        <li>Größere Reste vom Geschirr abwaschen, bevor es in die Spülmaschine kommt.</li>
+        <li>Große flache Teller unten nur an den Rand stellen, sonst wird nichts sauber.</li>
+        <li>Holz und scharfe Messer kommen nicht in die Spülmaschine. Messer direkt nach der Benutzung abspülen und abtrocknen, damit sie nicht rosten.</li>
+      </ul></details>
+      <details class="card"><summary>🧊 Kühlschrank &amp; Vorräte</summary><ul>
+        <li><strong>Eigentum:</strong> Essen und andere Sachen von Mitbewohner*innen werden nicht einfach genommen. Bitte fragen.</li>
+        <li><strong>Kühlschrank:</strong> Jede*r hat ein eigenes Fach. Reicht das nicht, gibt es die Gemüseschublade, oder ihr fragt andere, ob ihr etwas in deren Fach lagern dürft. Keine fremden Fächer ohne Fragen zustellen.</li>
+        <li><strong>Vor dem Urlaub:</strong> eigene Lebensmittel aufbrauchen, mitnehmen oder absprechen, wer es sonst verbraucht/entsorgt, nichts Verderbliches im Kühlschrank lassen.</li>
+        <li>Salz oder Gewürze leer: einfach beim nächsten Einkauf neu kaufen.</li>
+        <li><strong>Geteilte Sachen</strong> (Olivenöl, Hafermilch, Zwiebeln, Knoblauch): Schaut, dass immer genug da ist, und kauft regelmäßig nach, damit niemand mit etwas plant, das dann fehlt. Was leer ist, auf die <a href="#einkauf">Einkaufsliste</a>.</li>
+        <li>Keine neue Hafermilch öffnen, wenn noch 3 offene im Kühlschrank stehen, sonst werden alle schlecht.</li>
+      </ul></details>
+      <details class="card"><summary>👕 Wäsche</summary><ul>
+        <li>Keine Wäsche anstellen, wenn ihr sie nicht zeitnah nach Ende rausnehmen könnt.</li>
+        <li>Vergessene Wäsche darf in einen Wäschekorb geräumt werden. Bitte kurz in die WG-Gruppe schreiben, damit die Person Bescheid weiß.</li>
+        <li>Wäscheständer voll und trocken: Klamotten von anderen nicht auf den Boden werfen, sondern gestapelt auf die Waschmaschine (hinten) oder direkt ins Zimmer legen und der Person Bescheid geben.</li>
+        <li>Keine Klamottenhaufen oder einzelnen Socken in den Gemeinschaftsräumen liegen lassen.</li>
+        <li>Keine dreckige Wäsche im Bad auf dem Boden liegen lassen.</li>
+      </ul></details>
+      <details class="card"><summary>🧽 Putzregeln</summary><ul>
+        <li><strong>Nach dem Kochen:</strong> innerhalb von 3 Std. alles gespült, geputzt und im Grundzustand (Herd, Arbeitsfläche, Spüle, Tisch), außerdem das Sieb im Spülbecken leeren.</li>
+        <li>Die Putzkraft kommt alle 2 Wochen mittwochs, putzt alle gemeinsamen Flächen inkl. Bäder, wischt alle Böden und leert den Müll. In den Wochen dazwischen putzen wir selbst (siehe <a href="#plan">Putzplan</a>).</li>
+        <li>Saugen und wischen heißt immer: auch in den Ecken und unter bzw. hinter verschiebbaren Möbeln.</li>
+        <li><strong>Fällt die Putzkraft aus,</strong> wird in dieser Woche auch von uns der Intensivputz übernommen. Der Plan rutscht dann ab der Folgewoche um eine Woche auf. Einfach im Putzplan „Putzkraft fällt aus?“ antippen.</li>
+        <li>Getauscht werden darf jederzeit. Einfach in der WG-Gruppe Bescheid geben und im Putzplan auf „Tauschen“ tippen.</li>
+        <li><strong>Kühlschrank:</strong> Jede*r putzt einmal im Monat die eigenen Fächer und wirft Abgelaufenes weg, bis zum letzten Sonntag des Monats.</li>
+      </ul></details>
+    </div>
   </main>
 
   <nav class="tabbar" aria-label="Bereiche">
     <a href="#plan" data-tab="plan"><span aria-hidden="true">🧽</span>Putzplan</a>
     <a href="#einkauf" data-tab="shop"><span aria-hidden="true">🛒</span>Einkauf<b class="badge" id="shop-badge" hidden></b></a>
     <a href="#kasse" data-tab="money"><span aria-hidden="true">💶</span>WG-Kasse</a>
+    <a href="#regeln" data-tab="rules"><span aria-hidden="true">📜</span>Regeln</a>
   </nav>
 
   <dialog id="swap-dialog">
