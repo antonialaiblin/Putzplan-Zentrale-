@@ -715,6 +715,8 @@ function currentTab() { return TABS[location.hash.slice(1)] || 'home'; }
 function showTab() {
   const tab = currentTab();
   for (const t of ['home', 'plan', 'shop', 'money', 'cal', 'rules']) $(`#tab-${t}`).hidden = t !== tab;
+  // Kopf „Zentrale · Hallo …“ nur in der Übersicht
+  document.body.classList.toggle('not-home', tab !== 'home');
   renderMe();
   if (tab === 'home') { renderHome(); loadMoney(); loadShop(); }
   if (tab === 'cal') renderCal();

@@ -457,3 +457,7 @@ html[data-theme="dark"] .cork-empty { color: #f0e2cc; }
 
 /* Erst auswählen, wer man ist */
 body.no-me main > .tab, body.no-me .tabbar { display: none !important; }
+
+/* Kopfzeile nur in der Übersicht (vor der Auswahl immer sichtbar) */
+body.not-home:not(.no-me) header.top { display: none; }
+body.not-home:not(.no-me) main { padding-top: calc(16px + env(safe-area-inset-top)); }
