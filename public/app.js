@@ -134,9 +134,9 @@ async function api(path, body) {
     ? { method: 'POST', headers: { ...headers, 'content-type': 'application/json' }, body: JSON.stringify(body) }
     : { headers });
   const data = await res.json().catch(() => ({}));
-  if (res.status === 401 && data.auth) {
+  if (res.status === 401 && data.auth && store.get('token') && (state.me || path.startsWith('auth/'))) {
     // Abgemeldet (z.B. Passwort wurde zurückgesetzt): zurück zur Anmeldung
-    store.set('token', ''); store.set('me', ''); state.me = null;
+    store.set('token', ''); store.set('me', ''); state.me = null; state.account = null; state.authView = 'login';
     loadLogin().catch(() => {});
   }
   if (!res.ok) throw new Error(T(data.error) || L(`Fehler ${res.status}`, `Error ${res.status}`, `Fel ${res.status}`));
@@ -169,11 +169,22 @@ async function loadLogin() {
   const d = await api('auth/people');
   state.people = d.people;
   state.members = d.members;
+  state.admin = d.admin;
+  state.account = d.account;
   state.me = null;
   renderMe();
 }
 async function load() {
-  if (!store.get('token')) { await loadLogin(); return; }
+  if (!store.get('token')) { state.account = null; await loadLogin(); return; }
+  // Account prüfen: ist er schon mit einer Person verbunden?
+  const who = await api('auth/people');
+  state.admin = who.admin;
+  state.account = who.account;
+  if (!who.account) store.set('token', '');
+  if (!who.account?.person) { state.people = who.people; state.members = who.members; state.me = null; renderMe(); return; }
+  state.me = who.account.person;
+  store.set('me', state.me);
+  state.isAdmin = state.me === who.admin;
   const data = await api('weeks?count=12');
   state.people = data.people;
   state.members = data.members;
@@ -224,13 +235,23 @@ function render() {
 
 function renderMe() {
   const pick = $('#pick-me');
-  const joining = location.hash === '#beitreten' || state.joining;
+  const acct = state.account;
+  const joining = !state.me && !!acct && (location.hash === '#beitreten' || state.joining);
   $('#join').hidden = !joining;
   pick.hidden = !!state.me || joining;
+  // Ohne Account: Start / Anmelden / Registrieren, mit Account ohne Person: Person wählen
+  const view = acct ? 'pick' : (state.authView || (location.hash === '#beitreten' ? 'register' : 'start'));
+  $('#auth-start').hidden = view !== 'start';
+  $('#login-form').hidden = view !== 'login';
+  $('#register-form').hidden = view !== 'register';
+  $('#auth-pick').hidden = view !== 'pick';
+  $('#admin-box').hidden = !state.isAdmin;
   // Ohne Auswahl ist nur „Wer bist du?“ (bzw. Beitreten) zu sehen
   document.body.classList.toggle('no-me', !state.me);
   $('#who-line').textContent = state.me ? L(`Hallo ${state.me} 👋`, `Hi ${state.me} 👋`, `Hej ${state.me} 👋`) : 'Mission Haussegen';
-  $('#people-buttons').innerHTML = state.people.map((p) => `<button data-me="${esc(p)}">${avatar(p, 'sm')}${esc(p)}${memberOf(p)?.hasPassword ? ' <span class="lock" aria-hidden="true">🔒</span>' : ''}</button>`).join('');
+  $('#people-buttons').innerHTML = state.people.map((p) => (memberOf(p)?.claimed
+    ? `<button type="button" disabled class="taken">${avatar(p, 'sm')}${esc(p)} <span class="lock" title="${L('vergeben', 'taken', 'upptagen')}">🔒</span></button>`
+    : `<button type="button" data-me="${esc(p)}">${avatar(p, 'sm')}${esc(p)}</button>`)).join('');
   // Sprachknopf oben nur, solange noch niemand ausgewählt ist (sonst in den Einstellungen)
   const quick = $('#lang-quick');
   quick.hidden = !!state.me;
@@ -336,36 +357,40 @@ function renderUpcoming() {
 }
 
 // ---------------- Anmeldung ----------------
-/** Passwort eingeben (oder beim ersten Mal festlegen). Gibt {token, name, created} zurück oder null. */
-function openAuth(who) {
-  const m = memberOf(who);
-  const isNew = !m?.hasPassword;
-  const dlg = $('#auth-dialog');
-  $('#auth-title').textContent = isNew ? L(`Hallo ${who} 👋`, `Hi ${who} 👋`, `Hej ${who} 👋`) : L(`Anmelden als ${who}`, `Sign in as ${who}`, `Logga in som ${who}`);
-  $('#auth-text').textContent = isNew
-    ? L('Leg ein Passwort fest. Damit kommst nur du in deinen Account, auch auf anderen Geräten.', 'Choose a password. Only you can then get into your account, on other devices too.', 'Välj ett lösenord. Då kommer bara du in på ditt konto, även på andra enheter.')
-    : L('Gib dein Passwort ein.', 'Enter your password.', 'Ange ditt lösenord.');
-  $('#auth-pw').value = ''; $('#auth-pw2').value = '';
-  $('#auth-pw').autocomplete = isNew ? 'new-password' : 'current-password';
-  $('#auth-pw2-row').hidden = !isNew;
-  $('#auth-forgot').hidden = isNew;
-  $('#auth-ok').textContent = isNew ? L('Passwort festlegen', 'Set password', 'Välj lösenord') : L('Anmelden', 'Sign in', 'Logga in');
-  $('#auth-user').value = who;
-  return new Promise((resolve) => {
-    let result = null;
-    $('#auth-form').onsubmit = async (e) => {
-      if (e.submitter?.value !== 'ok') return;
-      e.preventDefault();
-      const pw = $('#auth-pw').value;
-      if (isNew && pw !== $('#auth-pw2').value) { toast(L('Die Passwörter sind nicht gleich.', "The passwords don't match.", 'Lösenorden matchar inte.')); return; }
-      try { result = await api('auth/login', { name: who, password: pw }); dlg.close(); } catch (err) { toast(err.message); }
-    };
-    dlg.addEventListener('close', () => resolve(result), { once: true });
-    dlg.showModal();
-    $('#auth-pw').focus();
-  });
+async function afterLogin() {
+  state.weeks.clear();
+  state.authView = null;
+  await load();
+  showTab();
+  if (state.me) api('shop').then((d) => { state.shop = d; renderShop(); }).catch(() => {});
 }
-$('#auth-forgot').onclick = () => alert(L('Bitte jemand anderen aus der WG, in der App unter ⚙️ Einstellungen › „Passwort von jemandem zurücksetzen“ dein Passwort zurückzusetzen. Danach kannst du ein neues festlegen.', 'Ask a flatmate to reset your password in the app under ⚙️ Settings › "Reset someone\'s password". Then you can set a new one.', 'Be någon i kollektivet att återställa ditt lösenord i appen under ⚙️ Inställningar › "Återställ någons lösenord". Sedan kan du välja ett nytt.'));
+document.addEventListener('click', (e) => {
+  if (e.target.closest('#go-login')) { state.authView = 'login'; renderMe(); $('#login-user').focus(); }
+  else if (e.target.closest('#go-register')) { state.authView = 'register'; renderMe(); $('#reg-user').focus(); }
+  else if (e.target.closest('[data-auth-back]')) { state.authView = 'start'; if (location.hash === '#beitreten') history.replaceState(null, '', '#start'); renderMe(); }
+});
+$('#login-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  try {
+    const r = await api('auth/login', { username: $('#login-user').value, password: $('#login-pw').value });
+    store.set('token', r.token);
+    $('#login-pw').value = '';
+    await afterLogin();
+    if (state.me) { toast(L(`Hallo ${state.me} 👋`, `Hi ${state.me} 👋`, `Hej ${state.me} 👋`)); maybeAskProfile(); }
+  } catch (err) { toast(err.message); }
+});
+$('#register-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  if ($('#reg-pw').value !== $('#reg-pw2').value) { toast(L('Die Passwörter sind nicht gleich.', "The passwords don't match.", 'Lösenorden matchar inte.')); return; }
+  try {
+    const r = await api('auth/register', { username: $('#reg-user').value, password: $('#reg-pw').value });
+    store.set('token', r.token);
+    $('#reg-pw').value = ''; $('#reg-pw2').value = '';
+    await afterLogin();
+    toast(L('Account erstellt 🎉', 'Account created 🎉', 'Konto skapat 🎉'));
+  } catch (err) { toast(err.message); }
+});
+$('#auth-forgot').onclick = () => alert(L(`Passwort vergessen? Sag ${state.admin || 'der Verwalterin'} Bescheid. Sie kann dir ein neues Passwort setzen.`, `Forgot your password? Tell ${state.admin || 'the admin'}. She can set a new password for you.`, `Glömt lösenordet? Säg till ${state.admin || 'administratören'}. Hon kan ge dig ett nytt lösenord.`));
 $('#pw-change').onclick = async () => {
   const old = prompt(L('Altes Passwort:', 'Current password:', 'Nuvarande lösenord:'));
   if (old === null) return;
@@ -373,20 +398,31 @@ $('#pw-change').onclick = async () => {
   if (pw === null) return;
   try { await api('auth/password', { old, password: pw }); toast(L('Passwort geändert 🔑', 'Password changed 🔑', 'Lösenordet är ändrat 🔑')); } catch (err) { toast(err.message); }
 };
-$('#pw-reset').onclick = () => {
-  $('#swap-title').textContent = L('Passwort zurücksetzen', 'Reset a password', 'Återställ lösenord');
-  $('#swap-text').textContent = L('Für wen? Die Person bekommt eine Nachricht und legt beim nächsten Öffnen ein neues Passwort fest.', 'For whom? They get a notification and set a new password the next time they open the app.', 'För vem? Personen får en notis och väljer ett nytt lösenord nästa gång appen öppnas.');
-  $('#swap-people').innerHTML = state.people.filter((p) => p !== state.me).map((p) => `<button type="button" data-pwreset="${esc(p)}">${avatar(p, 'sm')}${esc(p)}</button>`).join('');
-  const dlg = $('#swap-dialog');
+async function openAdmin(data) {
+  const d = data || await api('auth/admin/list');
+  $('#swap-title').textContent = L('🔑 Accounts verwalten', '🔑 Manage accounts', '🔑 Hantera konton');
+  $('#swap-text').textContent = L('Nur du siehst das. Du kannst ein neues Passwort setzen (die Person wird abgemeldet) oder einen Account löschen, dann ist die Person wieder frei.', 'Only you can see this. You can set a new password (the person gets signed out) or delete an account, which frees the person again.', 'Bara du ser detta. Du kan sätta ett nytt lösenord (personen loggas ut) eller ta bort ett konto, då blir personen ledig igen.');
+  $('#swap-people').innerHTML = d.accounts.map((a) => `<div class="acct-row"><div>${a.person ? avatar(a.person, 'sm') : ''}<strong>${esc(a.person || L('(noch keine Person)', '(no person yet)', '(ingen person än)'))}</strong> <span class="muted small">${L('Name', 'Name', 'Namn')}: ${esc(a.username)}</span></div>
+    <div class="row"><button type="button" class="ghost small" data-acct-pw="${esc(a.username)}">${L('Neues Passwort', 'New password', 'Nytt lösenord')}</button>${a.person === state.me ? '' : `<button type="button" class="ghost small" data-acct-del="${esc(a.username)}">${L('Löschen', 'Delete', 'Ta bort')}</button>`}</div></div>`).join('') || `<p class="muted">${L('Noch keine Accounts.', 'No accounts yet.', 'Inga konton än.')}</p>`;
   $('#swap-people').onclick = async (e) => {
-    const b = e.target.closest('[data-pwreset]');
-    if (!b) return;
-    const who = b.dataset.pwreset;
-    if (!confirm(L(`Passwort von ${who} wirklich zurücksetzen? ${who} wird abgemeldet und bekommt eine Nachricht.`, `Really reset ${who}'s password? ${who} will be signed out and notified.`, `Vill du verkligen återställa ${who}s lösenord? ${who} loggas ut och får en notis.`))) return;
-    try { await api('auth/reset', { who }); dlg.close(); toast(L(`Passwort von ${who} ist zurückgesetzt`, `${who}'s password has been reset`, `${who}s lösenord är återställt`)); } catch (err) { toast(err.message); }
+    const pw = e.target.closest('[data-acct-pw]');
+    const del = e.target.closest('[data-acct-del]');
+    try {
+      if (pw) {
+        const np = prompt(L(`Neues Passwort für ${pw.dataset.acctPw} (mind. 4 Zeichen). Sag es der Person danach.`, `New password for ${pw.dataset.acctPw} (at least 4 characters). Tell them afterwards.`, `Nytt lösenord för ${pw.dataset.acctPw} (minst 4 tecken). Berätta det för personen efteråt.`));
+        if (!np) return;
+        await openAdmin(await api('auth/admin/password', { username: pw.dataset.acctPw, password: np }));
+        toast(L('Passwort gesetzt', 'Password set', 'Lösenordet är satt'));
+      } else if (del) {
+        if (!confirm(L(`Account „${del.dataset.acctDel}“ wirklich löschen? Die Person kann dann neu gewählt werden.`, `Really delete the account "${del.dataset.acctDel}"? The person can then be chosen again.`, `Vill du verkligen ta bort kontot "${del.dataset.acctDel}"? Personen kan då väljas igen.`))) return;
+        await openAdmin(await api('auth/admin/delete', { username: del.dataset.acctDel }));
+      }
+    } catch (err) { toast(err.message); }
   };
-  dlg.showModal();
-};
+  const dlg = $('#swap-dialog');
+  if (!dlg.open) dlg.showModal();
+}
+$('#admin-open').onclick = () => openAdmin().catch((err) => toast(err.message));
 
 // ---------------- Gamification ----------------
 function cheer() {
@@ -606,16 +642,9 @@ document.addEventListener('click', async (e) => {
   const meBtn = e.target.closest('[data-me]');
   if (meBtn && meBtn.closest('#people-buttons')) {
     const who = meBtn.dataset.me;
-    const r = await openAuth(who);
-    if (!r) return;
-    store.set('token', r.token);
-    state.me = r.name;
-    store.set('me', state.me);
-    state.weeks.clear();
-    await load();
-    showTab();
-    if (state.shop) renderShop(); else api('shop').then((d) => { state.shop = d; renderShop(); }).catch(() => {});
-    if (!r.created) { toast(L(`Hallo ${r.name} 👋`, `Hi ${r.name} 👋`, `Hej ${r.name} 👋`)); maybeAskProfile(); return; }
+    if (!confirm(L(`Bist du ${who}? Das wird fest mit deinem Account verbunden.`, `Are you ${who}? This will be permanently linked to your account.`, `Är du ${who}? Det kopplas permanent till ditt konto.`))) return;
+    try { await api('auth/claim', { person: who }); } catch (err) { toast(err.message); loadLogin().catch(() => {}); return; }
+    await afterLogin();
     // Erstes Mal: Profil einrichten (überspringbar), danach Einstellungen aufgeklappt zeigen
     state.askedProfile = true;
     openProfile(true);
@@ -929,11 +958,11 @@ function showTab() {
   // Kopf „Zentrale · Hallo …“ nur in der Übersicht
   document.body.classList.toggle('not-home', tab !== 'home');
   renderMe();
-  if (tab === 'home') { renderHome(); loadMoney(); loadShop(); }
+  if (tab === 'home') { renderHome(); if (state.me) { loadMoney(); loadShop(); } }
   if (tab === 'cal') renderCal();
   document.querySelectorAll('.tabbar a').forEach((a) => a.classList.toggle('active', a.dataset.tab === (tab === 'rules' ? 'home' : tab)));
-  if (tab === 'shop') loadShop();
-  if (tab === 'money') loadMoney();
+  if (state.me && tab === 'shop') loadShop();
+  if (state.me && tab === 'money') loadMoney();
   window.scrollTo(0, 0);
 }
 window.addEventListener('hashchange', showTab);
@@ -1694,13 +1723,11 @@ $('#join').addEventListener('submit', async (e) => {
   e.preventDefault();
   if (!state.joinSide) { toast(L('Bitte vorne oder hinten wählen', 'Please choose front or back', `Välj fram eller bak`)); return; }
   if (!joinProfile.gender) { toast(L('Bitte dein Geschlecht angeben', 'Please choose your gender', `Välj ditt kön`)); return; }
-  if ($('#join-pw').value !== $('#join-pw2').value) { toast(L('Die Passwörter sind nicht gleich.', "The passwords don't match.", 'Lösenorden matchar inte.')); return; }
   try {
     const r = await api('members/join', {
       name: $('#join-name').value, side: state.joinSide, lang: state.lang,
-      birthday: $('#join-birthday').value, gender: joinProfile.gender, photo: joinProfile.photo || undefined, password: $('#join-pw').value,
+      birthday: $('#join-birthday').value, gender: joinProfile.gender, photo: joinProfile.photo || undefined,
     });
-    if (r.token) store.set('token', r.token);
     state.me = r.name;
     store.set('me', r.name);
     state.joining = false;

@@ -31,10 +31,35 @@
   <main>
     <!-- Wer bist du? -->
     <section id="pick-me" class="card" hidden>
-      <h2>Wer bist du?</h2>
-      <p class="muted">Damit ich dir deine Aufgaben zeigen und dich erinnern kann.</p>
-      <div class="people" id="people-buttons"></div>
-      <p class="small" style="margin:14px 0 0">Neu in der WG? <button type="button" class="link" data-open-join>Mitglied werden</button></p>
+      <div id="auth-start">
+        <h2>Willkommen in der Zentrale 👋</h2>
+        <p class="muted">Hast du schon einen Account?</p>
+        <div class="auth-choice">
+          <button type="button" id="go-login">Anmelden</button>
+          <button type="button" class="ghost" id="go-register">Registrieren</button>
+        </div>
+      </div>
+      <form id="login-form" hidden>
+        <h2>Anmelden</h2>
+        <label class="field"><span>Name</span><input id="login-user" maxlength="30" autocomplete="username" autocapitalize="none" required></label>
+        <label class="field"><span>Passwort</span><input type="password" id="login-pw" maxlength="100" autocomplete="current-password" required></label>
+        <p class="small"><button type="button" class="link" id="auth-forgot">Passwort vergessen?</button></p>
+        <div class="row end"><button type="button" class="ghost" data-auth-back>Zurück</button><button type="submit">Anmelden</button></div>
+      </form>
+      <form id="register-form" hidden>
+        <h2>Account erstellen</h2>
+        <p class="muted small">Mit diesem Namen und Passwort meldest du dich später an.</p>
+        <label class="field"><span>Benutzername</span><input id="reg-user" maxlength="30" minlength="2" autocomplete="username" autocapitalize="none" required></label>
+        <label class="field"><span>Passwort (mind. 4 Zeichen)</span><input type="password" id="reg-pw" minlength="4" maxlength="100" autocomplete="new-password" required></label>
+        <label class="field"><span>Passwort wiederholen</span><input type="password" id="reg-pw2" minlength="4" maxlength="100" autocomplete="new-password" required></label>
+        <div class="row end"><button type="button" class="ghost" data-auth-back>Zurück</button><button type="submit">Weiter</button></div>
+      </form>
+      <div id="auth-pick" hidden>
+        <h2>Wer bist du?</h2>
+        <p class="muted">Wähl deine Person. Sie wird fest mit deinem Account verbunden und kann danach von niemand anderem mehr gewählt werden.</p>
+        <div class="people" id="people-buttons"></div>
+        <p class="small" style="margin:14px 0 0">Neu in der WG? <button type="button" class="link" data-open-join>Mitglied werden</button></p>
+      </div>
     </section>
 
     <!-- Beitreten -->
@@ -69,8 +94,6 @@
           <button type="button" role="radio" aria-checked="false" data-jlang="sv">Svenska</button>
         </div>
       </fieldset>
-      <label class="field"><span>Passwort (mind. 4 Zeichen), damit nur du in deinen Account kommst</span><input type="password" id="join-pw" minlength="4" maxlength="100" required autocomplete="new-password"></label>
-      <label class="field"><span>Passwort wiederholen</span><input type="password" id="join-pw2" minlength="4" maxlength="100" required autocomplete="new-password"></label>
       <div class="row end"><button type="button" class="ghost" id="join-cancel">Abbrechen</button><button type="submit">Mitglied werden</button></div>
     </form>
 
@@ -116,7 +139,7 @@
         <div class="row" style="margin-top:12px">
           <button type="button" id="invite">Mitglied einladen</button>
         </div>
-        <p class="small" style="margin:10px 0 0">Jemand hat das Passwort vergessen? <button type="button" class="link" id="pw-reset">Passwort von jemandem zurücksetzen</button></p>
+        <div id="admin-box" hidden><p class="small" style="margin:10px 0 0">🔑 <button type="button" class="link" id="admin-open">Accounts verwalten (Passwörter zurücksetzen)</button></p></div>
       </section>
     </div>
 
@@ -410,21 +433,6 @@
     <a href="#kasse" data-tab="money"><span aria-hidden="true">💶</span>Kasse</a>
     <a href="#kalender" data-tab="cal"><span aria-hidden="true">📅</span>Kalender</a>
   </nav>
-
-  <dialog id="auth-dialog">
-    <form method="dialog" id="auth-form">
-      <h2 id="auth-title">Anmelden</h2>
-      <p class="muted small" id="auth-text"></p>
-      <input type="text" id="auth-user" autocomplete="username" hidden>
-      <label class="field"><span>Passwort</span><input type="password" id="auth-pw" maxlength="100" autocomplete="current-password"></label>
-      <label class="field" id="auth-pw2-row"><span>Passwort wiederholen</span><input type="password" id="auth-pw2" maxlength="100" autocomplete="new-password"></label>
-      <p class="small"><button type="button" class="link" id="auth-forgot">Passwort vergessen?</button></p>
-      <div class="row end">
-        <button value="cancel" class="ghost" formnovalidate>Abbrechen</button>
-        <button value="ok" id="auth-ok">Anmelden</button>
-      </div>
-    </form>
-  </dialog>
 
   <dialog id="swap-dialog">
     <form method="dialog">

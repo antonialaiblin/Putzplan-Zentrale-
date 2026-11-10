@@ -151,9 +151,8 @@ export class Putzplan extends DurableObject {
     }
     for (const [k, i] of await st.list({ prefix: 'shop:' })) if (i.by === from) await st.put(k, { ...i, by: to });
     for (const [k, s] of await st.list({ prefix: 'sub:' })) if (s.person === from) await st.put(k, { ...s, person: to });
-    const auth = await st.get(`auth:${from}`);
-    if (auth) { await st.put(`auth:${to}`, auth); await st.delete(`auth:${from}`); }
-    for (const [k, s] of await st.list({ prefix: 'sess:' })) if (s.name === from) await st.put(k, { ...s, name: to });
+    for (const [k, a] of await st.list({ prefix: 'acct:' })) if (a.person === from) await st.put(k, { ...a, person: to });
+    if ((await st.get('admin')) === from) await st.put('admin', to);
     const evs = (await this.events()).map((e) => ({
       ...e, by: sw(e.by), participants: e.participants.map((p) => ({ ...p, name: sw(p.name) })),
       topics: e.topics && e.topics.map((t) => ({ ...t, by: sw(t.by) })), minutes: e.minutes && { ...e.minutes, by: sw(e.minutes.by) },
@@ -323,76 +322,103 @@ export class Putzplan extends DurableObject {
     const isTime = (t) => typeof t === 'string' && /^\d{2}:\d{2}$/.test(t);
     const rid = () => `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
 
-    // ---------- Anmeldung (Passwort pro Person) ----------
+    // ---------- Accounts: registrieren, Person wählen, anmelden ----------
     const token = request.headers.get('x-session') || '';
     const sess = /^[0-9a-f]{48}$/.test(token) ? await this.ctx.storage.get(`sess:${token}`) : null;
-    let me = sess && PEOPLE.includes(sess.name) ? sess.name : null;
-    const startSession = async (name) => {
+    const accounts = async () => [...(await this.ctx.storage.list({ prefix: 'acct:' })).values()];
+    const acctKey = (u) => `acct:${u.toLowerCase()}`;
+    let acct = sess?.user ? await this.ctx.storage.get(acctKey(sess.user)) : null;
+    let me = acct?.person && PEOPLE.includes(acct.person) ? acct.person : null;
+    const admin = (await this.ctx.storage.get('admin')) || 'Toni';
+    const isAdmin = !!me && me === admin;
+    const startSession = async (user) => {
       const t = newToken();
-      await this.ctx.storage.put(`sess:${t}`, { name, at: Date.now() });
+      await this.ctx.storage.put(`sess:${t}`, { user, at: Date.now() });
       return t;
     };
-    const setPassword = async (name, password) => {
-      const salt = newToken();
-      await this.ctx.storage.put(`auth:${name}`, { salt, hash: await pwHash(password, salt), at: Date.now() });
-    };
+    const hashPw = async (password) => { const salt = newToken(); return { salt, hash: await pwHash(password, salt) }; };
     const pwOk = (p) => typeof p === 'string' && p.length >= 4 && p.length <= 100;
-    const dropSessions = async (name, except) => {
-      for (const [k, s] of await this.ctx.storage.list({ prefix: 'sess:' })) if (s.name === name && k !== `sess:${except}`) await this.ctx.storage.delete(k);
+    const dropSessions = async (user, except) => {
+      for (const [k, s] of await this.ctx.storage.list({ prefix: 'sess:' })) if (s.user?.toLowerCase() === user.toLowerCase() && k !== `sess:${except}`) await this.ctx.storage.delete(k);
     };
+    const claimed = async () => new Set((await accounts()).map((a) => a.person).filter(Boolean));
     if (path === '/auth/people' && request.method === 'GET') {
+      const taken = await claimed();
       const members = (await this.members()).filter((m) => PEOPLE.includes(m.name));
-      const withPw = new Set();
-      for (const p of PEOPLE) if (await this.ctx.storage.get(`auth:${p}`)) withPw.add(p);
-      return json({ people: PEOPLE, members: members.map((m) => ({ name: m.name, photo: m.photo, gender: m.gender, lang: m.lang, hasPassword: withPw.has(m.name) })), me });
+      return json({
+        people: PEOPLE, admin,
+        members: members.map((m) => ({ name: m.name, photo: m.photo, gender: m.gender, lang: m.lang, claimed: taken.has(m.name) })),
+        account: acct ? { username: acct.username, person: me } : null,
+      });
+    }
+    if (path === '/auth/register' && request.method === 'POST') {
+      const username = typeof body.username === 'string' ? body.username.trim().replace(/\s+/g, ' ').slice(0, 30) : '';
+      if (username.length < 2) return json({ error: 'Bitte einen Benutzernamen mit mindestens 2 Zeichen angeben.' }, 400);
+      if (!pwOk(body.password)) return json({ error: 'Das Passwort braucht mindestens 4 Zeichen.' }, 400);
+      const all = await accounts();
+      const lower = username.toLowerCase();
+      // Benutzername darf weder vergeben sein noch wie eine andere Person heißen
+      if (all.some((a) => a.username.toLowerCase() === lower || a.person?.toLowerCase() === lower)) return json({ error: 'Diesen Namen gibt es schon. Bitte einen anderen wählen.' }, 400);
+      await this.ctx.storage.put(acctKey(username), { username, ...(await hashPw(body.password)), person: null, at: Date.now() });
+      return json({ token: await startSession(username), username });
     }
     if (path === '/auth/login' && request.method === 'POST') {
-      const name = body.name;
-      if (!PEOPLE.includes(name)) return json({ error: 'Mitglied nicht gefunden.' }, 404);
-      const auth = await this.ctx.storage.get(`auth:${name}`);
-      if (!auth) {
-        // Erstes Mal: Passwort festlegen
-        if (!pwOk(body.password)) return json({ error: 'Das Passwort braucht mindestens 4 Zeichen.' }, 400);
-        await setPassword(name, body.password);
-        return json({ token: await startSession(name), name, created: true });
-      }
+      const name = typeof body.username === 'string' ? body.username.trim().toLowerCase() : '';
+      const a = (await accounts()).find((x) => x.username.toLowerCase() === name) || (await accounts()).find((x) => x.person?.toLowerCase() === name);
       const failKey = `authfail:${name}`;
       const fail = (await this.ctx.storage.get(failKey)) || { n: 0, at: 0 };
       if (fail.n >= 5 && Date.now() - fail.at < 10 * 60e3) return json({ error: 'Zu viele falsche Versuche. Bitte in 10 Minuten nochmal.' }, 429);
-      if (typeof body.password !== 'string' || (await pwHash(body.password, auth.salt)) !== auth.hash) {
+      if (!a || typeof body.password !== 'string' || (await pwHash(body.password, a.salt)) !== a.hash) {
         await this.ctx.storage.put(failKey, { n: (Date.now() - fail.at < 10 * 60e3 ? fail.n : 0) + 1, at: Date.now() });
-        return json({ error: 'Falsches Passwort.' }, 401);
+        return json({ error: 'Name oder Passwort stimmt nicht.' }, 401);
       }
       await this.ctx.storage.delete(failKey);
-      return json({ token: await startSession(name), name });
+      return json({ token: await startSession(a.username), username: a.username, person: a.person && PEOPLE.includes(a.person) ? a.person : null });
     }
-    // Alles andere nur mit Anmeldung (außer Kalender-Abo, Fotos, Beitreten)
-    const open = path === '/calendar.ics' || path.startsWith('/photo/') || path.startsWith('/board/photo/') || path === '/vapid' || path === '/members/join' || path === '/unsubscribe' || (path === '/_cron' && this.env.DEV_MODE);
-    if (!me && !open) return json({ error: 'Bitte melde dich an.', auth: true }, 401);
+    if (!acct && path.startsWith('/auth/')) return json({ error: 'Bitte melde dich an.', auth: true }, 401);
+    if (path === '/auth/claim' && request.method === 'POST') {
+      if (me) return json({ error: 'Dein Account ist schon mit einer Person verbunden.' }, 400);
+      if (!PEOPLE.includes(body.person)) return json({ error: 'Mitglied nicht gefunden.' }, 404);
+      if ((await claimed()).has(body.person)) return json({ error: `${body.person} ist schon mit einem anderen Account verbunden.` }, 400);
+      await this.ctx.storage.put(acctKey(acct.username), { ...acct, person: body.person });
+      return json({ ok: true, person: body.person });
+    }
+    if (path === '/auth/password' && request.method === 'POST') {
+      if (!pwOk(body.password)) return json({ error: 'Das Passwort braucht mindestens 4 Zeichen.' }, 400);
+      if (typeof body.old !== 'string' || (await pwHash(body.old, acct.salt)) !== acct.hash) return json({ error: 'Das alte Passwort stimmt nicht.' }, 400);
+      await this.ctx.storage.put(acctKey(acct.username), { ...acct, ...(await hashPw(body.password)) });
+      await dropSessions(acct.username, token);
+      return json({ ok: true });
+    }
+    // Nur die Verwalterin: Accounts ansehen, Passwort neu setzen, Account löschen
+    if (path.startsWith('/auth/admin')) {
+      if (!isAdmin) return json({ error: 'Das darf nur die Verwalterin der App.' }, 403);
+      const list = async () => json({ accounts: (await accounts()).map((a) => ({ username: a.username, person: a.person || null, at: a.at })).sort((x, y) => (x.person || '~').localeCompare(y.person || '~')) });
+      if (path === '/auth/admin/list') return list();
+      const target = (await accounts()).find((a) => a.username === body.username);
+      if (!target) return json({ error: 'Account nicht gefunden.' }, 404);
+      if (path === '/auth/admin/password') {
+        if (!pwOk(body.password)) return json({ error: 'Das Passwort braucht mindestens 4 Zeichen.' }, 400);
+        await this.ctx.storage.put(acctKey(target.username), { ...target, ...(await hashPw(body.password)) });
+        await dropSessions(target.username);
+        return list();
+      }
+      if (path === '/auth/admin/delete') {
+        if (target.username === acct.username) return json({ error: 'Deinen eigenen Account kannst du hier nicht löschen.' }, 400);
+        await this.ctx.storage.delete(acctKey(target.username));
+        await dropSessions(target.username);
+        return list();
+      }
+      return json({ error: 'bad request' }, 400);
+    }
+    // Neu in der WG: Account ist da, Person wird beim Beitreten angelegt
+    const open = path === '/calendar.ics' || path.startsWith('/photo/') || path.startsWith('/board/photo/') || path === '/vapid' || path === '/unsubscribe' || (path === '/_cron' && this.env.DEV_MODE);
+    if (path === '/members/join' && !acct) return json({ error: 'Bitte melde dich an.', auth: true }, 401);
+    if (!me && !open && path !== '/members/join') return json({ error: 'Bitte melde dich an.', auth: true }, 401);
     if (me) {
       // Wer etwas tut, ist immer die angemeldete Person
       for (const k of ['by', 'me', 'person']) if (k in body) body[k] = me;
       if ('name' in body && !['/cleaner/contact', '/members/join', '/shop/add', '/shop/categories'].includes(path)) body.name = me;
-    }
-    if (path === '/auth/password' && request.method === 'POST') {
-      if (!pwOk(body.password)) return json({ error: 'Das Passwort braucht mindestens 4 Zeichen.' }, 400);
-      const auth = await this.ctx.storage.get(`auth:${me}`);
-      if (auth && (typeof body.old !== 'string' || (await pwHash(body.old, auth.salt)) !== auth.hash)) return json({ error: 'Das alte Passwort stimmt nicht.' }, 400);
-      await setPassword(me, body.password);
-      await dropSessions(me, token);
-      return json({ ok: true });
-    }
-    if (path === '/auth/reset' && request.method === 'POST') {
-      const who = body.who;
-      if (!PEOPLE.includes(who) || who === me) return json({ error: 'bad request' }, 400);
-      await this.ctx.storage.delete(`auth:${who}`);
-      await dropSessions(who);
-      await this.pushToPerson(who, (l) => ({
-        title: pick(l)('🔑 Passwort zurückgesetzt', '🔑 Password reset', '🔑 Lösenordet återställt'),
-        body: pick(l)(`${me} hat dein Passwort zurückgesetzt. Öffne die App und leg ein neues fest.`, `${me} reset your password. Open the app and set a new one.`, `${me} har återställt ditt lösenord. Öppna appen och välj ett nytt.`),
-        url: '/',
-      }));
-      return json({ ok: true });
     }
 
     // Kalender-Abo für Apple/Google Kalender
@@ -718,7 +744,7 @@ export class Putzplan extends DurableObject {
       const name = typeof body.name === 'string' ? body.name.trim().replace(/\s+/g, ' ').slice(0, 20) : '';
       const side = body.side === 'hinten' ? 'hinten' : body.side === 'vorne' ? 'vorne' : null;
       if (!name || !side) return json({ error: 'Bitte Namen und Zimmer (vorne/hinten) angeben.' }, 400);
-      if (!pwOk(body.password)) return json({ error: 'Das Passwort braucht mindestens 4 Zeichen.' }, 400);
+      if (me) return json({ error: 'Dein Account ist schon mit einer Person verbunden.' }, 400);
       const members = await this.members();
       if (members.some((m) => m.name.toLowerCase() === name.toLowerCase() && (!m.until || m.until > mondayOf(berlinNow().day)))) {
         return json({ error: `${name} gibt es schon. Nimm z.B. noch den ersten Buchstaben vom Nachnamen dazu.` }, 400);
@@ -739,8 +765,8 @@ export class Putzplan extends DurableObject {
           : l === 'sv' ? { title: '🎉 Ny i kollektivet', body: `${name} har flyttat in (rum ${side === 'vorne' ? 'fram' : 'bak'}) och är med i städschemat från ${fmtD(since, 'sv')}. Säg hej!`, url: '/#start' }
           : { title: `🎉 ${g === 'w' ? 'Neue Mitbewohnerin' : g === 'm' ? 'Neuer Mitbewohner' : 'Neu in der WG'}`, body: `${name} ist neu in der WG (Zimmer ${side}) und ab ${fmtD(since)} im Putzplan. Sag hallo!`, url: '/#start' }));
       }
-      await setPassword(name, body.password);
-      return json({ ok: true, name, since, members: await this.members(), token: await startSession(name) });
+      await this.ctx.storage.put(acctKey(acct.username), { ...acct, person: name });
+      return json({ ok: true, name, since, members: await this.members() });
     }
     if (path === '/members/profile' && request.method === 'POST') {
       const members = await this.members();

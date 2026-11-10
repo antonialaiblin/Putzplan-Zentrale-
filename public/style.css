@@ -508,3 +508,10 @@ body.not-home:not(.no-me) main { padding-top: calc(16px + env(safe-area-inset-to
 .pw-wrap { position: relative; display: block; }
 .pw-wrap input { width: 100%; padding-right: 48px; box-sizing: border-box; }
 .pw-eye { position: absolute; right: 4px; top: 50%; transform: translateY(-50%); background: none; border: 0; font-size: 20px; padding: 6px 8px; cursor: pointer; line-height: 1; }
+
+/* Start: Anmelden/Registrieren */
+.auth-choice { display: grid; gap: 10px; margin-top: 12px; }
+.auth-choice button { width: 100%; padding: 14px; font-size: 17px; }
+#people-buttons button.taken { opacity: .5; cursor: not-allowed; }
+.acct-row { width: 100%; display: flex; flex-direction: column; gap: 6px; padding: 10px 0; border-top: 1px solid var(--line); }
+.acct-row > div:first-child { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
