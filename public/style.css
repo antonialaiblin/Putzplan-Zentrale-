@@ -531,3 +531,4 @@ body.not-home:not(.no-me) main { padding-top: calc(16px + env(safe-area-inset-to
 .ranking .ct { text-align: right; font-variant-numeric: tabular-nums; font-weight: 600; }
 .rank-seg { width: 150px; }
 .rank-seg button { padding: 4px 8px; font-size: 13px; }
+.secret-line { width: 100%; margin: 8px 0 0; }

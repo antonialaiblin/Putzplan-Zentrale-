@@ -530,16 +530,30 @@ function confetti(n = 120) {
 }
 const BADGES = [
   { id: 'tasks', icon: '🧽', name: () => L('Putzteufel', 'Clean machine', 'Städdjävul'), desc: (n) => L(`${n} Dienste komplett erledigt`, `${n} duties fully done`, `${n} tjänster helt klara`), tiers: [1, 10, 25, 50] },
+  { id: 'items', icon: '🐝', name: () => L('Fleißbiene', 'Busy bee', 'Flitig bi'), desc: (n) => L(`${n} Aufgaben abgehakt`, `${n} tasks ticked off`, `${n} uppgifter avbockade`), tiers: [25, 100, 250, 500] },
   { id: 'baths', icon: '🚿', name: () => L('Bad-Profi', 'Bathroom pro', 'Badrumsproffs'), desc: (n) => L(`${n}× Bad geputzt`, `${n}× bathroom cleaned`, `${n}× badrum städat`), tiers: [1, 10, 25] },
   { id: 'punctual', icon: '⏰', name: () => L('Immer pünktlich', 'Always on time', 'Alltid i tid'), desc: (n) => L(`${n} Wochen alles vor Freitag 18 Uhr erledigt`, `${n} weeks with everything done before Friday 6 pm`, `${n} veckor med allt klart före fredag kl. 18`), tiers: [3, 10, 25] },
   { id: 'rescue', icon: '🦸', name: (p) => L(G(p, 'Retterin', 'Retter', 'Retter:in'), 'Rescuer', 'Räddare'), desc: (n) => L(`${n}× für jemand anderen eingesprungen`, `${n}× stepped in for someone`, `${n}× hoppat in för någon`), tiers: [1, 5, 15] },
   { id: 'bought', icon: '🛒', name: (p) => L(G(p, 'Einkaufsheldin', 'Einkaufsheld', 'Einkaufsheld:in'), 'Shopping hero', 'Inköpshjälte'), desc: (n) => L(`${n} Sachen von der Einkaufsliste gekauft`, `${n} things bought from the list`, `${n} saker köpta från listan`), tiers: [5, 20, 50] },
   { id: 'fridge', icon: '🧊', name: () => L('Kühlschrank-Ordnung', 'Fridge keeper', 'Kylskåpsordning'), desc: (n) => L(`${n}× Kühlschrankfach geputzt`, `${n}× fridge shelf cleaned`, `${n}× kylskåpshylla städad`), tiers: [1, 6, 12] },
+  { id: 'likes', icon: '💖', name: () => L('Publikumsliebling', 'Crowd favourite', 'Publikfavorit'), desc: (n) => L(`${n} Reaktionen von den anderen bekommen`, `${n} reactions from the others`, `${n} reaktioner från de andra`), tiers: [5, 25, 100] },
+  // Besondere Tage und Uhrzeiten
+  { id: 'xmas', sp: 1, icon: '🎄', name: () => L('Weihnachtswichtel', 'Christmas elf', 'Tomtenisse'), desc: () => L('An Weihnachten geputzt', 'Cleaned at Christmas', 'Städat på julen'), tiers: [1] },
+  { id: 'newyear', sp: 1, icon: '🎆', name: () => L('Silvesterputz', "New Year's clean", 'Nyårsstädning'), desc: () => L('An Silvester oder Neujahr geputzt', "Cleaned on New Year's Eve or Day", 'Städat på nyårsafton eller nyårsdagen'), tiers: [1] },
+  { id: 'bday', sp: 1, icon: '🎂', name: () => L('Geburtstagsputz', 'Birthday clean', 'Födelsedagsstädning'), desc: () => L('Am eigenen Geburtstag eine Aufgabe erledigt', 'Did a task on your own birthday', 'Gjort en uppgift på din egen födelsedag'), tiers: [1] },
+  { id: 'holiday', sp: 1, icon: '📅', name: (p) => L(G(p, 'Feiertagsheldin', 'Feiertagsheld', 'Feiertagsheld:in'), 'Holiday hero', 'Helgdagshjälte'), desc: () => L('An einem Feiertag geputzt', 'Cleaned on a public holiday', 'Städat på en helgdag'), tiers: [1, 5] },
+  { id: 'owl', sp: 1, icon: '🦉', name: () => L('Nachteule', 'Night owl', 'Nattuggla'), desc: () => L('Zwischen Mitternacht und 5 Uhr etwas erledigt', 'Did something between midnight and 5 am', 'Gjort något mellan midnatt och kl. 5'), tiers: [1, 5] },
+  { id: 'early', sp: 1, icon: '🐦', name: (p) => L(G(p, 'Frühaufsteherin', 'Frühaufsteher', 'Frühaufsteher:in'), 'Early bird', 'Morgonpigg'), desc: () => L('Vor 7 Uhr morgens etwas erledigt', 'Did something before 7 am', 'Gjort något före kl. 7 på morgonen'), tiers: [1, 5] },
+  { id: 'blitz', sp: 1, icon: '⚡', name: () => L('Blitzputz', 'Lightning clean', 'Blixtstädning'), desc: (n) => L(`${n}× den ganzen Wochendienst schon am Montag erledigt`, `${n}× finished the whole weekly duty on Monday`, `${n}× klar med hela veckotjänsten redan på måndagen`), tiers: [1, 5] },
+  { id: 'lastminute', sp: 1, icon: '⏳', name: () => L('Auf den letzten Drücker', 'Just in time', 'I sista sekunden'), desc: () => L('Sonntagabend nach 21 Uhr noch schnell erledigt', 'Got it done on Sunday after 9 pm', 'Klar på söndagskvällen efter kl. 21'), tiers: [1, 5] },
+  { id: 'friday13', sp: 1, icon: '🍀', name: () => L('Glückspilz', 'Lucky charm', 'Lyckost'), desc: () => L('An einem Freitag, dem 13., geputzt', 'Cleaned on Friday the 13th', 'Städat en fredag den 13:e'), tiers: [1] },
+  { id: 'halloween', sp: 1, icon: '🎃', name: () => L('Gruselputz', 'Spooky clean', 'Kusligt rent'), desc: () => L('An Halloween geputzt', 'Cleaned on Halloween', 'Städat på halloween'), tiers: [1] },
+  { id: 'valentine', sp: 1, icon: '💘', name: () => L('Putz mit Herz', 'Cleaning with love', 'Städning med hjärta'), desc: () => L('Am Valentinstag geputzt', "Cleaned on Valentine's Day", 'Städat på alla hjärtans dag'), tiers: [1] },
 ];
 function badgesOf(p) {
   const s = state.gami?.stats?.[p] || {};
   return BADGES.map((b) => {
-    const n = s[b.id] || 0;
+    const n = (b.sp ? s.sp?.[b.id] : s[b.id]) || 0;
     const level = b.tiers.filter((t) => n >= t).length;
     return { ...b, n, level, next: b.tiers[level] };
   });
@@ -547,7 +561,7 @@ function badgesOf(p) {
 function badgeHtml(b, p) {
   const stars = b.level ? '⭐'.repeat(b.level) : '';
   return `<div class="bdg${b.level ? '' : ' locked'}"><span class="b-icon">${b.icon}</span><div><strong>${esc(b.name(p))}</strong> <span class="stars">${stars}</span>
-    <small>${b.desc(b.n)}${b.next ? ` · ${L(`nächste Stufe bei ${b.next}`, `next level at ${b.next}`, `nästa nivå vid ${b.next}`)}` : ` · ${L('höchste Stufe!', 'top level!', 'högsta nivån!')}`}</small></div></div>`;
+    <small>${b.desc(b.n)}${b.tiers.length > 1 ? (b.next ? ` · ${L('nächste Stufe wartet…', 'next level awaits…', 'nästa nivå väntar…')}` : ` · ${L('höchste Stufe!', 'top level!', 'högsta nivån!')}`) : ''}</small></div></div>`;
 }
 function rankingHtml() {
   const key = (state.rankMode || 'month') === 'month' ? 'itemsMonth' : 'items';
@@ -588,7 +602,8 @@ function openBadges() {
   $('#swap-title').textContent = L('🏅 Abzeichen', '🏅 Badges', '🏅 Märken');
   $('#swap-text').innerHTML = streakLine();
   const others = state.people.filter((p) => p !== me);
-  $('#swap-people').innerHTML = `<h3 class="add-h">${L('Deine', 'Yours', 'Dina')}</h3><div class="bdg-list">${badgesOf(me).map((b) => badgeHtml(b, me)).join('')}</div>
+  $('#swap-people').innerHTML = `<h3 class="add-h">${L('Deine', 'Yours', 'Dina')}</h3><div class="bdg-list">${badgesOf(me).filter((b) => b.level).map((b) => badgeHtml(b, me)).join('') || `<p class="muted small">${L('Noch keine. Abzeichen gibt es für viel Fleiß und für Aufgaben an besonderen Tagen.', 'None yet. Badges come from hard work and from tasks on special days.', 'Inga än. Märken får man för flit och för uppgifter på speciella dagar.')}</p>`}</div>
+    <p class="muted small secret-line">🔒 ${L(`Noch ${badgesOf(me).filter((b) => !b.level).length} geheime Abzeichen zu entdecken …`, `${badgesOf(me).filter((b) => !b.level).length} secret badges still to discover …`, `${badgesOf(me).filter((b) => !b.level).length} hemliga märken kvar att upptäcka …`)}</p>
     <h3 class="add-h">${L('Die anderen', 'The others', 'De andra')}</h3>${others.map((p) => `<p class="b-row">${avatar(p, 'sm')} <strong>${esc(p)}</strong> ${badgesOf(p).filter((b) => b.level).map((b) => `<span title="${esc(b.name(p))}">${b.icon}${b.level > 1 ? `<sup>${b.level}</sup>` : ''}</span>`).join(' ') || `<span class="muted small">${L('noch keine', 'none yet', 'inga än')}</span>`}</p>`).join('')}`;
   $('#swap-people').onclick = null;
   const dlg = $('#swap-dialog');
@@ -1604,10 +1619,9 @@ function renderHome() {
   if (me && state.gami) {
     const mine = badgesOf(me);
     const got = mine.filter((b) => b.level);
-    const soon = mine.filter((b) => b.next).sort((a, b) => (b.n / b.next) - (a.n / a.next))[0];
     tiles.badges = `<div class="card __CLS__ badges-card" data-open-badges role="button" tabindex="0"><h3>🏅 ${L('Abzeichen', 'Badges', 'Märken')}</h3>
-      <div class="b-icons">${got.length ? got.map((b) => `<span title="${esc(b.name(me))}">${b.icon}${b.level > 1 ? `<sup>${b.level}</sup>` : ''}</span>`).join('') : `<span class="muted small">${L('Noch keine, das erste kommt mit dem ersten erledigten Dienst.', 'None yet, the first comes with your first finished duty.', 'Inga än, det första kommer med din första klara tjänst.')}</span>`}</div>
-      ${soon ? `<p class="muted small">${L('Als Nächstes', 'Up next', 'Nästa')}: ${soon.icon} ${esc(soon.name(me))} (${soon.n}/${soon.next})</p>` : ''}</div>`;
+      <div class="b-icons">${got.length ? got.map((b) => `<span title="${esc(b.name(me))}">${b.icon}${b.level > 1 ? `<sup>${b.level}</sup>` : ''}</span>`).join('') : `<span class="muted small">${L('Noch keine. Sei fleißig, dann kommt das erste!', 'None yet. Keep at it and the first will come!', 'Inga än. Var flitig så kommer det första!')}</span>`}</div>
+      <p class="muted small">🔒 ${L(`${mine.length - got.length} geheime Abzeichen warten noch`, `${mine.length - got.length} secret badges still waiting`, `${mine.length - got.length} hemliga märken väntar`)}</p></div>`;
   }
   if (state.gami) tiles.ranking = `<div class="card __CLS__ ranking-card"><div class="board-head"><h3>🏆 ${L('WG-Ranking', 'Flat ranking', 'Kollektivets ranking')}</h3>
       <div class="seg two-seg rank-seg" role="radiogroup">${['month', 'all'].map((k) => `<button type="button" role="radio" data-rank="${k}" aria-checked="${(state.rankMode || 'month') === k}">${k === 'month' ? L('Monat', 'Month', 'Månad') : L('Gesamt', 'All time', 'Totalt')}</button>`).join('')}</div></div>${rankingHtml()}</div>`;

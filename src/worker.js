@@ -2,6 +2,7 @@ import { DurableObject } from 'cloudflare:workers';
 import { computeWeek, simulate, mondayOf, addDays, berlinNow, INITIAL_MEMBERS, CYCLE_START } from './plan.js';
 import { weeklyMessages, fridayMessages, ausfallMessages, cleanerAskMessage, cleanerVisitMessages, meetingPrepMessages, dayLabel, ddmm } from './messages.js';
 import { tr } from '../public/i18n.js';
+import { holidayOn } from '../public/holidays.js';
 import { buildIcs, ICS_KINDS } from './ics.js';
 import { generateVapidKeys, vapidPublicRaw, sendPush } from './webpush.js';
 import { balancesByCurrency, peopleIn, parseSplitwise, computeParts, parseAmount, parseEuro, CURRENCIES, SHOP_CATEGORIES } from './money.js';
@@ -246,7 +247,10 @@ export class Putzplan extends DurableObject {
     const PEOPLE = await this.names();
     const stats = (await this.ctx.storage.get('stats')) || {};
     const monthNow = berlinNow().day.slice(0, 7);
-    const per = Object.fromEntries(PEOPLE.map((p) => [p, { tasks: 0, baths: 0, rescue: stats[p]?.rescue || 0, punctual: 0, bought: stats[p]?.bought || 0, fridge: 0, items: 0, itemsMonth: 0 }]));
+    const bdays = Object.fromEntries((await this.members()).map((m) => [m.name, m.birthday || '']));
+    const doersOf = {};
+    const bump = (p, k) => { per[p].sp[k] = (per[p].sp[k] || 0) + 1; };
+    const per = Object.fromEntries(PEOPLE.map((p) => [p, { tasks: 0, baths: 0, rescue: stats[p]?.rescue || 0, punctual: 0, bought: stats[p]?.bought || 0, fridge: 0, items: 0, itemsMonth: 0, likes: 0, sp: {} }]));
     for (const w of weeks) {
       const deadline = Date.parse(`${addDays(w.monday, 4)}T17:00:00Z`);
       for (const t of w.tasks) {
@@ -256,9 +260,29 @@ export class Putzplan extends DurableObject {
         for (const it of t.items) {
           const c = w.checks[`${t.key}:${it.id}`];
           // Ranking: jede abgehakte Aufgabe zählt
-          if (c?.by && per[c.by]) { per[c.by].items++; if (new Date(c.at).toISOString().slice(0, 7) === monthNow) per[c.by].itemsMonth++; }
+          if (c?.by && per[c.by]) {
+            per[c.by].items++;
+            if (new Date(c.at).toISOString().slice(0, 7) === monthNow) per[c.by].itemsMonth++;
+            // Geheime Abzeichen: besondere Tage und Uhrzeiten (Berliner Zeit)
+            const z = berlinNow(new Date(c.at));
+            const md = z.day.slice(5);
+            if (['12-24', '12-25', '12-26'].includes(md)) bump(c.by, 'xmas');
+            if (md === '12-31' || md === '01-01') bump(c.by, 'newyear');
+            if (bdays[c.by] && bdays[c.by].slice(5) === md) bump(c.by, 'bday');
+            if (z.hour < 5) bump(c.by, 'owl');
+            if (z.hour >= 5 && z.hour < 7) bump(c.by, 'early');
+            const hol = holidayOn(z.day);
+            if (hol && (hol.legal || hol.sunday)) bump(c.by, 'holiday');
+            if (md.endsWith('-13') && z.dow === 4) bump(c.by, 'friday13');
+            if (z.dow === 6 && z.hour >= 21) bump(c.by, 'lastminute');
+            if (md === '10-31') bump(c.by, 'halloween');
+            if (md === '02-14') bump(c.by, 'valentine');
+          }
           if (c?.by && per[c.by] && t.key === 'kuehlschrank' && it.person === c.by) per[c.by].fridge++;
         }
+        doersOf[`${w.monday}:${t.key}`] = [...doers];
+        // Blitzputz: ganzer Wochendienst schon am Montag erledigt
+        if (all && t.key === 'woche' && t.items.every((it) => berlinNow(new Date(w.checks[`${t.key}:${it.id}`].at)).day === w.monday)) for (const p of doers) bump(p, 'blitz');
         if (t.key === 'kuehlschrank') continue;
         for (const p of doers) {
           if (all) per[p].tasks++;
@@ -271,6 +295,15 @@ export class Putzplan extends DurableObject {
         const own = keysOf(w).filter((x) => x.owner === p);
         if (own.length && own.every((x) => w.checks[x.k] && w.checks[x.k].at <= deadline)) per[p].punctual++;
       }
+    }
+    // Publikumsliebling: Reaktionen der anderen auf eigene erledigte Dienste und Zettel
+    const reacts = await this.reactions();
+    const notes = (await this.ctx.storage.get('board')) || [];
+    for (const [target, r] of Object.entries(reacts)) {
+      let owners = [];
+      if (target.startsWith('task:')) owners = doersOf[target.slice(5)] || [];
+      else if (target.startsWith('note:')) { const n = notes.find((x) => x.id === target.slice(5)); if (n?.by) owners = [n.by]; }
+      for (const o of owners) if (per[o]) per[o].likes += Object.values(r).flat().filter((x) => x !== o).length;
     }
     return { streak, best, current: curDone, stats: per };
   }
