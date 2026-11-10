@@ -549,6 +549,23 @@ function badgeHtml(b, p) {
   return `<div class="bdg${b.level ? '' : ' locked'}"><span class="b-icon">${b.icon}</span><div><strong>${esc(b.name(p))}</strong> <span class="stars">${stars}</span>
     <small>${b.desc(b.n)}${b.next ? ` · ${L(`nächste Stufe bei ${b.next}`, `next level at ${b.next}`, `nästa nivå vid ${b.next}`)}` : ` · ${L('höchste Stufe!', 'top level!', 'högsta nivån!')}`}</small></div></div>`;
 }
+function rankingHtml() {
+  const key = (state.rankMode || 'month') === 'month' ? 'itemsMonth' : 'items';
+  const rows = state.people.map((p) => ({ p, n: state.gami?.stats?.[p]?.[key] || 0 })).sort((a, b) => b.n - a.n || a.p.localeCompare(b.p));
+  const max = Math.max(1, ...rows.map((r) => r.n));
+  let place = 0; let last = null;
+  return `<ol class="ranking">${rows.map((r, i) => {
+    if (r.n !== last) { place = i + 1; last = r.n; }
+    const medal = r.n ? ['🥇', '🥈', '🥉'][place - 1] || `${place}.` : '–';
+    return `<li class="${r.p === state.me ? 'me' : ''}"><span class="rk">${medal}</span>${avatar(r.p, 'sm')}<span class="nm">${esc(r.p)}</span><span class="bar"><b style="width:${Math.round((r.n / max) * 100)}%"></b></span><span class="ct">${r.n}</span></li>`;
+  }).join('')}</ol><p class="muted small" style="margin:6px 0 0">${L('Gezählt wird jede abgehakte Aufgabe.', 'Every ticked-off task counts.', 'Varje avbockad uppgift räknas.')}</p>`;
+}
+document.addEventListener('click', (e) => {
+  const b = e.target.closest('[data-rank]');
+  if (!b) return;
+  state.rankMode = b.dataset.rank;
+  renderHome();
+});
 function streakLine() {
   const g = state.gami;
   if (!g) return '';
@@ -1411,6 +1428,7 @@ const WIDGETS = {
   holiday: { de: 'Nächster Feiertag', en: 'Next holiday', sv: 'Nästa helgdag', size: 's' },
   shoplist: { de: 'Einkaufsliste', en: 'Shopping list', sv: 'Inköpslista', size: 'w' },
   badges: { de: 'Abzeichen & WG-Streak', en: 'Badges & streak', sv: 'Märken & streak', size: 'w' },
+  ranking: { de: 'WG-Ranking', en: 'Flat ranking', sv: 'Kollektivets ranking', size: 'w' },
 };
 const SHORTCUTS = {
   shop: { icon: '🛒', de: 'Einkauf eintragen', en: 'Add to shopping', sv: 'Lägg till inköp' },
@@ -1423,7 +1441,7 @@ const SHORTCUTS = {
   note: { icon: '📌', de: 'Zettel anpinnen', en: 'Pin a note', sv: 'Sätt upp en lapp' },
   invite: { icon: '➕', de: 'Mitglied einladen', en: 'Invite member', sv: 'Bjud in medlem' },
 };
-const DEFAULT_HOME = ['week', 'badges', 'board', 'plan', 'shop', 'money', 'cal', 'meetings', 'rules'].map((id) => ({ id, size: WIDGETS[id].size }));
+const DEFAULT_HOME = ['week', 'ranking', 'badges', 'board', 'plan', 'shop', 'money', 'cal', 'meetings', 'rules'].map((id) => ({ id, size: WIDGETS[id].size }));
 const widgetName = (id) => (id.startsWith('sc:') ? L(SHORTCUTS[id.slice(3)]?.de || id, SHORTCUTS[id.slice(3)]?.en || id, SHORTCUTS[id.slice(3)]?.sv || id) : L(WIDGETS[id]?.de || id, WIDGETS[id]?.en || id, WIDGETS[id]?.sv || id));
 function homeLayout() {
   if (state.homeDraft) return state.homeDraft;
@@ -1591,6 +1609,8 @@ function renderHome() {
       <div class="b-icons">${got.length ? got.map((b) => `<span title="${esc(b.name(me))}">${b.icon}${b.level > 1 ? `<sup>${b.level}</sup>` : ''}</span>`).join('') : `<span class="muted small">${L('Noch keine, das erste kommt mit dem ersten erledigten Dienst.', 'None yet, the first comes with your first finished duty.', 'Inga än, det första kommer med din första klara tjänst.')}</span>`}</div>
       ${soon ? `<p class="muted small">${L('Als Nächstes', 'Up next', 'Nästa')}: ${soon.icon} ${esc(soon.name(me))} (${soon.n}/${soon.next})</p>` : ''}</div>`;
   }
+  if (state.gami) tiles.ranking = `<div class="card __CLS__ ranking-card"><div class="board-head"><h3>🏆 ${L('WG-Ranking', 'Flat ranking', 'Kollektivets ranking')}</h3>
+      <div class="seg two-seg rank-seg" role="radiogroup">${['month', 'all'].map((k) => `<button type="button" role="radio" data-rank="${k}" aria-checked="${(state.rankMode || 'month') === k}">${k === 'month' ? L('Monat', 'Month', 'Månad') : L('Gesamt', 'All time', 'Totalt')}</button>`).join('')}</div></div>${rankingHtml()}</div>`;
   const sh = state.shop;
   tiles.shop = `<a class="card __CLS__" href="#einkauf"><h3>${L('Einkauf', 'Shopping', `Handla`)}</h3>${sh
     ? (sh.items.length ? `<div class="big">${sh.items.length}</div><p>${sh.items.slice(0, 3).map((i) => esc(i.name)).join(', ')}${sh.items.length > 3 ? ' …' : ''}</p>` : `<p>${L('Alles da 🎉', 'All stocked 🎉', `Allt finns 🎉`)}</p>`)

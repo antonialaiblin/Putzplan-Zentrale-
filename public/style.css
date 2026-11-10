@@ -519,3 +519,15 @@ body.not-home:not(.no-me) main { padding-top: calc(16px + env(safe-area-inset-to
 
 .banner-btn { width: 100%; text-align: left; margin-bottom: 12px; padding: 14px 16px; border-radius: 14px; font-weight: 600; }
 .acct-row.pending { background: var(--accent-soft); border-radius: 12px; padding: 10px; border-top: 0; margin-bottom: 6px; }
+
+/* WG-Ranking */
+.ranking { list-style: none; margin: 8px 0 0; padding: 0; display: grid; gap: 6px; }
+.ranking li { display: grid; grid-template-columns: 28px auto minmax(0, 7em) 1fr 2.2em; align-items: center; gap: 8px; padding: 4px 6px; border-radius: 10px; }
+.ranking li.me { background: var(--accent-soft); }
+.ranking .rk { font-size: 18px; text-align: center; }
+.ranking .nm { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ranking .bar { height: 8px; background: var(--line); border-radius: 99px; overflow: hidden; }
+.ranking .bar b { display: block; height: 100%; background: var(--accent); border-radius: 99px; }
+.ranking .ct { text-align: right; font-variant-numeric: tabular-nums; font-weight: 600; }
+.rank-seg { width: 150px; }
+.rank-seg button { padding: 4px 8px; font-size: 13px; }

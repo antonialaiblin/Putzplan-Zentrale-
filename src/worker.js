@@ -245,7 +245,8 @@ export class Putzplan extends DurableObject {
     // Zahlen pro Person
     const PEOPLE = await this.names();
     const stats = (await this.ctx.storage.get('stats')) || {};
-    const per = Object.fromEntries(PEOPLE.map((p) => [p, { tasks: 0, baths: 0, rescue: stats[p]?.rescue || 0, punctual: 0, bought: stats[p]?.bought || 0, fridge: 0 }]));
+    const monthNow = berlinNow().day.slice(0, 7);
+    const per = Object.fromEntries(PEOPLE.map((p) => [p, { tasks: 0, baths: 0, rescue: stats[p]?.rescue || 0, punctual: 0, bought: stats[p]?.bought || 0, fridge: 0, items: 0, itemsMonth: 0 }]));
     for (const w of weeks) {
       const deadline = Date.parse(`${addDays(w.monday, 4)}T17:00:00Z`);
       for (const t of w.tasks) {
@@ -254,6 +255,8 @@ export class Putzplan extends DurableObject {
         const doers = new Set(t.items.map((it) => w.checks[`${t.key}:${it.id}`]?.by).filter((p) => per[p]));
         for (const it of t.items) {
           const c = w.checks[`${t.key}:${it.id}`];
+          // Ranking: jede abgehakte Aufgabe zählt
+          if (c?.by && per[c.by]) { per[c.by].items++; if (new Date(c.at).toISOString().slice(0, 7) === monthNow) per[c.by].itemsMonth++; }
           if (c?.by && per[c.by] && t.key === 'kuehlschrank' && it.person === c.by) per[c.by].fridge++;
         }
         if (t.key === 'kuehlschrank') continue;
@@ -530,7 +533,7 @@ export class Putzplan extends DurableObject {
       const { monday, key, done, by } = body;
       if (!validMonday(monday) || typeof key !== 'string' || key.length > 60) return json({ error: 'bad request' }, 400);
       const k = `check:${monday}:${key}`;
-      if (done) await this.ctx.storage.put(k, { by: PEOPLE.includes(by) ? by : null, at: Date.now() });
+      if (done) await this.ctx.storage.put(k, { by: me || (PEOPLE.includes(by) ? by : null), at: Date.now() });
       else await this.ctx.storage.delete(k);
       return json({ ...(await this.week(monday)), gami: await this.gami() });
     }
