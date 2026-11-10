@@ -564,3 +564,12 @@ body.bday .tabbar a span::after { content: '🎁'; font-size: 11px; position: ab
 .rp-table { width: 100%; border-collapse: collapse; font-size: 13px; }
 .rp-table th { text-align: left; font-weight: 600; opacity: .7; padding: 4px; }
 .rp-table td { padding: 6px 4px; border-top: 1px solid var(--line); vertical-align: top; }
+
+/* Benachrichtigungen, Umfrage */
+.push-prefs { margin: 10px 0 4px; }
+.push-prefs summary { cursor: pointer; font-weight: 600; padding: 6px 0; }
+.pp-row { display: flex; gap: 8px; align-items: flex-start; padding: 6px 0; font-size: 14px; }
+.feedback-card { background: linear-gradient(135deg, var(--accent-soft), transparent); }
+.stars { display: flex; gap: 6px; margin: 4px 0 10px; }
+.stars button { font-size: 32px; background: none; border: 0; color: #f5b301; cursor: pointer; padding: 0 2px; line-height: 1; }
+.fb-quote { margin: 6px 0; padding: 8px 12px; border-left: 3px solid var(--accent); background: var(--accent-soft); border-radius: 8px; width: 100%; }

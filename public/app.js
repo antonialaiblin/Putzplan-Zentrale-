@@ -198,6 +198,8 @@ async function load() {
   state.reactions = data.reactions || {};
   state.gami = data.gami || null;
   state.cleanerContact = data.cleanerContact || null;
+  state.pushPrefs = data.pushPrefs || {};
+  state.feedback = data.feedback || null;
   state.today = data.today;
   state.current = data.current;
   if (state.me && !state.people.includes(state.me)) { state.me = null; store.set('me', ''); }
@@ -1699,6 +1701,8 @@ function setWho() {
 }
 function renderHome() {
   setWho();
+  renderFeedbackCard();
+  renderPushPrefs();
   const el = $('#home');
   if (!el || !state.current) return;
   const w = state.weeks.get(state.current);
@@ -2556,3 +2560,138 @@ document.addEventListener('click', (e) => {
   const r = e.target.closest('#report-range [data-range]');
   if (r) { reportRange = r.dataset.range; drawReport(); }
 });
+
+// ---------- Benachrichtigungen auswählen ----------
+function PUSH_CATS() { return [
+  ['plan', L('🧽 Putzplan-Erinnerungen (Sonntag, Freitag, Erinnern-Knopf)', '🧽 Cleaning reminders (Sunday, Friday, reminder button)', '🧽 Städpåminnelser (söndag, fredag, påminnelseknapp)')],
+  ['cleaner', L('🧹 Putzkraft (Termine, Ausfall)', '🧹 Cleaner (dates, cancellations)', '🧹 Städare (tider, inställt)')],
+  ['swap', L('🔁 Tausch-Anfragen', '🔁 Swap requests', '🔁 Bytesförfrågningar')],
+  ['money', L('💶 Kasse (Ausgaben eingetragen, geändert, gelöscht)', '💶 Kitty (expenses added, changed, deleted)', '💶 Kassa (utgifter tillagda, ändrade, borttagna)')],
+  ['react', L('🎉 Reaktionen auf deine Sachen', '🎉 Reactions to your things', '🎉 Reaktioner på dina saker')],
+  ['board', L('📌 Pinnwand & Umfragen', '📌 Board & polls', '📌 Anslagstavla & omröstningar')],
+  ['cal', L('📅 Kalender, Urlaub & WG-Meetings', '📅 Calendar, holidays & meetings', '📅 Kalender, semester & husmöten')],
+  ['people', L('🎂 Geburtstage & neue Mitbewohner:innen', '🎂 Birthdays & new flatmates', '🎂 Födelsedagar & nya i kollektivet')],
+]; }
+function renderPushPrefs() {
+  const box = $('#push-prefs');
+  if (!box) return;
+  const p = state.pushPrefs || {};
+  box.innerHTML = PUSH_CATS().map(([k, label]) => `<label class="check-row pp-row"><input type="checkbox" data-pp="${k}" ${p[k] === false ? '' : 'checked'}> <span>${label}</span></label>`).join('');
+}
+document.addEventListener('change', async (e) => {
+  const c = e.target.closest('[data-pp]');
+  if (!c) return;
+  const prefs = Object.fromEntries([...document.querySelectorAll('[data-pp]')].map((i) => [i.dataset.pp, i.checked]));
+  try { state.pushPrefs = (await api('push/prefs', { prefs })).pushPrefs; toast(L('Gespeichert ✓', 'Saved ✓', 'Sparat ✓')); } catch (err) { toast(err.message); c.checked = !c.checked; }
+});
+
+// ---------- Datensicherung (nur Admin) ----------
+async function downloadBackup() {
+  const res = await fetch('/api/auth/admin/backup', { headers: { 'x-session': store.get('token') || '' } });
+  if (!res.ok) throw new Error(L('Download hat nicht geklappt', 'Download failed', 'Nedladdningen misslyckades'));
+  const blob = await res.blob();
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `zentrale-backup-${state.today}.json`;
+  document.body.append(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+}
+async function openBackup() {
+  const d = await api('auth/admin/backups');
+  $('#swap-title').textContent = L('💾 Datensicherung', '💾 Backup', '💾 Säkerhetskopia');
+  $('#swap-text').textContent = L('Jeden Sonntag wird automatisch eine Kopie gespeichert (die letzten 8 bleiben). Lade dir zusätzlich ab und zu eine Kopie aufs Handy oder in deine Cloud, dann ist wirklich nichts verloren.', 'Every Sunday a copy is saved automatically (the last 8 are kept). Also download a copy to your phone or cloud now and then, so nothing is ever lost.', 'Varje söndag sparas en kopia automatiskt (de senaste 8 sparas). Ladda också ner en kopia ibland, så försvinner ingenting.');
+  const snaps = [...(d.snapshots || [])].reverse();
+  $('#swap-people').innerHTML = `<div class="row" style="width:100%;flex-wrap:wrap;gap:8px">
+      <button type="button" class="small" data-bk="download">⬇️ ${L('Backup herunterladen', 'Download backup', 'Ladda ner kopia')}</button>
+      <button type="button" class="ghost small" data-bk="now">💾 ${L('Jetzt sichern', 'Save now', 'Spara nu')}</button>
+      <button type="button" class="ghost small" data-bk="upload">⬆️ ${L('Aus Datei wiederherstellen', 'Restore from file', 'Återställ från fil')}</button>
+      <input type="file" id="bk-file" accept=".json,application/json" hidden></div>
+    <h3 class="add-h">${L('Automatische Kopien', 'Automatic copies', 'Automatiska kopior')}</h3>
+    ${snaps.length ? snaps.map((s) => `<div class="acct-row"><div><strong>${esc(/^\d{4}-\d{2}-\d{2}$/.test(s.day) ? fmtDay(s.day) : s.day.replace(/-vor-wiederherstellen$/, ` (${L('vor Wiederherstellen', 'before restore', 'före återställning')})`))}</strong> <span class="muted small">${Math.round(s.size / 1024)} KB</span></div>
+      <div class="row"><button type="button" class="ghost small" data-bk-restore="${esc(s.day)}">${L('Wiederherstellen', 'Restore', 'Återställ')}</button></div></div>`).join('')
+      : `<p class="muted small">${L('Noch keine. Die erste kommt am Sonntag, oder tippe auf „Jetzt sichern“.', 'None yet. The first comes on Sunday, or tap "Save now".', 'Inga än. Den första kommer på söndag, eller tryck "Spara nu".')}</p>`}`;
+  $('#swap-people').onclick = async (e) => {
+    const b = e.target.closest('[data-bk]');
+    const r = e.target.closest('[data-bk-restore]');
+    try {
+      if (b?.dataset.bk === 'download') { await downloadBackup(); toast(L('Backup heruntergeladen ✓', 'Backup downloaded ✓', 'Kopia nedladdad ✓')); }
+      if (b?.dataset.bk === 'now') { await api('auth/admin/backup-now', {}); toast(L('Gesichert ✓', 'Saved ✓', 'Sparat ✓')); openBackup(); }
+      if (b?.dataset.bk === 'upload') $('#bk-file').click();
+      if (r && confirm(L(`Wirklich alle Daten auf den Stand vom ${r.dataset.bkRestore} zurücksetzen? Alles, was danach passiert ist, geht verloren. (Der jetzige Stand wird vorher noch gesichert.)`, `Really reset all data to ${r.dataset.bkRestore}? Everything after that is lost. (The current state is saved first.)`, `Vill du verkligen återställa all data till ${r.dataset.bkRestore}? Allt efter det försvinner. (Nuvarande läge sparas först.)`))) {
+        await api('auth/admin/restore', { snapshot: r.dataset.bkRestore });
+        toast(L('Wiederhergestellt ✓', 'Restored ✓', 'Återställt ✓'));
+        setTimeout(() => location.reload(), 800);
+      }
+    } catch (err) { toast(err.message); }
+  };
+  $('#bk-file').onchange = async () => {
+    const f = $('#bk-file').files[0];
+    $('#bk-file').value = '';
+    if (!f) return;
+    try {
+      const backup = JSON.parse(await f.text());
+      if (!confirm(L(`Alle Daten durch die Sicherung vom ${String(backup.at || '').slice(0, 10)} ersetzen? (Der jetzige Stand wird vorher noch gesichert.)`, `Replace all data with the backup from ${String(backup.at || '').slice(0, 10)}? (The current state is saved first.)`, `Ersätta all data med kopian från ${String(backup.at || '').slice(0, 10)}? (Nuvarande läge sparas först.)`))) return;
+      await api('auth/admin/restore', { backup });
+      toast(L('Wiederhergestellt ✓', 'Restored ✓', 'Återställt ✓'));
+      setTimeout(() => location.reload(), 800);
+    } catch (err) { toast(err.message || L('Datei konnte nicht gelesen werden', 'Could not read file', 'Kunde inte läsa filen')); }
+  };
+  const dlg = $('#swap-dialog');
+  dlg.querySelector('button[value=cancel]').textContent = L('Schließen', 'Close', 'Stäng');
+  if (!dlg.open) dlg.showModal();
+}
+$('#backup-open').onclick = () => openBackup().catch((err) => toast(err.message));
+
+// ---------- App-Umfrage ----------
+function renderFeedbackCard() {
+  const f = state.feedback;
+  const card = $('#feedback-card');
+  if (!card) return;
+  const show = !!(f?.active && !f.answered && state.me);
+  card.hidden = !show;
+  if (show) card.innerHTML = `<h3>📝 ${L('Wie findest du die Zentrale?', 'How do you like the Zentrale?', 'Vad tycker du om Zentrale?')}</h3>
+    <p>${L(`Kurze Umfrage (2 Minuten), läuft bis ${fmtDay(f.end)}. Deine Ideen machen die App besser!`, `Short survey (2 minutes), open until ${fmtDay(f.end)}. Your ideas make the app better!`, `Kort enkät (2 minuter), öppen till ${fmtDay(f.end)}. Dina idéer gör appen bättre!`)}</p>
+    <button type="button" class="report-btn" id="fb-open">✍️ ${L('Jetzt mitmachen', 'Take part now', 'Delta nu')}</button>`;
+}
+let fbStars = 0;
+document.addEventListener('click', (e) => {
+  if (e.target.closest('#fb-open')) { fbStars = 0; drawStars(); $('#feedback-dialog').showModal(); return; }
+  const s = e.target.closest('[data-star]');
+  if (s) { fbStars = Number(s.dataset.star); drawStars(); return; }
+  const u = e.target.closest('[data-use]');
+  if (u) u.setAttribute('aria-pressed', u.getAttribute('aria-pressed') !== 'true');
+});
+function drawStars() { document.querySelectorAll('#fb-stars [data-star]').forEach((b) => { b.textContent = Number(b.dataset.star) <= fbStars ? '★' : '☆'; b.classList.toggle('on', Number(b.dataset.star) <= fbStars); }); }
+$('#feedback-form').addEventListener('submit', async (e) => {
+  if (e.submitter?.value !== 'ok') return;
+  e.preventDefault();
+  if (!fbStars) { toast(L('Bitte gib 1 bis 5 Sterne', 'Please give 1 to 5 stars', 'Ge 1 till 5 stjärnor')); return; }
+  try {
+    const r = await api('feedback', { stars: fbStars, like: $('#fb-like').value, ideas: $('#fb-ideas').value, uses: [...document.querySelectorAll('#fb-uses [aria-pressed=true]')].map((b) => b.dataset.use) });
+    state.feedback = r.feedback;
+    $('#feedback-dialog').close();
+    renderFeedbackCard();
+    confetti(120);
+    toast(L('Danke für dein Feedback! 💜', 'Thanks for your feedback! 💜', 'Tack för din feedback! 💜'));
+  } catch (err) { toast(err.message); }
+});
+async function openFeedbackReport() {
+  const d = await api('auth/admin/feedback');
+  const avg = d.answers.length ? d.answers.reduce((a, x) => a + x.stars, 0) / d.answers.length : 0;
+  const uses = {};
+  for (const a of d.answers) for (const u of a.uses) uses[u] = (uses[u] || 0) + 1;
+  const USE = { plan: L('🧽 Putzplan', '🧽 Cleaning', '🧽 Städning'), shop: L('🛒 Einkauf', '🛒 Shopping', '🛒 Inköp'), money: L('💶 Kasse', '💶 Kitty', '💶 Kassa'), cal: L('📅 Kalender', '📅 Calendar', '📅 Kalender'), board: L('📌 Pinnwand', '📌 Board', '📌 Anslagstavla'), badges: L('🏅 Abzeichen', '🏅 Badges', '🏅 Märken') };
+  $('#swap-title').textContent = L('📝 App-Umfrage', '📝 App survey', '📝 Appenkät');
+  $('#swap-text').textContent = L(`Läuft vom ${fmtDay(d.start)} bis ${fmtDay(d.end)} · ${d.count} von ${d.total} haben geantwortet. Die Antworten sind ohne Namen und gemischt.`, `Runs ${fmtDay(d.start)} to ${fmtDay(d.end)}. ${d.count} of ${d.total} answered. Answers are anonymous and shuffled.`, `Pågår ${fmtDay(d.start)} till ${fmtDay(d.end)}. ${d.count} av ${d.total} har svarat. Svaren är anonyma och blandade.`);
+  $('#swap-people').innerHTML = d.answers.length
+    ? `<div class="rp-hl" style="width:100%"><div class="rp-card"><span class="rp-i">⭐</span><span class="muted small">${L('Durchschnitt', 'Average', 'Snitt')}</span><strong>${avg.toFixed(1).replace('.', ',')} / 5</strong><span class="small">${'★'.repeat(Math.round(avg))}${'☆'.repeat(5 - Math.round(avg))}</span></div>
+        <div class="rp-card"><span class="rp-i">📊</span><span class="muted small">${L('Am meisten genutzt', 'Used most', 'Används mest')}</span><strong>${Object.entries(uses).sort((a, b) => b[1] - a[1]).slice(0, 3).map(([k, n]) => `${USE[k]} (${n})`).join('<br>') || '–'}</strong></div></div>
+      <h3 class="add-h">💜 ${L('Das gefällt', 'What people like', 'Det här gillas')}</h3>${d.answers.filter((a) => a.like).map((a) => `<p class="fb-quote">„${esc(a.like)}“</p>`).join('') || '<p class="muted small">–</p>'}
+      <h3 class="add-h">💡 ${L('Verbesserungsvorschläge', 'Suggestions', 'Förbättringsförslag')}</h3>${d.answers.filter((a) => a.ideas).map((a) => `<p class="fb-quote">„${esc(a.ideas)}“ <span class="muted small">${'★'.repeat(a.stars)}</span></p>`).join('') || '<p class="muted small">–</p>'}`
+    : `<p class="muted">${L('Noch keine Antworten. Die Umfrage startet am ', 'No answers yet. The survey starts on ', 'Inga svar än. Enkäten startar ')}${fmtDay(d.start)}.</p>`;
+  $('#swap-people').onclick = null;
+  const dlg = $('#swap-dialog');
+  dlg.querySelector('button[value=cancel]').textContent = L('Schließen', 'Close', 'Stäng');
+  if (!dlg.open) dlg.showModal();
+}
+$('#feedback-report-open').onclick = () => openFeedbackReport().catch((err) => toast(err.message));

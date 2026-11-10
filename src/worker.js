@@ -17,6 +17,7 @@ export const SCHEDULE = {
 };
 
 const fmtD = (d, lang = 'de') => dayLabel(d, lang);
+const FEEDBACK_START = '2026-11-24'; // App-Umfrage: zwei Wochen nach dem Start, eine Woche lang
 /** Nächster Termin einer wiederkehrenden Ausgabe */
 const REPEATS = { week: [0, 7], '2week': [0, 14], month: [1, 0], '2month': [2, 0], quarter: [3, 0], year: [12, 0] };
 function nextDate(d, every) {
@@ -508,7 +509,7 @@ export class Putzplan extends DurableObject {
       const to = Object.keys(e.parts || {})[0];
       for (const p of PEOPLE) {
         if (p === by) continue;
-        await this.pushToPerson(p, (l) => {
+        await this.pushCat('money', p, (l) => {
           const L = pick(l);
           const what = settle ? L(`${e.paidBy} → ${to}: ${fmt(l)} zurückgezahlt`, `${e.paidBy} → ${to}: ${fmt(l)} paid back`, `${e.paidBy} → ${to}: ${fmt(l)} återbetalt`)
             : L(`${tr(e.desc, 'de')}: ${fmt(l)}, bezahlt von ${e.paidBy}`, `${tr(e.desc, 'en')}: ${fmt(l)}, paid by ${e.paidBy}`, `${tr(e.desc, 'sv')}: ${fmt(l)}, betalt av ${e.paidBy}`);
@@ -548,7 +549,7 @@ export class Putzplan extends DurableObject {
       const g = fields.gender;
       for (const p of PEOPLE) {
         if (p === name) continue;
-        await this.pushToPerson(p, (l) => (l === 'en'
+        await this.pushCat('people', p, (l) => (l === 'en'
           ? { title: '🎉 New flatmate', body: `${name} has joined the flat (${side === 'vorne' ? 'front' : 'back'} room) and is on the cleaning rota from ${fmtD(since, 'en')}. Say hi!`, url: '/#start' }
           : l === 'sv' ? { title: '🎉 Ny i kollektivet', body: `${name} har flyttat in (rum ${side === 'vorne' ? 'fram' : 'bak'}) och är med i städschemat från ${fmtD(since, 'sv')}. Säg hej!`, url: '/#start' }
           : { title: `🎉 ${g === 'w' ? 'Neue Mitbewohnerin' : g === 'm' ? 'Neuer Mitbewohner' : 'Neu in der WG'}`, body: `${name} ist neu in der WG (Zimmer ${side}) und ab ${fmtD(since)} im Putzplan. Sag hallo!`, url: '/#start' }));
@@ -646,6 +647,28 @@ export class Putzplan extends DurableObject {
       if (!isAdmin) return json({ error: 'Das darf nur die Verwalterin der App.' }, 403);
       const list = async () => json({ admin, accounts: (await accounts()).map((a) => ({ username: a.username, person: a.person || null, at: a.at, forgot: !!a.forgot, pending: a.pending ? { type: a.pending.type, person: a.pending.person || a.pending.name, side: a.pending.side || null } : null })).sort((x, y) => (x.person || '~').localeCompare(y.person || '~')) });
       if (path === '/auth/admin/list') return list();
+      if (path === '/auth/admin/backup') {
+        const data = await this.dumpAll();
+        return new Response(JSON.stringify({ app: 'zentrale', at: new Date().toISOString(), data }), { headers: { 'content-type': 'application/json', 'content-disposition': `attachment; filename="zentrale-backup-${berlinNow().day}.json"` } });
+      }
+      if (path === '/auth/admin/backups') return json({ snapshots: await this.backupStub().snapList() });
+      if (path === '/auth/admin/backup-now') { const day = berlinNow().day; return json({ snapshots: await this.backupStub().snapSave(day, await this.dumpAll()) }); }
+      if (path === '/auth/admin/restore') {
+        let data = null;
+        if (typeof body.snapshot === 'string') data = await this.backupStub().snapGet(body.snapshot);
+        else if (body.backup && body.backup.app === 'zentrale' && body.backup.data && typeof body.backup.data === 'object') data = body.backup.data;
+        if (!data || !data.members) return json({ error: 'Das ist keine gültige Zentrale-Sicherung.' }, 400);
+        // Vorher den aktuellen Stand sichern, damit man zurück kann
+        await this.backupStub().snapSave(`${berlinNow().day}-vor-wiederherstellen`, await this.dumpAll());
+        const n = await this.restoreAll(data);
+        return json({ ok: true, restored: n });
+      }
+      if (path === '/auth/admin/feedback') {
+        const f = await this.feedback();
+        const names = await this.names();
+        const answers = Object.values(f.answers).sort(() => Math.random() - 0.5);
+        return json({ start: f.start, end: f.end, total: names.length, count: Object.keys(f.answers).length, answers: answers.map((a) => ({ stars: a.stars, like: a.like, ideas: a.ideas, uses: a.uses || [] })) });
+      }
       if (path === '/auth/admin/transfer') {
         const to = body.person;
         if (!PEOPLE.includes(to) || to === me || !(await accounts()).some((a) => a.person === to)) return json({ error: 'Diese Person hat noch keinen Account.' }, 400);
@@ -707,6 +730,30 @@ export class Putzplan extends DurableObject {
       return new Response(ics, { headers: { 'content-type': 'text/calendar; charset=utf-8', 'cache-control': 'no-cache', 'content-disposition': 'inline; filename="zentrale.ics"' } });
     }
 
+    if (path === '/feedback' && request.method === 'POST') {
+      if (!me) return json({ error: 'Bitte melde dich an.', auth: true }, 401);
+      const f = await this.feedback();
+      const stars = Math.round(Number(body.stars));
+      if (!(stars >= 1 && stars <= 5)) return json({ error: 'Bitte gib 1 bis 5 Sterne.' }, 400);
+      const USES = ['plan', 'shop', 'money', 'cal', 'board', 'badges'];
+      f.answers[me] = { stars, like: typeof body.like === 'string' ? body.like.trim().slice(0, 1000) : '', ideas: typeof body.ideas === 'string' ? body.ideas.trim().slice(0, 2000) : '', uses: Array.isArray(body.uses) ? body.uses.filter((u) => USES.includes(u)) : [], at: Date.now() };
+      await this.ctx.storage.put('feedback', f);
+      const names = await this.names();
+      if (!f.reported && names.every((p) => f.answers[p])) {
+        f.reported = true;
+        await this.ctx.storage.put('feedback', f);
+        await this.pushToPerson(admin, (l) => ({ title: pick(l)('📊 App-Umfrage: alle haben geantwortet', '📊 App survey: everyone answered', '📊 Appenkät: alla har svarat'), body: pick(l)('Der Report ist da. Tippe hier und öffne „App-Umfrage ansehen“ in den Einstellungen.', 'The report is ready. Tap here and open "View app survey" in Settings.', 'Rapporten är klar. Tryck här och öppna "Visa appenkät" i inställningarna.'), url: '/#start' }));
+      }
+      return json({ ok: true, feedback: await this.feedbackFor(me) });
+    }
+    if (path === '/push/prefs' && request.method === 'POST') {
+      if (!me) return json({ error: 'Bitte melde dich an.', auth: true }, 401);
+      const CATS = ['plan', 'cleaner', 'swap', 'money', 'react', 'board', 'cal', 'people'];
+      const all = (await this.ctx.storage.get('pushprefs')) || {};
+      all[me] = Object.fromEntries(CATS.filter((c) => body.prefs?.[c] === false).map((c) => [c, false]));
+      await this.ctx.storage.put('pushprefs', all);
+      return json({ pushPrefs: all[me] });
+    }
     if (path === '/report' && request.method === 'GET') {
       const f = url.searchParams.get('from');
       return json(await this.report(/^\d{4}-\d{2}-\d{2}$/.test(f || '') ? f : null));
@@ -716,7 +763,7 @@ export class Putzplan extends DurableObject {
       const from = validMonday(url.searchParams.get('from')) ? url.searchParams.get('from') : addDays(current, -7);
       const count = Math.min(Math.max(Number(url.searchParams.get('count')) || 12, 1), 30);
       const weeks = await this.weeks([...Array(count)].map((_, i) => addDays(from, i * 7)));
-      return json({ people: PEOPLE, members: await this.members(), absences: await this.absences(), events: await this.events(), polls: await this.polls(), surveys: await this.surveysFor(me), swapRequests: await this.swapRequests(), board: await this.board(), reactions: await this.reactions(), gami: await this.gami(), cleanerContact: await this.cleanerContact(), current, today: berlinNow().day, weeks });
+      return json({ people: PEOPLE, members: await this.members(), absences: await this.absences(), events: await this.events(), polls: await this.polls(), surveys: await this.surveysFor(me), swapRequests: await this.swapRequests(), board: await this.board(), reactions: await this.reactions(), gami: await this.gami(), cleanerContact: await this.cleanerContact(), pushPrefs: ((await this.ctx.storage.get('pushprefs')) || {})[me] || {}, feedback: await this.feedbackFor(me), current, today: berlinNow().day, weeks });
     }
 
     if (path === '/check' && request.method === 'POST') {
@@ -764,7 +811,7 @@ export class Putzplan extends DurableObject {
         await this.ctx.storage.put(pushedKey, 1);
         for (const p of owners) {
           if (p === by) continue;
-          await this.pushToPerson(p, (l) => ({
+          await this.pushCat('react', p, (l) => ({
             title: `${emoji} ${by}`,
             body: pick(l)(`${by} hat auf ${what('de')} reagiert: ${emoji}`, `${by} reacted to ${what('en')}: ${emoji}`, `${by} reagerade på ${what('sv')}: ${emoji}`),
             url,
@@ -807,7 +854,7 @@ export class Putzplan extends DurableObject {
         const r = { id: rid(), by, to, monday, task, back: b, status: 'open', at: Date.now() };
         list.push(r);
         const bTitle = b ? (await taskOf(b.monday, b.task)).title : '';
-        await this.pushToPerson(to, (l) => {
+        await this.pushCat('swap', to, (l) => {
           const L = pick(l);
           return {
             title: L(`🔁 ${by} möchte mit dir Putzdienst tauschen`, `🔁 ${by} would like to swap cleaning duty with you`, `🔁 ${by} vill byta städtjänst med dig`),
@@ -846,7 +893,7 @@ export class Putzplan extends DurableObject {
         }
         r.status = body.accept ? 'accepted' : 'declined';
         r.answeredAt = Date.now();
-        await this.pushToPerson(r.by, (l) => {
+        await this.pushCat('swap', r.by, (l) => {
           const L = pick(l);
           return body.accept
             ? { title: L(`✅ ${r.to} hat dem Tausch zugestimmt`, `✅ ${r.to} accepted the swap`, `✅ ${r.to} har tackat ja till bytet`), body: L(`${r.to} übernimmt „${t.title}“ in ${wk(r.monday, 'de')}. Der Putzplan ist angepasst.`, `${r.to} takes over "${tr(t.title, 'en')}" in ${wk(r.monday, 'en')}. The rota has been updated.`, `${r.to} tar över "${tr(t.title, 'sv')}" ${wk(r.monday, 'sv')}. Schemat är uppdaterat.`), url: '/#plan' }
@@ -871,7 +918,7 @@ export class Putzplan extends DurableObject {
       const flag = `sent:ausfall:${monday}`;
       if (ov.ausfall && !(await this.ctx.storage.get(flag))) {
         await this.ctx.storage.put(flag, Date.now());
-        for (const [p, m] of Object.entries(ausfallMessages(week, await this.langs()))) await this.pushToPerson(p, m);
+        for (const [p, m] of Object.entries(ausfallMessages(week, await this.langs()))) await this.pushCat('cleaner', p, m);
       }
       return json(week);
     }
@@ -894,7 +941,7 @@ export class Putzplan extends DurableObject {
       await this.ctx.storage.put(`ov:${monday}`, ov);
       const week = await this.week(monday);
       if (!week.plannedCleaner) return json({ error: 'In dieser Woche ist keine Putzkraft geplant.' }, 400);
-      for (const [p, m] of Object.entries(cleanerVisitMessages(week, PEOPLE.includes(by) ? by : null, await this.langs()))) await this.pushToPerson(p, m);
+      for (const [p, m] of Object.entries(cleanerVisitMessages(week, PEOPLE.includes(by) ? by : null, await this.langs()))) await this.pushCat('cleaner', p, m);
       return json(week);
     }
 
@@ -949,7 +996,7 @@ export class Putzplan extends DurableObject {
       const when = (l) => `${fmtD(date, l)}${time ? `${{ en: ' at', sv: ' kl.' }[l] || ' um'} ${time}` : ''}`;
       for (const p of PEOPLE) {
         if (p === by) continue;
-        await this.pushToPerson(p, (l) => {
+        await this.pushCat('cleaner', p, (l) => {
           const L = pick(l);
           const head = fromDay && fromDay !== date
             ? L(`Die Putzkraft kommt nicht am ${fmtD(fromDay)}, sondern am ${when(l)}.`, `The cleaner is not coming on ${fmtD(fromDay, 'en')} but on ${when(l)}.`, `Städhjälpen kommer inte ${fmtD(fromDay, 'sv')} utan ${when(l)}.`)
@@ -1120,7 +1167,7 @@ export class Putzplan extends DurableObject {
       for (const p of participants) {
         if (p.name === by) continue;
         if (type === 'urlaub') {
-          await this.pushToPerson(p.name, (lang) => {
+          await this.pushCat('cal', p.name, (lang) => {
             const L = pick(lang);
             return {
               title: L('Urlaub bestätigen? 🏖️', 'Confirm holiday? 🏖️', `Bekräfta semester? 🏖️`),
@@ -1130,7 +1177,7 @@ export class Putzplan extends DurableObject {
             };
           });
         } else {
-          await this.pushToPerson(p.name, (lang) => {
+          await this.pushCat('cal', p.name, (lang) => {
             const L = pick(lang);
             return {
               title: `${type === 'meeting' ? '🗣️ ' : '📅 '}${ev.title || (lang === 'en' ? { meeting: 'Flat meeting', sonstiges: 'Event' }[type] : lang === 'sv' ? { meeting: 'Husmöte', sonstiges: 'Händelse' }[type] : label(type))}`,
@@ -1191,7 +1238,7 @@ export class Putzplan extends DurableObject {
       await this.ctx.storage.put('polls', [...(await this.polls()), poll]);
       for (const p of PEOPLE) {
         if (p !== by) {
-          await this.pushToPerson(p, (lang) => {
+          await this.pushCat('cal', p, (lang) => {
             const L = pick(lang);
             return {
               title: L('🗳️ WG-Meeting: wann passt es dir?', '🗳️ Flat meeting: when suits you?', `🗳️ Husmöte: när passar det?`),
@@ -1225,7 +1272,7 @@ export class Putzplan extends DurableObject {
       await this.ctx.storage.put('polls', polls);
       await this.ctx.storage.put('events', [...(await this.events()), ev].sort((a, b) => (a.from + a.time < b.from + b.time ? -1 : 1)));
       for (const p of PEOPLE) {
-        await this.pushToPerson(p, (lang) => (lang === 'en'
+        await this.pushCat('cal', p, (lang) => (lang === 'en'
           ? { title: '🗣️ Flat meeting is set', body: `${poll.title === 'WG-Meeting' ? 'Flat meeting' : poll.title}: ${fmtD(opt.date, 'en')} at ${opt.time}. See you then!`, url: '/#kalender' }
           : lang === 'sv' ? { title: '🗣️ Husmötet är bestämt', body: `${poll.title === 'WG-Meeting' ? 'Husmöte' : poll.title}: ${fmtD(opt.date, 'sv')} kl. ${opt.time}. Vi ses!`, url: '/#kalender' }
           : { title: '🗣️ WG-Meeting steht fest', body: `${poll.title}: ${fmtD(opt.date)} um ${opt.time} Uhr. Bis dann!`, url: '/#kalender' }));
@@ -1246,7 +1293,7 @@ export class Putzplan extends DurableObject {
         list.push(s);
         for (const p of PEOPLE) {
           if (p === by) continue;
-          await this.pushToPerson(p, (l) => (l === 'en'
+          await this.pushCat('board', p, (l) => (l === 'en'
             ? { title: `🗳️ Poll${by ? ` from ${by}` : ''}`, body: `${question} Tap to answer.`, url: '/#start' }
             : l === 'sv' ? { title: `🗳️ Omröstning${by ? ` från ${by}` : ''}`, body: `${question} Tryck för att svara.`, url: '/#start' }
             : { title: `🗳️ Umfrage${by ? ` von ${by}` : ''}`, body: `${question} Tipp hier, um abzustimmen.`, url: '/#start' }));
@@ -1270,7 +1317,7 @@ export class Putzplan extends DurableObject {
             if (s.anon) return `${o.text}: ${who.length}`;
             return `${o.text}: ${who.length ? who.join(', ') : '–'}`;
           }).join(' · ');
-          await this.pushToPerson(s.by, (l) => (l === 'en'
+          await this.pushCat('board', s.by, (l) => (l === 'en'
             ? { title: '✅ Everyone has answered', body: `"${s.question}" ${result(l)}`, url: '/#start' }
             : l === 'sv' ? { title: '✅ Alla har svarat', body: `"${s.question}" ${result(l)}`, url: '/#start' }
             : { title: '✅ Alle haben abgestimmt', body: `„${s.question}“ ${result(l)}`, url: '/#start' }));
@@ -1403,7 +1450,7 @@ export class Putzplan extends DurableObject {
       if (last && Date.now() - last < 6 * 3600e3) return json({ error: 'Es wurde gerade erst erinnert. Bitte später nochmal.' }, 429);
       await this.ctx.storage.put(flag, Date.now());
       await this.logAct('remind', by, { to: t.person, task, monday });
-      await this.pushToPerson(t.person, (l) => {
+      await this.pushCat('plan', t.person, (l) => {
         const L = pick(l);
         return {
           title: L('🔔 Kleine Erinnerung', '🔔 A little reminder', '🔔 En liten påminnelse'),
@@ -1437,7 +1484,7 @@ export class Putzplan extends DurableObject {
         list = list.slice(0, 40);
         for (const p of PEOPLE) {
           if (p === by) continue;
-          await this.pushToPerson(p, (l) => ({ title: pick(l)(`📌 Neuer Zettel an der Pinnwand${by ? ` von ${by}` : ''}`, `📌 New note on the board${by ? ` from ${by}` : ''}`, `📌 Ny lapp på anslagstavlan${by ? ` från ${by}` : ''}`), body: text || pick(l)('📷 Foto', '📷 Photo', '📷 Foto'), url: '/#start' }));
+          await this.pushCat('board', p, (l) => ({ title: pick(l)(`📌 Neuer Zettel an der Pinnwand${by ? ` von ${by}` : ''}`, `📌 New note on the board${by ? ` from ${by}` : ''}`, `📌 Ny lapp på anslagstavlan${by ? ` från ${by}` : ''}`), body: text || pick(l)('📷 Foto', '📷 Photo', '📷 Foto'), url: '/#start' }));
         }
       } else if (path === '/board/delete') {
         list = list.filter((n) => n.id !== body.id);
@@ -1480,6 +1527,59 @@ export class Putzplan extends DurableObject {
     }
   }
   /** message: {title, body} oder Funktion (lang) => {title, body} */
+  // ---------- Datensicherung ----------
+  /** Alle Daten als ein Objekt (ohne Anmelde-Sitzungen) */
+  async dumpAll() {
+    const data = {};
+    for (const [k, v] of await this.ctx.storage.list()) if (!k.startsWith('sess:')) data[k] = v;
+    return data;
+  }
+  /** Ersetzt alle Daten durch ein Backup (Sitzungen bleiben, damit niemand abgemeldet wird) */
+  async restoreAll(data) {
+    for (const k of (await this.ctx.storage.list()).keys()) if (!k.startsWith('sess:') && !(k in data)) await this.ctx.storage.delete(k);
+    const entries = Object.entries(data).filter(([k]) => !k.startsWith('sess:'));
+    for (let i = 0; i < entries.length; i += 100) await this.ctx.storage.put(Object.fromEntries(entries.slice(i, i + 100)));
+    return entries.length;
+  }
+  // Diese drei laufen im separaten Backup-Objekt („backup“), nicht in den WG-Daten
+  async snapSave(day, data) {
+    const json = JSON.stringify(data);
+    const parts = [];
+    for (let i = 0; i < json.length; i += 100_000) parts.push(json.slice(i, i + 100_000));
+    for (let i = 0; i < parts.length; i += 50) await this.ctx.storage.put(Object.fromEntries(parts.slice(i, i + 50).map((c, j) => [`snap:${day}:${String(i + j).padStart(5, '0')}`, c])));
+    const idx = ((await this.ctx.storage.get('snapidx')) || []).filter((s) => s.day !== day);
+    idx.push({ day, parts: parts.length, size: json.length, at: Date.now() });
+    idx.sort((a, b) => (a.day < b.day ? -1 : 1));
+    while (idx.length > 8) { const old = idx.shift(); for (let i = 0; i < old.parts; i++) await this.ctx.storage.delete(`snap:${old.day}:${String(i).padStart(5, '0')}`); }
+    await this.ctx.storage.put('snapidx', idx);
+    return idx;
+  }
+  async snapList() { return (await this.ctx.storage.get('snapidx')) || []; }
+  async snapGet(day) {
+    const s = (await this.snapList()).find((x) => x.day === day);
+    if (!s) return null;
+    let json = '';
+    for (let i = 0; i < s.parts; i++) json += (await this.ctx.storage.get(`snap:${day}:${String(i).padStart(5, '0')}`)) || '';
+    return JSON.parse(json);
+  }
+  backupStub() { return this.env.PUTZPLAN.get(this.env.PUTZPLAN.idFromName('backup')); }
+
+  // ---------- App-Umfrage ----------
+  async feedback() {
+    return (await this.ctx.storage.get('feedback')) || { start: FEEDBACK_START, end: addDays(FEEDBACK_START, 7), answers: {} };
+  }
+  async feedbackFor(me) {
+    const f = await this.feedback();
+    const today = berlinNow().day;
+    return { start: f.start, end: f.end, active: today >= f.start && today <= f.end, answered: !!(me && f.answers[me]) };
+  }
+
+  /** Push nur, wenn die Person diesen Bereich nicht in den Einstellungen abgeschaltet hat */
+  async pushCat(cat, person, message) {
+    const prefs = (await this.ctx.storage.get('pushprefs')) || {};
+    if (prefs[person]?.[cat] === false) return 0;
+    return this.pushToPerson(person, message);
+  }
   async pushToPerson(person, message) {
     if (typeof message === 'function') message = message((await this.langs())[person] || 'de');
     let sent = 0;
@@ -1494,6 +1594,38 @@ export class Putzplan extends DurableObject {
     const b = berlinNow(now);
     const done = [];
     await this.runRecurring(b.day);
+    // Wöchentliche automatische Sicherung (Sonntag ab 3 Uhr) in ein separates Backup-Objekt
+    if (b.dow === 6 && b.hour >= 3 && !(await this.ctx.storage.get(`sent:backup:${b.day}`))) {
+      await this.ctx.storage.put(`sent:backup:${b.day}`, Date.now());
+      try { await this.backupStub().snapSave(b.day, await this.dumpAll()); done.push(['backup', 1]); } catch (e) { done.push(['backup', String(e)]); }
+    }
+    // Am 1. jedes Monats: Admin erinnern, eine Kopie herunterzuladen
+    if (b.day.endsWith('-01') && b.hour >= 10 && !(await this.ctx.storage.get(`sent:backupAsk:${b.day}`))) {
+      await this.ctx.storage.put(`sent:backupAsk:${b.day}`, Date.now());
+      const adm = (await this.ctx.storage.get('admin')) || 'Toni';
+      done.push([adm, await this.pushToPerson(adm, (l) => ({ title: pick(l)('💾 Zeit für eine Sicherung', '💾 Time for a backup', '💾 Dags för en säkerhetskopia'), body: pick(l)('Lade dir in den Einstellungen unter „Datensicherung“ eine Kopie aufs Handy. Dauert 5 Sekunden.', 'Download a copy under "Backup" in Settings. Takes 5 seconds.', 'Ladda ner en kopia under "Säkerhetskopia" i inställningarna. Tar 5 sekunder.'), url: '/#start' }))]);
+    }
+    // App-Umfrage: Start 18 Uhr, Erinnerung nach 4 Tagen, Report am Ende an Admin
+    {
+      const f = await this.feedback();
+      const names = await this.names();
+      if (b.day >= f.start && b.day <= f.end && b.hour >= 18 && !(await this.ctx.storage.get(`sent:feedback:${f.start}`))) {
+        await this.ctx.storage.put(`sent:feedback:${f.start}`, Date.now());
+        for (const p of names) done.push([p, await this.pushToPerson(p, (l) => ({ title: pick(l)('📝 Wie findest du die Zentrale?', '📝 How do you like the Zentrale?', '📝 Vad tycker du om Zentrale?'), body: pick(l)('2 Minuten Umfrage: Was gefällt dir, was fehlt? Deine Ideen machen die App besser.', '2-minute survey: what do you like, what is missing? Your ideas make the app better.', '2 minuters enkät: vad gillar du, vad saknas? Dina idéer gör appen bättre.'), url: '/#start' }))]);
+      }
+      const remind = addDays(f.start, 4);
+      if (b.day >= remind && b.day <= f.end && b.hour >= 18 && !(await this.ctx.storage.get(`sent:feedbackRemind:${f.start}`))) {
+        await this.ctx.storage.put(`sent:feedbackRemind:${f.start}`, Date.now());
+        for (const p of names.filter((n) => !f.answers[n])) done.push([p, await this.pushToPerson(p, (l) => ({ title: pick(l)('📝 Kurze Erinnerung', '📝 Quick reminder', '📝 Kort påminnelse'), body: pick(l)('Die Umfrage zur Zentrale läuft noch bis ' + fmtD(f.end, 'de') + '. Dauert nur 2 Minuten!', 'The Zentrale survey is open until ' + fmtD(f.end, 'en') + '. Takes just 2 minutes!', 'Enkäten om Zentrale är öppen till ' + fmtD(f.end, 'sv') + '. Tar bara 2 minuter!'), url: '/#start' }))]);
+      }
+      if (b.day > f.end && !f.reported) {
+        f.reported = true;
+        await this.ctx.storage.put('feedback', f);
+        const adm = (await this.ctx.storage.get('admin')) || 'Toni';
+        const n = Object.keys(f.answers).length;
+        done.push([adm, await this.pushToPerson(adm, (l) => ({ title: pick(l)('📊 App-Umfrage ist fertig', '📊 App survey is finished', '📊 Appenkäten är klar'), body: pick(l)(`${n} von ${names.length} haben geantwortet. Den Report findest du in den Einstellungen unter „App-Umfrage ansehen“.`, `${n} of ${names.length} answered. Find the report in Settings under "View app survey".`, `${n} av ${names.length} svarade. Rapporten finns i inställningarna under "Visa appenkät".`), url: '/#start' }))]);
+      }
+    }
     // Abgelaufene Pinnwand-Zettel samt Fotos abnehmen
     const allNotes = (await this.ctx.storage.get('board')) || [];
     const gone = allNotes.filter((n) => n.expires && n.expires < b.day);
@@ -1507,7 +1639,7 @@ export class Putzplan extends DurableObject {
       if (!(await this.ctx.storage.get(flag))) {
         await this.ctx.storage.put(flag, Date.now());
         const msgs = weeklyMessages(await this.week(monday), await this.langs());
-        for (const [p, m] of Object.entries(msgs)) done.push([p, await this.pushToPerson(p, m)]);
+        for (const [p, m] of Object.entries(msgs)) done.push([p, await this.pushCat('plan', p, m)]);
       }
     }
     if (b.dow === SCHEDULE.friday.dow && b.hour >= SCHEDULE.friday.hour) {
@@ -1516,7 +1648,7 @@ export class Putzplan extends DurableObject {
       if (!(await this.ctx.storage.get(flag))) {
         await this.ctx.storage.put(flag, Date.now());
         const msgs = fridayMessages(await this.week(monday), await this.langs());
-        for (const [p, m] of Object.entries(msgs)) done.push([p, await this.pushToPerson(p, m)]);
+        for (const [p, m] of Object.entries(msgs)) done.push([p, await this.pushCat('plan', p, m)]);
       }
     }
     if (b.dow === SCHEDULE.cleanerAsk.dow && b.hour >= SCHEDULE.cleanerAsk.hour) {
@@ -1527,7 +1659,7 @@ export class Putzplan extends DurableObject {
         await this.ctx.storage.put(flag, Date.now());
         const week = await this.week(monday);
         if (week.cleaner && !week.cleanerConfirmed) {
-          done.push([contact, await this.pushToPerson(contact, cleanerAskMessage(week, contact, (await this.langs())[contact]))]);
+          done.push([contact, await this.pushCat('cleaner', contact, cleanerAskMessage(week, contact, (await this.langs())[contact]))]);
         }
       }
     }
@@ -1545,7 +1677,7 @@ export class Putzplan extends DurableObject {
               : l === 'sv' ? { title: '🎁 Grattis på födelsedagen!', body: `Allt gott, ${p}! Grattis på födelsedagen från din Zentrale 🎂🎉` }
               : { title: '🎁 Alles Gute!', body: `Alles Gute zum Geburtstag, ${p}! Deine Zentrale wünscht dir einen wunderschönen Tag 🎂🎉` }))]);
           } else {
-            done.push([p, await this.pushToPerson(p, (l) => (l === 'en'
+            done.push([p, await this.pushCat('people', p, (l) => (l === 'en'
               ? { title: `🎂 ${m.name}'s birthday`, body: `Today is ${m.name}'s birthday! Don't forget to wish ${pron[1]} a happy birthday 🎉` }
               : l === 'sv' ? { title: `🎂 ${m.name} fyller år`, body: `I dag fyller ${m.name} år! Glöm inte att gratulera 🎉` }
               : { title: `🎂 ${m.name} hat Geburtstag`, body: `Heute hat ${m.name} Geburtstag! Vergiss nicht, ${pron[0]} zu gratulieren 🎉` }))]);
@@ -1560,7 +1692,7 @@ export class Putzplan extends DurableObject {
         const flag = `sent:meetingPrep:${ev.id}:${ev.from}`;
         if (await this.ctx.storage.get(flag)) continue;
         await this.ctx.storage.put(flag, Date.now());
-        for (const [p, m] of Object.entries(meetingPrepMessages(ev, await this.langs()))) done.push([p, await this.pushToPerson(p, m)]);
+        for (const [p, m] of Object.entries(meetingPrepMessages(ev, await this.langs()))) done.push([p, await this.pushCat('cal', p, m)]);
       }
     }
     return done;

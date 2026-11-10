@@ -110,6 +110,7 @@
     <div id="tab-home" class="tab" hidden>
       <div id="bday-banner" class="bday-banner" hidden></div>
       <div id="admin-requests" hidden></div>
+      <div id="feedback-card" class="card feedback-card" hidden></div>
       <details class="card settings" id="settings">
         <summary>⚙️ Einstellungen</summary>
         <div class="set-row"><span>Mein Profil</span><button type="button" class="ghost small" id="profile-open">Profil bearbeiten</button></div>
@@ -129,6 +130,10 @@
           </div></div>
         <p class="muted small theme-hint" id="theme-hint"></p>
         <section id="notify" class="notify" hidden><div id="notify-body"></div></section>
+        <details class="push-prefs" id="push-prefs-box"><summary>🔔 Welche Benachrichtigungen möchtest du?</summary>
+          <div id="push-prefs"></div>
+          <p class="muted small">Wichtiges wie Geburtstagsgrüße an dich und Nachrichten der Verwaltung kommen immer.</p>
+        </details>
         <div class="set-row"><span></span><button type="button" class="ghost small" id="leave-open">Ich ziehe aus</button></div>
       </details>
       <div id="swap-inbox-home"></div>
@@ -151,7 +156,9 @@
         <div class="row" style="margin-top:12px">
           <button type="button" id="invite">Mitglied einladen</button>
         </div>
-        <div id="admin-box" hidden><p class="small" style="margin:10px 0 0">🔑 <button type="button" class="link" id="admin-open">Accounts verwalten (Passwörter zurücksetzen)</button></p></div>
+        <div id="admin-box" hidden><p class="small" style="margin:10px 0 0">🔑 <button type="button" class="link" id="admin-open">Accounts verwalten (Passwörter zurücksetzen)</button></p>
+          <p class="small" style="margin:6px 0 0">💾 <button type="button" class="link" id="backup-open">Datensicherung</button></p>
+          <p class="small" style="margin:6px 0 0">📝 <button type="button" class="link" id="feedback-report-open">App-Umfrage ansehen</button></p></div>
       </section>
     </div>
 
@@ -454,6 +461,29 @@
       <div class="row end">
         <button value="cancel" class="ghost">Abbrechen</button>
       </div>
+    </form>
+  </dialog>
+
+  <dialog id="feedback-dialog" class="wide">
+    <form method="dialog" id="feedback-form">
+      <h2>📝 Wie findest du die Zentrale?</h2>
+      <p class="muted small">Deine Antworten sieht nur die Verwaltung der App, und zwar ohne deinen Namen.</p>
+      <h3>Wie gefällt dir die App insgesamt?</h3>
+      <div class="stars" id="fb-stars">
+        <button type="button" data-star="1">☆</button><button type="button" data-star="2">☆</button><button type="button" data-star="3">☆</button><button type="button" data-star="4">☆</button><button type="button" data-star="5">☆</button>
+      </div>
+      <h3>Was nutzt du am meisten?</h3>
+      <div class="chips" id="fb-uses">
+        <button type="button" class="chip" data-use="plan" aria-pressed="false">🧽 Putzplan</button>
+        <button type="button" class="chip" data-use="shop" aria-pressed="false">🛒 Einkauf</button>
+        <button type="button" class="chip" data-use="money" aria-pressed="false">💶 Kasse</button>
+        <button type="button" class="chip" data-use="cal" aria-pressed="false">📅 Kalender</button>
+        <button type="button" class="chip" data-use="board" aria-pressed="false">📌 Pinnwand</button>
+        <button type="button" class="chip" data-use="badges" aria-pressed="false">🏅 Abzeichen &amp; Ranking</button>
+      </div>
+      <label class="field"><span>Was gefällt dir besonders gut?</span><textarea id="fb-like" rows="3" maxlength="1000"></textarea></label>
+      <label class="field"><span>Was nervt oder fehlt? Deine Verbesserungsvorschläge</span><textarea id="fb-ideas" rows="4" maxlength="2000"></textarea></label>
+      <div class="row end"><button value="cancel" class="ghost" formnovalidate>Später</button><button value="ok" id="fb-send">Abschicken</button></div>
     </form>
   </dialog>
 
