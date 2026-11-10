@@ -277,11 +277,191 @@ function openSwap(taskKey) {
   dlg.showModal();
 }
 
+// ---------------- Tabs ----------------
+const TABS = { plan: 'plan', einkauf: 'shop', kasse: 'money' };
+function currentTab() { return TABS[location.hash.slice(1)] || 'plan'; }
+function showTab() {
+  const tab = currentTab();
+  for (const t of ['plan', 'shop', 'money']) $(`#tab-${t}`).hidden = t !== tab;
+  document.querySelectorAll('.tabbar a').forEach((a) => a.classList.toggle('active', a.dataset.tab === tab));
+  if (tab === 'shop') loadShop();
+  if (tab === 'money') loadMoney();
+  window.scrollTo(0, 0);
+}
+window.addEventListener('hashchange', showTab);
+
+const euro = (cents) => new Intl.NumberFormat('de-DE', { style: 'currency', currency: 'EUR' }).format(cents / 100);
+function ago(ts) {
+  const min = Math.round((Date.now() - ts) / 60000);
+  if (min < 1) return 'gerade eben';
+  if (min < 60) return `vor ${min} Min.`;
+  const h = Math.round(min / 60);
+  if (h < 24) return `vor ${h} Std.`;
+  const d = Math.round(h / 24);
+  if (d === 1) return 'gestern';
+  if (d < 7) return `vor ${d} Tagen`;
+  return new Date(ts).toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit' });
+}
+
+// ---------------- Einkaufsliste ----------------
+state.shop = null;
+state.shopCat = store.get('shopCat') || 'allgemein';
+
+async function loadShop() {
+  try { state.shop = await api('shop'); renderShop(); } catch (e) { toast(e.message); }
+}
+function renderShop() {
+  const sh = state.shop;
+  if (!sh) return;
+  const badge = $('#shop-badge');
+  badge.hidden = !sh.items.length;
+  badge.textContent = sh.items.length;
+  $('#shop-cats').innerHTML = sh.categories.map((c) =>
+    `<button type="button" class="chip" role="radio" aria-checked="${c.id === state.shopCat}" data-cat="${c.id}">${c.icon} ${esc(c.label)}</button>`).join('');
+  if (!sh.items.length) {
+    $('#shop-list').innerHTML = '<div class="card"><p class="empty">Alles da! 🎉 Wenn etwas leer ist, trag es oben ein.</p></div>';
+    return;
+  }
+  $('#shop-list').innerHTML = sh.categories.map((c) => {
+    const items = sh.items.filter((i) => i.cat === c.id);
+    if (!items.length) return '';
+    return `<section class="card shop-cat"><h2>${c.icon} ${esc(c.label)} <span class="muted small">${items.length}</span></h2>
+      ${items.map((i) => `<div class="shop-item"><div class="name">${esc(i.name)}<small>${i.by ? `${esc(i.by)}, ` : ''}${ago(i.at)}</small></div>
+        <button class="ghost small" data-bought="${esc(i.id)}">Gekauft ✓</button></div>`).join('')}
+    </section>`;
+  }).join('');
+}
+$('#shop-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const input = $('#shop-name');
+  const name = input.value.trim();
+  if (!name) return;
+  try {
+    state.shop = await api('shop/add', { name, cat: state.shopCat, by: state.me });
+    input.value = '';
+    renderShop();
+    toast('Steht auf der Liste');
+  } catch (err) { toast(err.message); }
+});
+$('#shop-cats').addEventListener('click', (e) => {
+  const b = e.target.closest('[data-cat]');
+  if (!b) return;
+  state.shopCat = b.dataset.cat;
+  store.set('shopCat', state.shopCat);
+  renderShop();
+});
+$('#shop-list').addEventListener('click', (e) => {
+  const b = e.target.closest('[data-bought]');
+  if (!b) return;
+  const item = state.shop.items.find((i) => i.id === b.dataset.bought);
+  if (!item) return;
+  $('#bought-title').textContent = `${item.name} gekauft 🎉`;
+  $('#bought-price').value = '';
+  const dlg = $('#bought-dialog');
+  dlg.onclose = async () => {
+    if (dlg.returnValue !== 'ok') return;
+    const price = $('#bought-price').value.trim();
+    try {
+      state.shop = await api('shop/done', { id: item.id, price: price || undefined, by: state.me });
+      renderShop();
+      toast(price ? 'Danke! Betrag steht in der WG-Kasse.' : 'Danke!');
+      state.money = null;
+    } catch (err) { toast(err.message); }
+  };
+  dlg.returnValue = '';
+  dlg.showModal();
+});
+
+// ---------------- WG-Kasse ----------------
+state.money = null;
+state.split = null;
+
+async function loadMoney() {
+  try { state.money = await api('money'); renderMoney(); } catch (e) { toast(e.message); }
+}
+function renderMoney() {
+  const m = state.money;
+  if (!m) return;
+  if (!state.split) state.split = new Set(m.people);
+
+  $('#money-transfers').innerHTML = m.transfers.length
+    ? m.transfers.map((t) => `<div class="transfer"><span>${esc(t.from)} → ${esc(t.to)}</span>
+        <span class="row"><strong>${euro(t.amount)}</strong>
+        <button class="ghost small" data-settle='${esc(JSON.stringify(t))}'>Bezahlt</button></span></div>`).join('')
+    : '<p class="empty">Alle sind quitt. 🙌</p>';
+  $('#money-balances').innerHTML = m.people.map((p) => {
+    const v = m.balances[p] || 0;
+    return `<div class="bal${p === state.me ? ' mine-bal' : ''}"><div class="who">${esc(p)}</div>
+      <div class="amt ${v > 0 ? 'pos' : v < 0 ? 'neg' : ''}">${v > 0 ? '+' : ''}${euro(v)}</div></div>`;
+  }).join('');
+
+  const sel = $('#m-paid');
+  const prev = sel.value || state.me || m.people[0];
+  sel.innerHTML = m.people.map((p) => `<option${p === prev ? ' selected' : ''}>${esc(p)}</option>`).join('');
+  $('#m-split').innerHTML = m.people.map((p) =>
+    `<button type="button" class="chip" aria-pressed="${state.split.has(p)}" data-split="${esc(p)}">${esc(p)}</button>`).join('');
+
+  $('#money-list').innerHTML = m.expenses.length
+    ? m.expenses.map((e) => {
+      const settleRow = e.kind === 'settle';
+      const who = settleRow
+        ? `${esc(e.paidBy)} hat ${esc(e.split[0])} Geld zurückgegeben`
+        : `${esc(e.paidBy)} hat bezahlt · ${e.split.length === m.people.length ? 'für alle' : `für ${e.split.map(esc).join(', ')}`}`;
+      return `<div class="exp${settleRow ? ' settle' : ''}"><div class="d">${esc(e.desc)}<small>${who} · ${ago(e.at)}</small></div>
+        <div class="r"><strong>${euro(e.amount)}</strong><button class="link small" data-del="${esc(e.id)}">löschen</button></div></div>`;
+    }).join('')
+    : '<p class="empty">Noch nichts eingetragen.</p>';
+}
+$('#m-split').addEventListener('click', (e) => {
+  const b = e.target.closest('[data-split]');
+  if (!b) return;
+  const p = b.dataset.split;
+  if (state.split.has(p)) state.split.delete(p); else state.split.add(p);
+  b.setAttribute('aria-pressed', state.split.has(p));
+});
+$('#money-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  if (!state.split.size) { toast('Bitte mindestens eine Person auswählen'); return; }
+  try {
+    state.money = await api('money/add', {
+      desc: $('#m-desc').value, amount: $('#m-amount').value, paidBy: $('#m-paid').value, split: [...state.split], by: state.me,
+    });
+    $('#m-desc').value = '';
+    $('#m-amount').value = '';
+    renderMoney();
+    toast('Eingetragen');
+  } catch (err) { toast(err.message); }
+});
+$('#tab-money').addEventListener('click', async (e) => {
+  const s = e.target.closest('[data-settle]');
+  if (s) {
+    const t = JSON.parse(s.dataset.settle);
+    if (!confirm(`Hat ${t.from} ${t.to} ${euro(t.amount)} zurückgezahlt?`)) return;
+    try {
+      state.money = await api('money/add', { kind: 'settle', desc: 'Rückzahlung', amount: (t.amount / 100).toFixed(2), paidBy: t.from, split: [t.to], by: state.me });
+      renderMoney();
+      toast('Ausgeglichen 👍');
+    } catch (err) { toast(err.message); }
+    return;
+  }
+  const d = e.target.closest('[data-del]');
+  if (d) {
+    if (!confirm('Diesen Eintrag wirklich löschen?')) return;
+    try { state.money = await api('money/delete', { id: d.dataset.del }); renderMoney(); } catch (err) { toast(err.message); }
+  }
+});
+
 // ---------------- Start ----------------
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js');
+showTab();
+if (currentTab() !== 'shop') api('shop').then((d) => { state.shop = d; renderShop(); }).catch(() => {});
 load().catch((e) => {
   $('#week').innerHTML = `<div class="card"><p>Der Plan konnte nicht geladen werden (${esc(e.message)}). Bitte später nochmal versuchen.</p></div>`;
 });
 document.addEventListener('visibilitychange', () => {
-  if (document.visibilityState === 'visible') { state.weeks.clear(); load().catch(() => {}); }
+  if (document.visibilityState !== 'visible') return;
+  state.weeks.clear();
+  load().catch(() => {});
+  if (currentTab() === 'shop') loadShop();
+  if (currentTab() === 'money') loadMoney();
 });

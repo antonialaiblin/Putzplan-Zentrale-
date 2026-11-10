@@ -34,6 +34,7 @@
       <div class="people" id="people-buttons"></div>
     </section>
 
+    <div id="tab-plan" class="tab">
     <!-- Erinnerungen -->
     <section id="notify" class="card notify" hidden>
       <div id="notify-body"></div>
@@ -61,7 +62,50 @@
       </div>
       <p class="muted small">Bäder werden in der Woche ohne Putzkraft geputzt. Die Bad-Person ist beide Wochen fürs Klopapier zuständig. Wochen mit Putzkraft sind grau.</p>
     </section>
+    </div>
+
+    <!-- Einkaufsliste -->
+    <div id="tab-shop" class="tab" hidden>
+      <form class="card add-item" id="shop-form">
+        <h2>Was ist leer?</h2>
+        <div class="row">
+          <input id="shop-name" placeholder="z.B. Spüli, Klopapier, Olivenöl" maxlength="80" autocomplete="off" required>
+          <button type="submit">Hinzufügen</button>
+        </div>
+        <div class="chips" id="shop-cats" role="radiogroup" aria-label="Kategorie"></div>
+      </form>
+      <div id="shop-list"></div>
+    </div>
+
+    <!-- WG-Kasse -->
+    <div id="tab-money" class="tab" hidden>
+      <section class="card">
+        <h2>Wer schuldet wem?</h2>
+        <div id="money-transfers"></div>
+        <div id="money-balances" class="balances"></div>
+      </section>
+      <form class="card" id="money-form">
+        <h2>Ausgabe eintragen</h2>
+        <label class="field"><span>Wofür?</span><input id="m-desc" placeholder="z.B. Spülmaschinentabs" maxlength="80" required></label>
+        <div class="row two">
+          <label class="field"><span>Betrag (€)</span><input id="m-amount" inputmode="decimal" placeholder="12,50" required></label>
+          <label class="field"><span>Bezahlt von</span><select id="m-paid"></select></label>
+        </div>
+        <fieldset class="field"><legend>Für wen? (wird gleich aufgeteilt)</legend><div class="chips" id="m-split"></div></fieldset>
+        <div class="row end"><button type="submit">Eintragen</button></div>
+      </form>
+      <section class="card">
+        <h2>Letzte Einträge</h2>
+        <div id="money-list"></div>
+      </section>
+    </div>
   </main>
+
+  <nav class="tabbar" aria-label="Bereiche">
+    <a href="#plan" data-tab="plan"><span aria-hidden="true">🧽</span>Putzplan</a>
+    <a href="#einkauf" data-tab="shop"><span aria-hidden="true">🛒</span>Einkauf<b class="badge" id="shop-badge" hidden></b></a>
+    <a href="#kasse" data-tab="money"><span aria-hidden="true">💶</span>WG-Kasse</a>
+  </nav>
 
   <dialog id="swap-dialog">
     <form method="dialog">
@@ -70,6 +114,18 @@
       <div class="people" id="swap-people"></div>
       <div class="row end">
         <button value="cancel" class="ghost">Abbrechen</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="bought-dialog">
+    <form method="dialog" id="bought-form">
+      <h2 id="bought-title">Gekauft 🎉</h2>
+      <p class="muted">Willst du den Betrag gleich in die WG-Kasse eintragen? Er wird dann auf alle aufgeteilt.</p>
+      <label class="field"><span>Betrag (€, optional)</span><input id="bought-price" inputmode="decimal" placeholder="z.B. 3,49"></label>
+      <div class="row end">
+        <button value="cancel" class="ghost" formnovalidate>Abbrechen</button>
+        <button value="ok" id="bought-ok">Fertig</button>
       </div>
     </form>
   </dialog>

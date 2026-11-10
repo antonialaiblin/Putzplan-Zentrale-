@@ -2,6 +2,7 @@ import { DurableObject } from 'cloudflare:workers';
 import { PEOPLE, computeWeek, mondayOf, addDays, berlinNow } from './plan.js';
 import { weeklyMessages, fridayMessages } from './messages.js';
 import { generateVapidKeys, vapidPublicRaw, sendPush } from './webpush.js';
+import { balances, settle, parseEuro, SHOP_CATEGORIES } from './money.js';
 
 // Wann werden Erinnerungen verschickt? (Berliner Zeit, Mo=0 … So=6)
 export const SCHEDULE = {
@@ -41,6 +42,26 @@ export class Putzplan extends DurableObject {
   }
   async subscriptions() {
     return [...(await this.ctx.storage.list({ prefix: 'sub:' })).entries()];
+  }
+  async shop() {
+    const items = [...(await this.ctx.storage.list({ prefix: 'shop:' })).values()].sort((a, b) => a.at - b.at);
+    return { categories: SHOP_CATEGORIES, items };
+  }
+  async addExpense(e) {
+    // Schlüssel nach Zeit sortierbar
+    const id = `${Date.now().toString(36).padStart(10, '0')}${Math.random().toString(36).slice(2, 6)}`;
+    await this.ctx.storage.put(`exp:${id}`, { id, kind: 'expense', ...e, at: Date.now() });
+  }
+  async money() {
+    const all = [...(await this.ctx.storage.list({ prefix: 'exp:' })).values()];
+    const bal = balances(all, PEOPLE);
+    return {
+      people: PEOPLE,
+      balances: bal,
+      transfers: settle(bal),
+      expenses: all.sort((a, b) => b.at - a.at).slice(0, 100),
+      total: all.length,
+    };
   }
   async subject() {
     return (await this.ctx.storage.get('origin')) || 'https://github.com/antonialaiblin/Putzplan-Zentrale-';
@@ -118,6 +139,54 @@ export class Putzplan extends DurableObject {
         body: `Hallo ${entry.person}, die Erinnerungen funktionieren!`,
       });
       return json(r, r.ok ? 200 : 502);
+    }
+
+    // ---------- Einkaufsliste ----------
+    const str = (v, max) => (typeof v === 'string' ? v.trim().slice(0, max) : '');
+    const newId = () => `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 7)}`;
+
+    if (path === '/shop' && request.method === 'GET') {
+      return json(await this.shop());
+    }
+    if (path === '/shop/add' && request.method === 'POST') {
+      const name = str(body.name, 80);
+      const cat = SHOP_CATEGORIES.some((c) => c.id === body.cat) ? body.cat : 'allgemein';
+      if (!name) return json({ error: 'Was soll eingekauft werden?' }, 400);
+      const id = newId();
+      await this.ctx.storage.put(`shop:${id}`, { id, name, cat, by: PEOPLE.includes(body.by) ? body.by : null, at: Date.now() });
+      return json(await this.shop());
+    }
+    if (path === '/shop/done' && request.method === 'POST') {
+      const key = `shop:${str(body.id, 40)}`;
+      const item = await this.ctx.storage.get(key);
+      if (item) {
+        await this.ctx.storage.delete(key);
+        // Optional direkt als Ausgabe in die WG-Kasse
+        const amount = parseEuro(body.price);
+        if (amount && PEOPLE.includes(body.by)) {
+          await this.addExpense({ desc: item.name, amount, paidBy: body.by, split: PEOPLE, by: body.by });
+        }
+      }
+      return json(await this.shop());
+    }
+
+    // ---------- WG-Kasse ----------
+    if (path === '/money' && request.method === 'GET') {
+      return json(await this.money());
+    }
+    if (path === '/money/add' && request.method === 'POST') {
+      const amount = parseEuro(body.amount);
+      const split = Array.isArray(body.split) ? [...new Set(body.split.filter((p) => PEOPLE.includes(p)))] : [];
+      const kind = body.kind === 'settle' ? 'settle' : 'expense';
+      if (!amount || !PEOPLE.includes(body.paidBy) || !split.length) return json({ error: 'Bitte Betrag, Person und Aufteilung angeben.' }, 400);
+      if (kind === 'settle' && (split.length !== 1 || split[0] === body.paidBy)) return json({ error: 'Ungültige Rückzahlung.' }, 400);
+      const desc = str(body.desc, 80) || (kind === 'settle' ? 'Rückzahlung' : 'Ausgabe');
+      await this.addExpense({ desc, amount, paidBy: body.paidBy, split, kind, by: PEOPLE.includes(body.by) ? body.by : null });
+      return json(await this.money());
+    }
+    if (path === '/money/delete' && request.method === 'POST') {
+      await this.ctx.storage.delete(`exp:${str(body.id, 40)}`);
+      return json(await this.money());
     }
 
     // Nur lokal zum Testen (DEV_MODE in .dev.vars): Cron für einen beliebigen Zeitpunkt auslösen
