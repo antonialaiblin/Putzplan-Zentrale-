@@ -42,6 +42,17 @@ export const EN = {
   'Bitte dein Geschlecht angeben.': 'Please enter your gender.',
   'Das Foto ist zu groß oder kein Bild.': 'The photo is too big or not an image.',
 
+  '🗳️ Umfragen': '🗳️ Polls',
+  '+ Neue Umfrage': '+ New poll',
+  'Frage': 'Question',
+  'z.B. Ist jemand zu Hause, wenn die Putzkraft kommt?': 'e.g. Is anyone home when the cleaner comes?',
+  '+ Weitere Antwort': '+ Another answer',
+  'Mehrere Antworten erlaubt': 'Allow multiple answers',
+  'Umfrage senden': 'Send poll',
+  'Bitte eine Frage eingeben.': 'Please enter a question.',
+  'Bitte mindestens zwei Antworten angeben.': 'Please enter at least two answers.',
+  'Umfrage nicht gefunden.': 'Poll not found.',
+
   // ---- Kalender ----
   'Vorheriger Monat': 'Previous month',
   'Nächster Monat': 'Next month',

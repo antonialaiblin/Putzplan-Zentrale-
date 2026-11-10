@@ -63,6 +63,10 @@ export class Putzplan extends DurableObject {
     if (c === undefined) return names.includes('Mo') ? 'Mo' : null;
     return names.includes(c) ? c : null;
   }
+  /** Umfragen: {id, question, options:[{id,text}], multi, by, votes:{Name:[optId]}, status, at, doneNotified} */
+  async surveys() {
+    return (await this.ctx.storage.get('surveys')) || [];
+  }
   async polls() {
     return (await this.ctx.storage.get('polls')) || [];
   }
@@ -204,7 +208,7 @@ export class Putzplan extends DurableObject {
       const from = validMonday(url.searchParams.get('from')) ? url.searchParams.get('from') : addDays(current, -7);
       const count = Math.min(Math.max(Number(url.searchParams.get('count')) || 12, 1), 30);
       const weeks = await this.weeks([...Array(count)].map((_, i) => addDays(from, i * 7)));
-      return json({ people: PEOPLE, members: await this.members(), absences: await this.absences(), events: await this.events(), polls: await this.polls(), cleanerContact: await this.cleanerContact(), current, today: berlinNow().day, weeks });
+      return json({ people: PEOPLE, members: await this.members(), absences: await this.absences(), events: await this.events(), polls: await this.polls(), surveys: await this.surveys(), cleanerContact: await this.cleanerContact(), current, today: berlinNow().day, weeks });
     }
 
     if (path === '/check' && request.method === 'POST') {
@@ -513,6 +517,52 @@ export class Putzplan extends DurableObject {
           : { title: '🗣️ WG-Meeting steht fest', body: `${poll.title}: ${fmtD(opt.date)} um ${opt.time} Uhr. Bis dann!`, url: '/#kalender' }));
       }
       return calState();
+    }
+    // ---------- Umfragen (Übersicht) ----------
+    if (path.startsWith('/surveys/') && request.method === 'POST') {
+      const list = await this.surveys();
+      const save = async () => { await this.ctx.storage.put('surveys', list.slice(-40)); return json({ surveys: list.slice(-40) }); };
+      const by = PEOPLE.includes(body.by) ? body.by : null;
+      if (path === '/surveys/add') {
+        const question = str(body.question, 200);
+        const opts = (Array.isArray(body.options) ? body.options : []).map((o) => str(o, 80)).filter(Boolean).slice(0, 10);
+        if (!question) return json({ error: 'Bitte eine Frage eingeben.' }, 400);
+        if (opts.length < 2) return json({ error: 'Bitte mindestens zwei Antworten angeben.' }, 400);
+        const s = { id: rid(), question, options: opts.map((t) => ({ id: rid() + Math.random().toString(36).slice(2, 5), text: t })), multi: !!body.multi, by, votes: {}, status: 'open', at: Date.now() };
+        list.push(s);
+        for (const p of PEOPLE) {
+          if (p === by) continue;
+          await this.pushToPerson(p, (l) => (l === 'en'
+            ? { title: `🗳️ Poll${by ? ` from ${by}` : ''}`, body: `${question} Tap to answer.`, url: '/#start' }
+            : { title: `🗳️ Umfrage${by ? ` von ${by}` : ''}`, body: `${question} Tipp hier, um abzustimmen.`, url: '/#start' }));
+        }
+        return save();
+      }
+      const s = list.find((x) => x.id === body.id);
+      if (!s) return json({ error: 'Umfrage nicht gefunden.' }, 404);
+      if (path === '/surveys/vote') {
+        if (!PEOPLE.includes(body.name) || s.status !== 'open') return json({ error: 'Umfrage nicht gefunden.' }, 404);
+        const valid = new Set(s.options.map((o) => o.id));
+        let choices = (Array.isArray(body.choices) ? body.choices : []).filter((c) => valid.has(c));
+        if (!s.multi) choices = choices.slice(0, 1);
+        if (choices.length) s.votes[body.name] = choices; else delete s.votes[body.name];
+        // Alle (außer der fragenden Person) haben abgestimmt → Ersteller:in benachrichtigen
+        const others = PEOPLE.filter((p) => p !== s.by);
+        if (s.by && !s.doneNotified && others.length && others.every((p) => s.votes[p])) {
+          s.doneNotified = true;
+          const result = (l) => s.options.map((o) => {
+            const who = Object.entries(s.votes).filter(([, c]) => c.includes(o.id)).map(([n]) => n);
+            return `${o.text}: ${who.length ? who.join(', ') : '–'}`;
+          }).join(' · ');
+          await this.pushToPerson(s.by, (l) => (l === 'en'
+            ? { title: '✅ Everyone has answered', body: `"${s.question}" ${result(l)}`, url: '/#start' }
+            : { title: '✅ Alle haben abgestimmt', body: `„${s.question}“ ${result(l)}`, url: '/#start' }));
+        }
+        return save();
+      }
+      if (path === '/surveys/close') { s.status = s.status === 'open' ? 'closed' : 'open'; return save(); }
+      if (path === '/surveys/delete') { list.splice(list.indexOf(s), 1); return save(); }
+      return json({ error: 'not found' }, 404);
     }
     if (path === '/polls/delete' && request.method === 'POST') {
       await this.ctx.storage.put('polls', (await this.polls()).filter((p) => p.id !== body.id));

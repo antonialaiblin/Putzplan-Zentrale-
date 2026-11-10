@@ -358,3 +358,19 @@ img.logo { padding: 0; object-fit: cover; }
 /* Übersicht: letzte WG-Meetings */
 .meeting-row { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; width: 100%; text-align: left; background: none; color: inherit; border: 0; border-top: 1px solid var(--line); border-radius: 0; padding: 10px 0; font: inherit; cursor: pointer; white-space: pre-line; }
 .meeting-row:first-of-type { border-top: 0; }
+
+/* Umfragen */
+#survey-form { margin-top: 12px; }
+.survey-opts { display: flex; flex-direction: column; gap: 6px; margin-bottom: 6px; }
+.survey-opts .row { flex-wrap: nowrap; }
+.survey-opts input { flex: 1; min-width: 0; }
+.survey { border-top: 1px solid var(--line); padding: 12px 0 4px; margin-top: 12px; }
+.survey h3 { margin: 0 0 2px; font-size: 1rem; text-transform: none; letter-spacing: 0; color: var(--text); }
+.survey .meta { margin: 0 0 8px; }
+.s-opt { display: flex; align-items: center; gap: 10px; width: 100%; text-align: left; background: var(--bg); color: var(--text); border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; margin: 6px 0; font: inherit; cursor: pointer; position: relative; overflow: hidden; }
+.s-opt[aria-pressed="true"] { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+.s-opt .bar { position: absolute; inset: 0 auto 0 0; background: var(--accent-soft); z-index: 0; }
+.s-opt > span { position: relative; z-index: 1; }
+.s-opt .t { flex: 1; }
+.s-opt .who { color: var(--muted); font-size: 12px; text-align: right; }
+.survey.closed .s-opt { cursor: default; }

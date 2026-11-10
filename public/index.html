@@ -85,6 +85,17 @@
         <div class="set-row"><span></span><button type="button" class="ghost small" id="leave-open">Ich ziehe aus</button></div>
       </details>
       <div id="home"></div>
+      <section class="card" id="surveys-card">
+        <div class="row" style="justify-content:space-between"><h2 style="margin:0">🗳️ Umfragen</h2><button type="button" class="small" id="survey-open">+ Neue Umfrage</button></div>
+        <form id="survey-form" hidden>
+          <label class="field"><span>Frage</span><input id="survey-q" maxlength="200" required placeholder="z.B. Ist jemand zu Hause, wenn die Putzkraft kommt?"></label>
+          <div id="survey-opts" class="survey-opts"></div>
+          <button type="button" class="ghost small" id="survey-add-opt">+ Weitere Antwort</button>
+          <label class="check"><input type="checkbox" id="survey-multi"> <span>Mehrere Antworten erlaubt</span></label>
+          <div class="row end"><button type="button" class="ghost" id="survey-cancel">Abbrechen</button><button type="submit">Umfrage senden</button></div>
+        </form>
+        <div id="surveys"></div>
+      </section>
       <section class="card">
         <h2>Unsere WG</h2>
         <div id="members-list" class="members"></div>

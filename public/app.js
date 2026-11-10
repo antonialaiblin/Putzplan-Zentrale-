@@ -113,6 +113,7 @@ async function load() {
   state.absences = data.absences;
   state.events = data.events || [];
   state.polls = data.polls || [];
+  state.surveys = data.surveys || [];
   state.cleanerContact = data.cleanerContact || null;
   state.today = data.today;
   state.current = data.current;
@@ -142,6 +143,7 @@ async function ensureWeek(monday) {
 function render() {
   renderMe();
   renderHome();
+  renderSurveys();
   renderCal();
   renderWeek();
   renderUpcoming();
@@ -934,6 +936,87 @@ function renderHome() {
     }).join('');
   $('#leave-open').hidden = !me;
 }
+
+// ---------------- Umfragen ----------------
+function renderSurveys() {
+  const el = $('#surveys');
+  if (!el) return;
+  const list = [...(state.surveys || [])].reverse();
+  const open = list.filter((s) => s.status === 'open');
+  const closed = list.filter((s) => s.status !== 'open').slice(0, 3);
+  if (!open.length && !closed.length) {
+    el.innerHTML = `<p class="muted small" style="margin:10px 0 0">${L('Frag die WG schnell etwas, z.B. ob jemand zu Hause ist, wenn die Putzkraft kommt. Alle bekommen eine Nachricht, und du erfährst, sobald alle geantwortet haben.', 'Quickly ask the flat something, e.g. whether anyone is home when the cleaner comes. Everyone gets a notification, and you find out as soon as everyone has answered.')}</p>`;
+    return;
+  }
+  const one = (s) => {
+    const mine = (s.votes || {})[state.me] || [];
+    const voters = Object.keys(s.votes || {});
+    const others = state.people.filter((p) => p !== s.by);
+    const missing = others.filter((p) => !voters.includes(p));
+    const isOpen = s.status === 'open';
+    return `<div class="survey${isOpen ? '' : ' closed'}">
+      <h3>${esc(s.question)}</h3>
+      <p class="muted small meta">${s.by ? `${L('von', 'from')} ${esc(s.by)} · ` : ''}${ago(s.at)} · ${missing.length ? `${L('fehlt noch', 'still missing')}: ${missing.map(esc).join(', ')}` : L('alle haben abgestimmt ✓', 'everyone has answered ✓')}${isOpen ? '' : ` · ${L('beendet', 'closed')}`}${s.multi ? ` · ${L('mehrere Antworten möglich', 'multiple answers')}` : ''}</p>
+      ${s.options.map((o) => {
+        const who = voters.filter((n) => s.votes[n].includes(o.id));
+        const pct = voters.length ? Math.round((who.length / voters.length) * 100) : 0;
+        return `<button type="button" class="s-opt" ${isOpen && state.me ? `data-svote="${esc(s.id)}" data-sopt="${esc(o.id)}"` : 'disabled'} aria-pressed="${mine.includes(o.id)}">
+          <span class="bar" style="width:${pct}%"></span><span class="t">${mine.includes(o.id) ? '✓ ' : ''}${esc(o.text)}</span>
+          <span class="who">${who.length} ${who.length ? `· ${who.map(esc).join(', ')}` : ''}</span></button>`;
+      }).join('')}
+      ${s.by === state.me || !s.by ? `<div class="row end"><button type="button" class="link small" data-sclose="${esc(s.id)}">${isOpen ? L('Umfrage beenden', 'Close poll') : L('Wieder öffnen', 'Reopen')}</button>
+        <button type="button" class="link small" data-sdel="${esc(s.id)}">${L('löschen', 'delete')}</button></div>` : ''}
+    </div>`;
+  };
+  el.innerHTML = open.map(one).join('') + (closed.length ? `<details class="explain"><summary>${L('Beendete Umfragen', 'Closed polls')}</summary>${closed.map(one).join('')}</details>` : '');
+}
+function surveyOptRow(v = '') {
+  return `<div class="row"><input maxlength="80" value="${esc(v)}" placeholder="${L('Antwort', 'Answer')}"><button type="button" class="ghost" data-sopt-del aria-label="${L('Entfernen', 'Remove')}">✕</button></div>`;
+}
+$('#survey-open').onclick = () => {
+  const f = $('#survey-form');
+  f.hidden = !f.hidden;
+  if (f.hidden) return;
+  f.reset();
+  $('#survey-opts').innerHTML = [L('Ja', 'Yes'), L('Nein', 'No')].map(surveyOptRow).join('');
+  $('#survey-q').focus();
+};
+$('#survey-cancel').onclick = () => { $('#survey-form').hidden = true; };
+$('#survey-add-opt').onclick = () => { $('#survey-opts').insertAdjacentHTML('beforeend', surveyOptRow()); $('#survey-opts .row:last-child input').focus(); };
+$('#survey-opts').addEventListener('click', (e) => { if (e.target.closest('[data-sopt-del]')) e.target.closest('.row').remove(); });
+$('#survey-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const options = [...document.querySelectorAll('#survey-opts input')].map((i) => i.value.trim()).filter(Boolean);
+  try {
+    const r = await api('surveys/add', { question: $('#survey-q').value, options, multi: $('#survey-multi').checked, by: state.me });
+    state.surveys = r.surveys;
+    $('#survey-form').hidden = true;
+    renderSurveys();
+    toast(L('Umfrage verschickt, alle bekommen eine Nachricht', 'Poll sent, everyone gets a notification'));
+  } catch (err) { toast(err.message); }
+});
+$('#surveys').addEventListener('click', async (e) => {
+  try {
+    const v = e.target.closest('[data-svote]');
+    if (v) {
+      const s = state.surveys.find((x) => x.id === v.dataset.svote);
+      const mine = (s.votes || {})[state.me] || [];
+      const o = v.dataset.sopt;
+      const choices = s.multi ? (mine.includes(o) ? mine.filter((x) => x !== o) : [...mine, o]) : (mine.includes(o) ? [] : [o]);
+      state.surveys = (await api('surveys/vote', { id: s.id, name: state.me, choices })).surveys;
+      renderSurveys();
+      return;
+    }
+    const c = e.target.closest('[data-sclose]');
+    if (c) { state.surveys = (await api('surveys/close', { id: c.dataset.sclose })).surveys; renderSurveys(); return; }
+    const d = e.target.closest('[data-sdel]');
+    if (d) {
+      if (!confirm(L('Umfrage löschen?', 'Delete this poll?'))) return;
+      state.surveys = (await api('surveys/delete', { id: d.dataset.sdel })).surveys;
+      renderSurveys();
+    }
+  } catch (err) { toast(err.message); }
+});
 
 // ---------------- Mitglieder ----------------
 document.addEventListener('click', (e) => {
