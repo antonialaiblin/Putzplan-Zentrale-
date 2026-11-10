@@ -107,7 +107,9 @@ export function simulate(ctx = {}, until) {
   const members = ctx.members || INITIAL_MEMBERS;
   const ausfaelle = ctx.ausfaelle || [];
   const absences = ctx.absences || [];
-  const q = { woche: [...INITIAL_QUEUES.woche], vorne: [...INITIAL_QUEUES.vorne], hinten: [...INITIAL_QUEUES.hinten] };
+  // Umbenannte Mitglieder behalten ihren Platz in der Start-Reihenfolge
+  const rn = (n) => { for (const r of ctx.renames || []) if (r.from === n) n = r.to; return n; };
+  const q = { woche: INITIAL_QUEUES.woche.map(rn), vorne: INITIAL_QUEUES.vorne.map(rn), hinten: INITIAL_QUEUES.hinten.map(rn) };
   const out = new Map();
   let prev = null;
   let bath = { vorne: null, hinten: null };

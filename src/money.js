@@ -78,6 +78,36 @@ export function balances(expenses, people) {
   return bal;
 }
 
+/**
+ * Rechenweg pro Person (Cent): bezahlt, eigener Anteil, Rückzahlungen gezahlt/erhalten, Splitwise-Übernahme.
+ * Saldo = paid - share + repaid - received + imported
+ */
+export function breakdown(expenses, people) {
+  const out = Object.fromEntries(people.map((p) => [p, { paid: 0, share: 0, repaid: 0, received: 0, imported: 0, count: 0 }]));
+  for (const e of expenses) {
+    if (e.net) {
+      for (const [p, v] of Object.entries(e.net)) if (out[p]) out[p].imported += v;
+      continue;
+    }
+    if (!out[e.paidBy]) continue;
+    let parts = e.parts;
+    if (!parts) {
+      const split = (e.split || []).filter((p) => out[p]);
+      if (!split.length) continue;
+      parts = Object.fromEntries(shares(e.amount, split));
+    }
+    if (e.kind === 'settle') {
+      out[e.paidBy].repaid += e.amount;
+      for (const [p, v] of Object.entries(parts)) if (out[p]) out[p].received += v;
+    } else {
+      out[e.paidBy].paid += e.amount;
+      out[e.paidBy].count += 1;
+      for (const [p, v] of Object.entries(parts)) if (out[p]) out[p].share += v;
+    }
+  }
+  return out;
+}
+
 /** Alle Personen, die in Einträgen vorkommen (z.B. ausgezogene Mitbewohner*innen). */
 export function peopleIn(expenses) {
   const set = new Set();
@@ -96,7 +126,7 @@ export function balancesByCurrency(expenses, people) {
   const out = {};
   for (const [cur, list] of Object.entries(groups)) {
     const bal = balances(list, people);
-    out[cur] = { balances: bal, transfers: settle(bal) };
+    out[cur] = { balances: bal, transfers: settle(bal), breakdown: breakdown(list, people) };
   }
   return out;
 }

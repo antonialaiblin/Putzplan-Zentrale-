@@ -9,6 +9,7 @@ export const SCHEDULE = {
   weekly: { dow: 6, hour: 19 }, // Sonntag 19 Uhr: Plan für die kommende Woche
   friday: { dow: 4, hour: 18 }, // Freitag 18 Uhr: Erinnerung an offene Aufgaben
   cleanerAsk: { dow: 0, hour: 9 },
+  birthday: { hour: 9 }, // Am Geburtstag 9 Uhr an alle
   meetingPrep: { hour: 18 }, // Am Vortag eines WG-Meetings 18 Uhr: Themen vorbereiten // Montag 9 Uhr: Zuständige:r gefragt, ob/wann die Putzkraft kommt
 };
 
@@ -71,7 +72,65 @@ export class Putzplan extends DurableObject {
     return (await this.members()).filter((m) => !m.until || m.until > now).map((m) => m.name);
   }
   async planCtx() {
-    return { members: await this.members(), absences: await this.absences(), ausfaelle: (await this.ctx.storage.get('ausfaelle')) || [] };
+    return {
+      members: await this.members(), absences: await this.absences(),
+      ausfaelle: (await this.ctx.storage.get('ausfaelle')) || [], renames: (await this.ctx.storage.get('renames')) || [],
+    };
+  }
+
+  /** Profilfelder prüfen: Geburtstag, Geschlecht, Foto. Gibt {fields} oder {error} zurück. */
+  checkProfile(body, { requireAll = true } = {}) {
+    const f = {};
+    if (body.birthday !== undefined) {
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(body.birthday || '') || body.birthday < '1900-01-01' || body.birthday > berlinNow().day) return { error: 'Bitte deinen Geburtstag angeben.' };
+      f.birthday = body.birthday;
+    } else if (requireAll) return { error: 'Bitte deinen Geburtstag angeben.' };
+    if (body.gender !== undefined) {
+      if (!['w', 'm', 'd'].includes(body.gender)) return { error: 'Bitte dein Geschlecht angeben.' };
+      f.gender = body.gender;
+    } else if (requireAll) return { error: 'Bitte dein Geschlecht angeben.' };
+    if (body.photo !== undefined && body.photo !== null) {
+      if (typeof body.photo !== 'string' || !/^data:image\/(jpeg|png|webp);base64,/.test(body.photo) || body.photo.length > 300000) return { error: 'Das Foto ist zu groß oder kein Bild.' };
+    }
+    return { fields: f };
+  }
+  async savePhoto(name, photo) {
+    if (photo === undefined) return undefined;
+    if (photo === null) { await this.ctx.storage.delete(`photo:${name}`); return null; }
+    await this.ctx.storage.put(`photo:${name}`, photo);
+    return Date.now();
+  }
+
+  /** Mitglied überall umbenennen (Plan, Kasse, Kalender, Einkauf, Erinnerungen). */
+  async renameEverywhere(from, to) {
+    const st = this.ctx.storage;
+    const sw = (n) => (n === from ? to : n);
+    const keys = (o) => (o ? Object.fromEntries(Object.entries(o).map(([k, v]) => [sw(k), v])) : o);
+    await st.put('members', (await this.members()).map((m) => (m.name === from ? { ...m, name: to } : m)));
+    await st.put('renames', [...((await st.get('renames')) || []), { from, to }]);
+    for (const [k, ov] of await st.list({ prefix: 'ov:' })) {
+      if (ov.swaps) { ov.swaps = Object.fromEntries(Object.entries(ov.swaps).map(([t, p]) => [t, sw(p)])); await st.put(k, ov); }
+    }
+    for (const [k, c] of await st.list({ prefix: 'check:' })) {
+      let key = k;
+      const parts = k.split(':'); // check:monday:task:item (item kann ein Name sein, z.B. Kühlschrank)
+      if (parts[3] === from) { parts[3] = to; key = parts.join(':'); await st.delete(k); }
+      await st.put(key, { ...c, by: sw(c.by) });
+    }
+    for (const [k, e] of await st.list({ prefix: 'exp:' })) {
+      await st.put(k, { ...e, paidBy: sw(e.paidBy), by: sw(e.by), split: e.split && e.split.map(sw), parts: keys(e.parts), net: keys(e.net), values: keys(e.values) });
+    }
+    for (const [k, i] of await st.list({ prefix: 'shop:' })) if (i.by === from) await st.put(k, { ...i, by: to });
+    for (const [k, s] of await st.list({ prefix: 'sub:' })) if (s.person === from) await st.put(k, { ...s, person: to });
+    const evs = (await this.events()).map((e) => ({
+      ...e, by: sw(e.by), participants: e.participants.map((p) => ({ ...p, name: sw(p.name) })),
+      topics: e.topics && e.topics.map((t) => ({ ...t, by: sw(t.by) })), minutes: e.minutes && { ...e.minutes, by: sw(e.minutes.by) },
+    }));
+    await st.put('events', evs);
+    await st.put('polls', (await this.polls()).map((p) => ({ ...p, by: sw(p.by), votes: keys(p.votes) })));
+    if ((await st.get('cleanerContact')) === from) await st.put('cleanerContact', to);
+    const photo = await st.get(`photo:${from}`);
+    if (photo) { await st.put(`photo:${to}`, photo); await st.delete(`photo:${from}`); }
   }
   async weeks(mondays) {
     const ctx = await this.planCtx();
@@ -253,8 +312,50 @@ export class Putzplan extends DurableObject {
       const since = addDays(mondayOf(berlinNow().day), 7);
       const rest = members.filter((m) => !(m.name.toLowerCase() === name.toLowerCase()));
       const lang = body.lang === 'en' ? 'en' : 'de';
-      await this.ctx.storage.put('members', [...rest, { name, side, since, until: null, lang }]);
+      const prof = this.checkProfile(body);
+      if (prof.error) return json({ error: prof.error }, 400);
+      const photo = await this.savePhoto(name, body.photo || undefined);
+      await this.ctx.storage.put('members', [...rest, { name, side, since, until: null, lang, ...prof.fields, ...(photo ? { photo } : {}) }]);
+      const g = prof.fields.gender;
+      for (const p of PEOPLE) {
+        if (p === name) continue;
+        await this.pushToPerson(p, (l) => (l === 'en'
+          ? { title: '🎉 New flatmate', body: `${name} has joined the flat (${side === 'vorne' ? 'front' : 'back'} room) and is on the cleaning rota from ${fmtD(since, 'en')}. Say hi!`, url: '/#start' }
+          : { title: `🎉 ${g === 'w' ? 'Neue Mitbewohnerin' : g === 'm' ? 'Neuer Mitbewohner' : 'Neu in der WG'}`, body: `${name} ist neu in der WG (Zimmer ${side}) und ab ${fmtD(since)} im Putzplan. Sag hallo!`, url: '/#start' }));
+      }
       return json({ ok: true, name, since, members: await this.members() });
+    }
+    if (path === '/members/profile' && request.method === 'POST') {
+      const members = await this.members();
+      const m = members.find((x) => x.name === body.name && (!x.until || x.until > mondayOf(berlinNow().day)));
+      if (!m) return json({ error: 'Mitglied nicht gefunden.' }, 404);
+      const prof = this.checkProfile(body, { requireAll: false });
+      if (prof.error) return json({ error: prof.error }, 400);
+      let name = m.name;
+      const newName = typeof body.newName === 'string' ? body.newName.trim().replace(/\s+/g, ' ').slice(0, 20) : '';
+      if (newName && newName !== m.name) {
+        if (members.some((x) => x !== m && x.name.toLowerCase() === newName.toLowerCase())) {
+          return json({ error: `${newName} gibt es schon. Nimm z.B. noch den ersten Buchstaben vom Nachnamen dazu.` }, 400);
+        }
+        await this.renameEverywhere(m.name, newName);
+        name = newName;
+      }
+      const photo = await this.savePhoto(name, body.photo);
+      const list = (await this.members()).map((x) => {
+        if (x.name !== name) return x;
+        const y = { ...x, ...prof.fields };
+        if (photo === null) delete y.photo; else if (photo) y.photo = photo;
+        return y;
+      });
+      await this.ctx.storage.put('members', list);
+      return json({ ok: true, name, members: list });
+    }
+    if (path.startsWith('/photo/') && request.method === 'GET') {
+      const data = await this.ctx.storage.get(`photo:${decodeURIComponent(path.slice(7))}`);
+      if (!data) return new Response('not found', { status: 404 });
+      const [head, b64] = data.split(',');
+      const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+      return new Response(bytes, { headers: { 'content-type': head.slice(5, head.indexOf(';')), 'cache-control': 'public, max-age=31536000, immutable' } });
     }
     if (path === '/members/lang' && request.method === 'POST') {
       const members = await this.members();
@@ -564,6 +665,26 @@ export class Putzplan extends DurableObject {
         const week = await this.week(monday);
         if (week.plannedCleaner && !week.ausfall && !week.cleanerConfirmed) {
           done.push([contact, await this.pushToPerson(contact, cleanerAskMessage(week, contact, (await this.langs())[contact]))]);
+        }
+      }
+    }
+    if (b.hour >= SCHEDULE.birthday.hour) {
+      const names = await this.names();
+      for (const m of (await this.members()).filter((x) => names.includes(x.name) && x.birthday && x.birthday.slice(5) === b.day.slice(5))) {
+        const flag = `sent:birthday:${m.name}:${b.day}`;
+        if (await this.ctx.storage.get(flag)) continue;
+        await this.ctx.storage.put(flag, Date.now());
+        const pron = { w: ['ihr', 'her'], m: ['ihm', 'him'] }[m.gender] || [m.name, m.name];
+        for (const p of names) {
+          if (p === m.name) {
+            done.push([p, await this.pushToPerson(p, (l) => (l === 'en'
+              ? { title: '🎂 Happy birthday!', body: `Happy birthday, ${p}! The whole flat wishes you a wonderful day 🎉` }
+              : { title: '🎂 Alles Gute!', body: `Alles Liebe zum Geburtstag, ${p}! Die ganze WG wünscht dir einen wunderschönen Tag 🎉` }))]);
+          } else {
+            done.push([p, await this.pushToPerson(p, (l) => (l === 'en'
+              ? { title: `🎂 ${m.name}'s birthday`, body: `Today is ${m.name}'s birthday! Don't forget to wish ${pron[1]} a happy birthday 🎉` }
+              : { title: `🎂 ${m.name} hat Geburtstag`, body: `Heute hat ${m.name} Geburtstag! Vergiss nicht, ${pron[0]} zu gratulieren 🎉` }))]);
+          }
         }
       }
     }

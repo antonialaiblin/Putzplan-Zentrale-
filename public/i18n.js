@@ -27,6 +27,21 @@ export const EN = {
   'Mitglied einladen': 'Invite member',
   'Ich ziehe aus': "I'm moving out",
 
+  'Mein Profil': 'My profile',
+  'Profil bearbeiten': 'Edit profile',
+  'Bitte ergänze kurz dein Profil, damit die WG deinen Geburtstag kennt und die App dich richtig anspricht.': 'Please complete your profile so the flat knows your birthday and the app addresses you correctly.',
+  'Foto wählen': 'Choose photo',
+  'Foto entfernen': 'Remove photo',
+  'Geburtstag': 'Birthday',
+  'Geschlecht (damit die App dich richtig anspricht)': 'Gender (so the app addresses you correctly)',
+  'Weiblich': 'Female',
+  'Männlich': 'Male',
+  'Divers': 'Diverse',
+  '🧮 So wird gerechnet': '🧮 How it is calculated',
+  'Bitte deinen Geburtstag angeben.': 'Please enter your birthday.',
+  'Bitte dein Geschlecht angeben.': 'Please enter your gender.',
+  'Das Foto ist zu groß oder kein Bild.': 'The photo is too big or not an image.',
+
   // ---- Kalender ----
   'Vorheriger Monat': 'Previous month',
   'Nächster Monat': 'Next month',

@@ -46,6 +46,20 @@
           <button type="button" role="radio" aria-checked="false" data-side="hinten">Hinten</button>
         </div>
       </fieldset>
+      <div class="photo-pick">
+        <span class="avatar big" id="join-photo-preview"></span>
+        <div><button type="button" class="ghost small" id="join-photo-btn">Foto wählen</button>
+          <button type="button" class="link small" id="join-photo-del" hidden>Foto entfernen</button>
+          <input type="file" id="join-photo" accept="image/*" hidden></div>
+      </div>
+      <label class="field"><span>Geburtstag</span><input type="date" id="join-birthday" required></label>
+      <fieldset class="field"><legend>Geschlecht (damit die App dich richtig anspricht)</legend>
+        <div class="seg three-seg" id="join-gender" role="radiogroup">
+          <button type="button" role="radio" aria-checked="false" data-gender="w">Weiblich</button>
+          <button type="button" role="radio" aria-checked="false" data-gender="m">Männlich</button>
+          <button type="button" role="radio" aria-checked="false" data-gender="d">Divers</button>
+        </div>
+      </fieldset>
       <fieldset class="field"><legend>Sprache / Language</legend>
         <div class="seg two-seg" id="join-lang" role="radiogroup">
           <button type="button" role="radio" aria-checked="true" data-jlang="de">Deutsch</button>
@@ -59,7 +73,8 @@
     <div id="tab-home" class="tab" hidden>
       <details class="card settings" id="settings">
         <summary>⚙️ Einstellungen</summary>
-        <div class="set-row"><span id="set-me"></span><button type="button" class="ghost small" id="change-me">Mitglied wechseln</button></div>
+        <div class="set-row"><span id="set-me" class="me-line"></span><button type="button" class="ghost small" id="change-me">Mitglied wechseln</button></div>
+        <div class="set-row"><span>Mein Profil</span><button type="button" class="ghost small" id="profile-open">Profil bearbeiten</button></div>
         <div class="set-row"><span>App-Sprache</span>
           <div class="seg two-seg" id="set-lang" role="radiogroup" aria-label="App-Sprache">
             <button type="button" role="radio" data-lang="de">Deutsch</button>
@@ -176,6 +191,7 @@
         <h2>Wer schuldet wem?</h2>
         <div id="money-transfers"></div>
         <div id="money-balances" class="balances"></div>
+        <details class="explain" id="money-explain-box"><summary>🧮 So wird gerechnet</summary><div id="money-explain"></div></details>
       </section>
       <form class="card" id="money-form">
         <h2>Ausgabe eintragen</h2>
@@ -333,6 +349,32 @@
       <div class="row end">
         <button value="cancel" class="ghost" formnovalidate>Schließen</button>
         <button value="ok">Protokoll speichern</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="profile-dialog">
+    <form method="dialog" id="profile-form">
+      <h2>Mein Profil</h2>
+      <p class="muted small" id="profile-intro" hidden>Bitte ergänze kurz dein Profil, damit die WG deinen Geburtstag kennt und die App dich richtig anspricht.</p>
+      <label class="field"><span>Name</span><input id="profile-name" maxlength="20" required></label>
+      <div class="photo-pick">
+        <span class="avatar big" id="profile-photo-preview"></span>
+        <div><button type="button" class="ghost small" id="profile-photo-btn">Foto wählen</button>
+          <button type="button" class="link small" id="profile-photo-del" hidden>Foto entfernen</button>
+          <input type="file" id="profile-photo" accept="image/*" hidden></div>
+      </div>
+      <label class="field"><span>Geburtstag</span><input type="date" id="profile-birthday" required></label>
+      <fieldset class="field"><legend>Geschlecht (damit die App dich richtig anspricht)</legend>
+        <div class="seg three-seg" id="profile-gender" role="radiogroup">
+          <button type="button" role="radio" aria-checked="false" data-gender="w">Weiblich</button>
+          <button type="button" role="radio" aria-checked="false" data-gender="m">Männlich</button>
+          <button type="button" role="radio" aria-checked="false" data-gender="d">Divers</button>
+        </div>
+      </fieldset>
+      <div class="row end">
+        <button value="cancel" class="ghost" formnovalidate>Abbrechen</button>
+        <button value="ok">Speichern</button>
       </div>
     </form>
   </dialog>
