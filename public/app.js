@@ -768,8 +768,8 @@ function renderShop() {
     const items = sh.items.filter((i) => i.cat === c.id);
     if (!items.length) return '';
     return `<section class="card shop-cat"><h2>${c.icon} ${esc(T(c.label))} <span class="muted small">${items.length}</span></h2>
-      ${items.map((i) => `<div class="shop-item"><div class="name">${esc(i.name)}<small>${i.by ? `${esc(i.by)}, ` : ''}${ago(i.at)}</small></div>
-        <button class="ghost small" data-bought="${esc(i.id)}">${L('Gekauft ✓', 'Bought ✓', `Köpt ✓`)}</button></div>`).join('')}
+      ${items.map((i) => `<div class="shop-item"><button type="button" class="tick" data-bought="${esc(i.id)}" aria-label="${L('Gekauft', 'Bought', 'Köpt')}: ${esc(i.name)}"></button>
+        <div class="name" data-bought="${esc(i.id)}">${esc(i.name)}<small>${i.by ? `${esc(i.by)}, ` : ''}${ago(i.at)}</small></div></div>`).join('')}
     </section>`;
   }).join('');
 }
@@ -800,8 +800,10 @@ $('#shop-list').addEventListener('click', (e) => {
   $('#bought-title').textContent = L(`${item.name} gekauft 🎉`, `${item.name} bought 🎉`, `${item.name} köpt 🎉`);
   $('#bought-price').value = '';
   const dlg = $('#bought-dialog');
+  const tick = b.closest('.shop-item')?.querySelector('.tick');
+  tick?.classList.add('done');
   dlg.onclose = async () => {
-    if (dlg.returnValue !== 'ok') return;
+    if (dlg.returnValue !== 'ok') { tick?.classList.remove('done'); return; }
     const price = $('#bought-price').value.trim();
     try {
       state.shop = await api('shop/done', { id: item.id, price: price || undefined, by: state.me });

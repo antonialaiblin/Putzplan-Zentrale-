@@ -461,3 +461,10 @@ body.no-me main > .tab, body.no-me .tabbar { display: none !important; }
 /* Kopfzeile nur in der Übersicht (vor der Auswahl immer sichtbar) */
 body.not-home:not(.no-me) header.top { display: none; }
 body.not-home:not(.no-me) main { padding-top: calc(16px + env(safe-area-inset-top)); }
+
+/* Einkaufsliste: Kreis zum Abhaken */
+.shop-item .tick { flex: none; width: 26px; height: 26px; padding: 0; border-radius: 50%; border: 2px solid var(--muted); background: transparent; cursor: pointer; position: relative; }
+.shop-item .tick:hover, .shop-item .tick:focus-visible { border-color: var(--accent); }
+.shop-item .tick.done { background: var(--accent); border-color: var(--accent); }
+.shop-item .tick.done::after { content: '✓'; position: absolute; inset: 0; display: grid; place-items: center; color: #fff; font-size: 15px; font-weight: 700; }
+.shop-item .name { cursor: pointer; }
