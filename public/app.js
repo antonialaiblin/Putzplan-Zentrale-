@@ -93,6 +93,18 @@ function toast(msg) {
   toast.timer = setTimeout(() => { t.hidden = true; }, 2800);
 }
 
+// ---------------- Profil-Helfer ----------------
+const memberOf = (name) => (state.members || []).find((x) => x.name === name);
+/** Rundes Profilbild oder Anfangsbuchstabe */
+function avatar(name, cls = '') {
+  const m = memberOf(name);
+  return m?.photo
+    ? `<span class="avatar ${cls}"><img src="/api/photo/${encodeURIComponent(name)}?v=${m.photo}" alt="" loading="lazy"></span>`
+    : `<span class="avatar ${cls}" aria-hidden="true">${esc((name || '?').slice(0, 1).toUpperCase())}</span>`;
+}
+/** Gegenderte Wörter: G(name, 'weiblich', 'männlich', 'divers') */
+const G = (name, w, m, d) => ({ w, m }[memberOf(name)?.gender] ?? d);
+
 // ---------------- Laden ----------------
 async function load() {
   const data = await api('weeks?count=12');
@@ -109,6 +121,11 @@ async function load() {
   if (!state.view || !state.weeks.has(state.view)) state.view = state.current;
   syncLang();
   render();
+  const me = memberOf(state.me);
+  if (me && (!me.birthday || !me.gender) && !state.askedProfile && !$('#profile-dialog').open) {
+    state.askedProfile = true;
+    openProfile(true);
+  }
 }
 async function ensureWeek(monday) {
   if (!state.weeks.has(monday)) {
@@ -133,12 +150,12 @@ function renderMe() {
   $('#join').hidden = !joining;
   pick.hidden = !!state.me || joining;
   $('#who-line').textContent = state.me ? L(`Hallo ${state.me} 👋`, `Hi ${state.me} 👋`) : 'Mission Haussegen';
-  $('#people-buttons').innerHTML = state.people.map((p) => `<button data-me="${esc(p)}">${esc(p)}</button>`).join('');
+  $('#people-buttons').innerHTML = state.people.map((p) => `<button data-me="${esc(p)}">${avatar(p, 'sm')}${esc(p)}</button>`).join('');
   // Sprachknopf oben nur, solange noch niemand ausgewählt ist (sonst in den Einstellungen)
   const quick = $('#lang-quick');
   quick.hidden = !!state.me;
   quick.textContent = state.lang === 'en' ? '🇩🇪 Deutsch' : '🇬🇧 English';
-  $('#set-me').innerHTML = state.me ? L(`Du bist <strong>${esc(state.me)}</strong>`, `You are <strong>${esc(state.me)}</strong>`) : '';
+  $('#set-me').innerHTML = state.me ? `${avatar(state.me)} ${L(`Du bist <strong>${esc(state.me)}</strong>`, `You are <strong>${esc(state.me)}</strong>`)}` : '';
   document.querySelectorAll('#set-lang [data-lang]').forEach((b) => b.setAttribute('aria-checked', b.dataset.lang === state.lang));
   $('#settings').hidden = !state.me;
 }
@@ -643,6 +660,7 @@ function renderMoney() {
   }
   $('#money-transfers').innerHTML = tHtml;
   $('#money-balances').innerHTML = bHtml;
+  renderExplain(m, curs);
 
   const sel = $('#m-paid');
   const prev = (state.paidTouched && sel.value) || state.me || m.people[0];
@@ -672,10 +690,45 @@ function renderMoney() {
           ? L(`${esc(e.paidBy)} hat ${esc(Object.keys(parts)[0])} Geld zurückgegeben`, `${esc(e.paidBy)} paid back ${esc(Object.keys(parts)[0])}`)
           : `${L(`${esc(e.paidBy)} hat bezahlt`, `${esc(e.paidBy)} paid`)} · ${forWho}`;
       }
-      return `<div class="exp${settleRow ? ' settle' : ''}"><div class="d">${esc(T(e.desc))}<small>${who} · ${ago(e.at)}</small></div>
+      const split = !e.net && e.parts && !settleRow
+        ? `<details><summary>${L('Aufteilung', 'Split')}</summary><p>${Object.entries(e.parts).map(([p, v]) => `${esc(p)}: ${money(v, cur)}`).join(' · ')}</p></details>`
+        : '';
+      return `<div class="exp${settleRow ? ' settle' : ''}"><div class="d">${esc(T(e.desc))}<small>${who} · ${ago(e.at)}</small>${split}</div>
         <div class="r"><strong>${money(e.amount, cur)}</strong><button class="link small" data-del="${esc(e.id)}">${L('löschen', 'delete')}</button></div></div>`;
     }).join('')
     : `<p class="empty">${L('Noch nichts eingetragen.', 'Nothing added yet.')}</p>`;
+}
+
+/** "So wird gerechnet": pro Person bezahlt, Anteil, Rückzahlungen → Saldo */
+function renderExplain(m, curs) {
+  let html = `<p class="small">${L(
+    'Für jede Person wird zusammengezählt, was sie für die WG <strong>bezahlt</strong> hat. Davon wird abgezogen, was bei allen Einträgen <strong>ihr Anteil</strong> war. Rückzahlungen werden verrechnet. Plus heißt: bekommt Geld, Minus heißt: schuldet Geld.',
+    'For each person we add up what they <strong>paid</strong> for the flat and subtract <strong>their share</strong> of all entries. Repayments are taken into account. Plus means they are owed money, minus means they owe money.')}</p>`;
+  for (const c of curs) {
+    const bd = m.byCurrency[c].breakdown;
+    if (!bd) continue;
+    const people = [...m.people, ...(m.former || []).filter((p) => m.byCurrency[c].balances[p])];
+    const hasImport = people.some((p) => bd[p]?.imported);
+    const hasRepay = people.some((p) => bd[p]?.repaid || bd[p]?.received);
+    const f = (v) => (v ? money(v, c) : '–');
+    html += `${curs.length > 1 ? `<p class="cur-head">${c}</p>` : ''}<div class="table-wrap"><table><thead><tr>
+      <th>${L('Person', 'Person')}</th><th>${L('bezahlt', 'paid')}</th><th>− ${L('Anteil', 'share')}</th>
+      ${hasRepay ? `<th>+ ${L('zurückgezahlt', 'paid back')}</th><th>− ${L('zurückbekommen', 'got back')}</th>` : ''}
+      ${hasImport ? `<th>+ Splitwise</th>` : ''}<th>= ${L('Saldo', 'Balance')}</th></tr></thead><tbody>
+      ${people.map((p) => {
+        const b = bd[p] || {};
+        const v = m.byCurrency[c].balances[p] || 0;
+        return `<tr><td>${esc(p)}</td><td>${f(b.paid)}</td><td>${f(b.share)}</td>
+          ${hasRepay ? `<td>${f(b.repaid)}</td><td>${f(b.received)}</td>` : ''}
+          ${hasImport ? `<td>${b.imported ? `${b.imported > 0 ? '+' : ''}${money(b.imported, c)}` : '–'}</td>` : ''}
+          <td class="sum">${v > 0 ? '+' : ''}${money(v, c)}</td></tr>`;
+      }).join('')}</tbody></table></div>`;
+    if (hasImport) html += `<p class="muted small">${L('„Splitwise“ ist der übernommene Stand aus der alten Splitwise-Gruppe.', '"Splitwise" is the balance carried over from the old Splitwise group.')}</p>`;
+  }
+  html += `<p class="small">${L(
+    'Damit alle wieder bei 0 sind, schlägt die App möglichst wenige Überweisungen vor: Wer am meisten schuldet, zahlt an die Person, die am meisten bekommt, und so weiter. Bei jedem Eintrag unten zeigt „Aufteilung“, wer wie viel übernimmt.',
+    'To get everyone back to 0, the app suggests as few transfers as possible: whoever owes the most pays the person who is owed the most, and so on. On each entry below, "Split" shows who covers how much.')}</p>`;
+  $('#money-explain').innerHTML = html;
 }
 
 function renderSplit() {
@@ -854,7 +907,8 @@ function renderHome() {
       const future = x.since > state.current;
       const leaving = x.until;
       const side = x.side === 'hinten' ? L('hinten', 'back') : L('vorne', 'front');
-      return `<div class="member"><span><strong>${esc(x.name)}</strong> <small>${L(`Zimmer ${side}`, `${side} room`)}${x.lang === 'en' ? ' · 🇬🇧' : ''}</small></span>
+      const bday = x.birthday ? ` · 🎂 ${ddmm(x.birthday)}` : '';
+      return `<div class="member"><span>${avatar(x.name)}<span><strong>${esc(x.name)}</strong> <small>${L(`Zimmer ${side}`, `${side} room`)}${bday}${x.lang === 'en' ? ' · 🇬🇧' : ''}</small></span></span>
         <span>${away ? `<span class="tag away">${L('im Urlaub', 'on holiday')}</span> ` : ''}${future ? `<span class="tag">${L('ab', 'from')} ${ddmm(x.since)}</span>` : ''}${leaving ? `<span class="tag away">${L('zieht aus', 'moving out')}</span>` : ''}</span></div>`;
     }).join('');
   $('#leave-open').hidden = !me;
@@ -888,8 +942,12 @@ $('#join-cancel').onclick = () => {
 $('#join').addEventListener('submit', async (e) => {
   e.preventDefault();
   if (!state.joinSide) { toast(L('Bitte vorne oder hinten wählen', 'Please choose front or back')); return; }
+  if (!joinProfile.gender) { toast(L('Bitte dein Geschlecht angeben', 'Please choose your gender')); return; }
   try {
-    const r = await api('members/join', { name: $('#join-name').value, side: state.joinSide, lang: state.lang });
+    const r = await api('members/join', {
+      name: $('#join-name').value, side: state.joinSide, lang: state.lang,
+      birthday: $('#join-birthday').value, gender: joinProfile.gender, photo: joinProfile.photo || undefined,
+    });
     state.me = r.name;
     store.set('me', r.name);
     state.joining = false;
@@ -897,7 +955,7 @@ $('#join').addEventListener('submit', async (e) => {
     state.weeks.clear();
     await load();
     showTab();
-    toast(L(`Willkommen, ${r.name}! Ab ${ddmm(r.since)} bist du im Putzplan.`, `Welcome, ${r.name}! You're on the cleaning rota from ${ddmm(r.since)}.`));
+    toast(L(`Willkommen als ${G(r.name, 'neue Mitbewohnerin', 'neuer Mitbewohner', 'neue:r Mitbewohner:in')}, ${r.name}! Ab ${ddmm(r.since)} bist du im Putzplan.`, `Welcome, ${r.name}! You're on the cleaning rota from ${ddmm(r.since)}.`));
   } catch (err) { toast(err.message); }
 });
 $('#invite').onclick = async () => {
@@ -930,7 +988,7 @@ $('#leave-open').onclick = async () => {
       const sub = await currentSubscription().catch(() => null);
       if (sub) { await sub.unsubscribe().catch(() => {}); }
       $('#bye-title').textContent = L(`Schade, dass du gehst, ${name}!`, `So sad to see you go, ${name}!`);
-      $('#bye-text').textContent = L('Wir werden dich wirklich vermissen: die Gespräche in der Küche, das gemeinsame Kochen und sogar deine Putzwochen. Danke für die schöne Zeit mit dir! Pass auf dich auf, komm uns besuchen, und für einen Kaffee oder eine Party bist du hier immer willkommen. 💛',
+      $('#bye-text').textContent = L(`Du warst ${G(name, 'eine tolle Mitbewohnerin', 'ein toller Mitbewohner', 'ein:e tolle:r Mitbewohner:in')}, und wir werden dich wirklich vermissen: die Gespräche in der Küche, das gemeinsame Kochen und sogar deine Putzwochen. Danke für die schöne Zeit mit dir! Pass auf dich auf, komm uns besuchen, und für einen Kaffee oder eine Party bist du hier immer willkommen. 💛`,
         "We'll really miss you: the chats in the kitchen, cooking together and even your cleaning weeks. Thanks for the lovely time with you! Take care, come and visit, and you're always welcome here for a coffee or a party. 💛");
       $('#bye-dialog').showModal();
       state.me = null;
@@ -945,6 +1003,78 @@ $('#leave-open').onclick = async () => {
 $('#leave-form').addEventListener('submit', (e) => {
   if (e.submitter?.value === 'ok' && !$('#leave-form').checkValidity()) { e.preventDefault(); $('#leave-form').reportValidity(); }
 });
+
+// ---------------- Profil ----------------
+/** Bild verkleinern (quadratisch, 320 px) und als JPEG-Daten-URL zurückgeben */
+async function resizePhoto(file) {
+  const url = URL.createObjectURL(file);
+  try {
+    const img = await new Promise((ok, fail) => { const i = new Image(); i.onload = () => ok(i); i.onerror = fail; i.src = url; });
+    const size = 320;
+    const c = document.createElement('canvas');
+    c.width = size; c.height = size;
+    const s = Math.min(img.naturalWidth, img.naturalHeight);
+    c.getContext('2d').drawImage(img, (img.naturalWidth - s) / 2, (img.naturalHeight - s) / 2, s, s, 0, 0, size, size);
+    return c.toDataURL('image/jpeg', 0.82);
+  } finally { URL.revokeObjectURL(url); }
+}
+/** Foto-Auswahl + Geschlecht für ein Formular (Präfix 'join' oder 'profile') verdrahten */
+function profileForm(prefix) {
+  const st = { photo: undefined, gender: null };
+  const preview = (src, name) => {
+    $(`#${prefix}-photo-preview`).innerHTML = src ? `<img src="${src}" alt="">` : esc((name || '?').slice(0, 1).toUpperCase());
+    $(`#${prefix}-photo-del`).hidden = !src;
+  };
+  st.preview = preview;
+  st.setGender = (g) => {
+    st.gender = g;
+    document.querySelectorAll(`#${prefix}-gender [data-gender]`).forEach((x) => x.setAttribute('aria-checked', x.dataset.gender === g));
+  };
+  $(`#${prefix}-gender`).addEventListener('click', (e) => { const b = e.target.closest('[data-gender]'); if (b) st.setGender(b.dataset.gender); });
+  $(`#${prefix}-photo-btn`).onclick = () => $(`#${prefix}-photo`).click();
+  $(`#${prefix}-photo`).addEventListener('change', async () => {
+    const f = $(`#${prefix}-photo`).files[0];
+    $(`#${prefix}-photo`).value = '';
+    if (!f) return;
+    try { st.photo = await resizePhoto(f); preview(st.photo); } catch { toast(L('Das Bild konnte nicht gelesen werden', 'The image could not be read')); }
+  });
+  $(`#${prefix}-photo-del`).onclick = () => { st.photo = null; preview(null, $('#profile-name')?.value); };
+  return st;
+}
+const joinProfile = profileForm('join');
+joinProfile.preview(null, '?');
+const editProfile = profileForm('profile');
+
+function openProfile(intro = false) {
+  const m = memberOf(state.me);
+  if (!m) return;
+  $('#profile-intro').hidden = !intro;
+  $('#profile-name').value = m.name;
+  $('#profile-birthday').value = m.birthday || '';
+  $('#profile-birthday').max = state.today;
+  editProfile.photo = undefined;
+  editProfile.setGender(m.gender || null);
+  editProfile.preview(m.photo ? `/api/photo/${encodeURIComponent(m.name)}?v=${m.photo}` : null, m.name);
+  const dlg = $('#profile-dialog');
+  $('#profile-form').onsubmit = async (e) => {
+    if (e.submitter?.value !== 'ok') return;
+    e.preventDefault();
+    if (!editProfile.gender) { toast(L('Bitte dein Geschlecht angeben', 'Please choose your gender')); return; }
+    try {
+      const r = await api('members/profile', {
+        name: m.name, newName: $('#profile-name').value, birthday: $('#profile-birthday').value, gender: editProfile.gender, photo: editProfile.photo,
+      });
+      if (r.name !== state.me) { state.me = r.name; store.set('me', r.name); }
+      dlg.close();
+      state.weeks.clear();
+      await load();
+      if (state.money) loadMoney();
+      toast(L('Profil gespeichert', 'Profile saved'));
+    } catch (err) { toast(err.message); }
+  };
+  dlg.showModal();
+}
+$('#profile-open').onclick = () => openProfile(false);
 
 // ---------------- Kalender ----------------
 state.calMonth = null;
@@ -982,6 +1112,9 @@ function renderCal() {
     const wk = state.weeks.get(addDays(d, -dowOf(d)));
     const cleaner = wk && wk.cleaner && wk.cleanerDay === d;
     const pills = [];
+    for (const m of (state.members || []).filter((x) => x.birthday && state.people.includes(x.name) && x.birthday.slice(5) === d.slice(5))) {
+      pills.push(`<span class="pill bday" title="${L('Geburtstag', 'Birthday')}">🎂 ${esc(m.name)}</span>`);
+    }
     for (const e of evs) {
       if (e.from > d || e.to < d) continue;
       if (e.type === 'urlaub') {
