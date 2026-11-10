@@ -347,6 +347,8 @@ document.addEventListener('click', async (e) => {
     maybeAskProfile();
     return;
   }
+  const notesBtn = e.target.closest('#home [data-notes]');
+  if (notesBtn) { openNotes(notesBtn.dataset.notes); return; }
   if (e.target.closest('[data-open-settings]')) {
     location.hash = '#start';
     setTimeout(() => { $('#settings').open = true; $('#settings').scrollIntoView({ behavior: 'smooth' }); }, 50);
@@ -901,6 +903,20 @@ function renderHome() {
     ${meet ? `<p>🗣️ ${esc(meet.title && meet.title !== 'WG-Meeting' ? meet.title : L('WG-Meeting', 'Flat meeting'))} ${ddmm(meet.from)} ${meet.time}${nTopics ? ` · ${nTopics} ${plural(nTopics, 'Thema', 'Themen', 'topic', 'topics')}` : ''}</p>` : ''}
     ${openPolls.length ? `<p>🗳️ ${openPolls.length} ${plural(openPolls.length, 'Abstimmung offen', 'Abstimmungen offen', 'open poll', 'open polls')}</p>` : ''}
     ${invites.length ? `<p><strong>📬 ${invites.length} ${plural(invites.length, 'Einladung für dich', 'Einladungen für dich', 'invitation for you', 'invitations for you')}</strong></p>` : ''}</a>`;
+  // Letzte WG-Meetings mit Protokoll
+  const pastMeetings = (state.events || []).filter((e) => e.type === 'meeting' && e.to < today).sort((a, b) => (a.from < b.from ? 1 : -1)).slice(0, 3);
+  if (pastMeetings.length) {
+    html += `<div class="card wide meetings-card"><h3>${L('Letzte WG-Meetings', 'Recent flat meetings')}</h3>
+      ${pastMeetings.map((e) => {
+        const txt = e.minutes?.text?.trim();
+        const short = txt ? (txt.length > 140 ? `${txt.slice(0, 140)}…` : txt) : '';
+        return `<button type="button" class="meeting-row" data-notes="${esc(e.id)}">
+          <span><strong>🗣️ ${esc(evTitle(e))}</strong> <small class="muted">${fmtDay(e.from)}</small></span>
+          <span class="muted small">${short ? esc(short) : L('Noch kein Protokoll, tippen zum Schreiben', 'No minutes yet, tap to write')}</span></button>`;
+      }).join('')}</div>`;
+  } else {
+    html += `<a class="card wide" href="#kalender"><h3>${L('Letzte WG-Meetings', 'Recent flat meetings')}</h3><p class="muted">${L('Noch keine vergangenen WG-Meetings. Die Protokolle erscheinen dann hier.', 'No past flat meetings yet. Their minutes will show up here.')}</p></a>`;
+  }
   html += `<a class="card wide" href="#regeln"><h3>${L('Hausregeln', 'House rules')}</h3><p>${L('Mission Haussegen 📜 Alles zum WG-Seelenfrieden', 'Mission Haussegen 📜 Everything for peace in the flat')}</p></a>`;
   html += '</div>';
   el.innerHTML = html;
@@ -1230,7 +1246,7 @@ function openNotes(id) {
     try {
       applyCal(await api('events/notes/topic', { id, text, by: state.me }));
       $('#notes-topic').value = '';
-      draw(); renderEvList();
+      draw(); renderEvList(); renderHome();
     } catch (err) { toast(err.message); }
   };
   $('#notes-topic-add').onclick = addTopic;
@@ -1238,14 +1254,14 @@ function openNotes(id) {
   $('#notes-topics').onclick = async (ev) => {
     const b = ev.target.closest('[data-topic-del]');
     if (!b) return;
-    try { applyCal(await api('events/notes/topic-delete', { id, topic: b.dataset.topicDel })); draw(); renderEvList(); } catch (err) { toast(err.message); }
+    try { applyCal(await api('events/notes/topic-delete', { id, topic: b.dataset.topicDel })); draw(); renderEvList(); renderHome(); } catch (err) { toast(err.message); }
   };
   $('#notes-form').onsubmit = async (ev) => {
     if (ev.submitter?.value !== 'ok') return;
     ev.preventDefault();
     try {
       applyCal(await api('events/notes/minutes', { id, text: $('#notes-minutes').value, by: state.me }));
-      draw(); renderEvList();
+      draw(); renderEvList(); renderHome();
       toast(L('Protokoll gespeichert', 'Minutes saved'));
     } catch (err) { toast(err.message); }
   };
