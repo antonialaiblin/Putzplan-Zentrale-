@@ -52,6 +52,7 @@
         <label class="field"><span>Benutzername</span><input id="reg-user" maxlength="30" minlength="2" autocomplete="username" autocapitalize="none" required></label>
         <label class="field"><span>Passwort (mind. 4 Zeichen)</span><input type="password" id="reg-pw" minlength="4" maxlength="100" autocomplete="new-password" required></label>
         <label class="field"><span>Passwort wiederholen</span><input type="password" id="reg-pw2" minlength="4" maxlength="100" autocomplete="new-password" required></label>
+        <label class="field"><span>Merkhilfe fürs Passwort (optional, nicht das Passwort selbst!)</span><input id="reg-hint" maxlength="100" placeholder="z.B. Name vom ersten Haustier + Jahr"></label>
         <div class="row end"><button type="button" class="ghost" data-auth-back>Zurück</button><button type="submit">Weiter</button></div>
       </form>
       <div id="auth-wait" hidden>
@@ -112,6 +113,7 @@
         <summary>⚙️ Einstellungen</summary>
         <div class="set-row"><span>Mein Profil</span><button type="button" class="ghost small" id="profile-open">Profil bearbeiten</button></div>
         <div class="set-row"><span>Passwort</span><button type="button" class="ghost small" id="pw-change">Passwort ändern</button></div>
+        <div class="set-row"><span>Merkhilfe</span><button type="button" class="ghost small" id="hint-change">Merkhilfe ändern</button></div>
         <div class="set-row"><span>App-Sprache</span>
           <div class="seg three-seg" id="set-lang" role="radiogroup" aria-label="App-Sprache">
             <button type="button" role="radio" data-lang="de">Deutsch</button>

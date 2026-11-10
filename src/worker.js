@@ -384,7 +384,8 @@ export class Putzplan extends DurableObject {
       const lower = username.toLowerCase();
       // Benutzername darf weder vergeben sein noch wie eine andere Person heißen
       if (all.some((a) => a.username.toLowerCase() === lower || a.person?.toLowerCase() === lower)) return json({ error: 'Diesen Namen gibt es schon. Bitte einen anderen wählen.' }, 400);
-      await this.ctx.storage.put(acctKey(username), { username, ...(await hashPw(body.password)), person: null, at: Date.now() });
+      const hint = typeof body.hint === 'string' ? body.hint.trim().slice(0, 100) : '';
+      await this.ctx.storage.put(acctKey(username), { username, ...(await hashPw(body.password)), person: null, hint: hint || null, at: Date.now() });
       return json({ token: await startSession(username), username });
     }
     if (path === '/auth/login' && request.method === 'POST') {
@@ -412,6 +413,7 @@ export class Putzplan extends DurableObject {
       // Passwort vergessen: die Admin bekommt Bescheid und setzt ein neues
       const name = typeof body.username === 'string' ? body.username.trim().toLowerCase() : '';
       const a = (await accounts()).find((x) => x.username.toLowerCase() === name) || (await accounts()).find((x) => x.person?.toLowerCase() === name);
+      if (!body.notify) return json({ hint: a?.hint || null, admin });
       if (a && !(a.forgot && Date.now() - a.forgot < 3600e3)) {
         await this.ctx.storage.put(acctKey(a.username), { ...a, forgot: Date.now() });
         await this.pushToPerson(admin, (l) => ({ title: pick(l)('🔑 Passwort vergessen', '🔑 Forgotten password', '🔑 Glömt lösenord'), body: pick(l)(`${a.person || a.username} hat das Passwort vergessen. Setz unter „Accounts verwalten“ ein neues und sag es der Person.`, `${a.person || a.username} forgot their password. Set a new one under "Manage accounts" and tell them.`, `${a.person || a.username} har glömt sitt lösenord. Sätt ett nytt under "Hantera konton" och berätta det.`), url: '/#start' }));
@@ -436,6 +438,11 @@ export class Putzplan extends DurableObject {
     }
     if (path === '/auth/cancel' && request.method === 'POST') {
       await this.ctx.storage.put(acctKey(acct.username), { ...acct, pending: null });
+      return json({ ok: true });
+    }
+    if (path === '/auth/hint' && request.method === 'POST') {
+      const hint = typeof body.hint === 'string' ? body.hint.trim().slice(0, 100) : '';
+      await this.ctx.storage.put(acctKey(acct.username), { ...acct, hint: hint || null });
       return json({ ok: true });
     }
     if (path === '/auth/password' && request.method === 'POST') {

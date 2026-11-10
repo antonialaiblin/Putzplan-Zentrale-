@@ -397,7 +397,7 @@ $('#register-form').addEventListener('submit', async (e) => {
   e.preventDefault();
   if ($('#reg-pw').value !== $('#reg-pw2').value) { toast(L('Die Passwörter sind nicht gleich.', "The passwords don't match.", 'Lösenorden matchar inte.')); return; }
   try {
-    const r = await api('auth/register', { username: $('#reg-user').value, password: $('#reg-pw').value });
+    const r = await api('auth/register', { username: $('#reg-user').value, password: $('#reg-pw').value, hint: $('#reg-hint').value });
     store.set('token', r.token);
     $('#reg-pw').value = ''; $('#reg-pw2').value = '';
     await afterLogin();
@@ -409,10 +409,19 @@ $('#auth-forgot').onclick = async () => {
   if (!name) name = (prompt(L('Wie ist dein Name (Benutzername oder Vorname)?', 'What is your name (username or first name)?', 'Vad heter du (användarnamn eller förnamn)?')) || '').trim();
   if (!name) return;
   try {
-    const r = await api('auth/forgot', { username: name });
+    const h = await api('auth/forgot', { username: name });
+    // Erst die Merkhilfe zeigen, dann erst die Admin fragen
+    if (h.hint && !confirm(L(`💡 Deine Merkhilfe: „${h.hint}“\n\nFällt es dir wieder ein? Dann tipp auf „Abbrechen“. Mit „OK“ bekommt ${h.admin} Bescheid und setzt dir ein neues Passwort.`, `💡 Your hint: "${h.hint}"\n\nRemember it now? Then tap "Cancel". With "OK", ${h.admin} is notified and sets a new password for you.`, `💡 Din ledtråd: "${h.hint}"\n\nKommer du ihåg det nu? Tryck på "Avbryt". Med "OK" får ${h.admin} en notis och sätter ett nytt lösenord åt dig.`))) return;
+    const r = await api('auth/forgot', { username: name, notify: true });
     alert(L(`${r.admin} bekommt Bescheid und setzt dir ein neues Passwort. Du erfährst es dann direkt von ${r.admin}.`, `${r.admin} will be notified and will set a new password for you. ${r.admin} will tell you directly.`, `${r.admin} får en notis och sätter ett nytt lösenord åt dig. ${r.admin} berättar det direkt för dig.`));
   } catch (err) { toast(err.message); }
 };
+$('#hint-change').onclick = async () => {
+  const hint = prompt(L('Neue Merkhilfe fürs Passwort (nicht das Passwort selbst!). Leer lassen zum Löschen:', 'New password hint (not the password itself!). Leave empty to remove:', 'Ny ledtråd för lösenordet (inte själva lösenordet!). Lämna tomt för att ta bort:'));
+  if (hint === null) return;
+  try { await api('auth/hint', { hint }); toast(L('Merkhilfe gespeichert 💡', 'Hint saved 💡', 'Ledtråden är sparad 💡')); } catch (err) { toast(err.message); }
+};
+
 $('#pw-change').onclick = async () => {
   const old = prompt(L('Altes Passwort:', 'Current password:', 'Nuvarande lösenord:'));
   if (old === null) return;
