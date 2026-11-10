@@ -168,6 +168,7 @@ async function load() {
   state.surveys = data.surveys || [];
   state.swapRequests = data.swapRequests || [];
   state.board = data.board || [];
+  state.reactions = data.reactions || {};
   state.cleanerContact = data.cleanerContact || null;
   state.today = data.today;
   state.current = data.current;
@@ -288,6 +289,7 @@ function renderWeek() {
         return `<label class="check${c ? ' done' : ''}"><input type="checkbox" data-check="${esc(key)}" ${c ? 'checked' : ''}>
           <span>${esc(T(it.label))}${c?.by ? `<small>${L('erledigt von', 'done by', `klart av`)} ${esc(c.by)}</small>` : ''}</span></label>`;
       }).join('')}
+      ${doneCount ? reactBar(`task:${w.monday}:${t.key}`, [...new Set(items.map((it) => w.checks[`${t.key}:${it.id}`]?.by).filter(Boolean))]) : ''}
       ${t.person ? (() => {
         const req = openSwaps().find((r) => r.monday === w.monday && r.task === t.key);
         const canRemind = state.me && t.person !== state.me && !complete && w.monday <= state.current;
@@ -315,6 +317,32 @@ function renderUpcoming() {
   }
   $('#upcoming').innerHTML = rows.join('');
 }
+
+// ---------------- Reaktionen ----------------
+const REACTIONS = ['🙏', '❤️', '🎉', '👍', '😂', '🔥'];
+function reactBar(target, owners = []) {
+  const r = (state.reactions || {})[target] || {};
+  const chips = Object.entries(r).map(([e, who]) => `<button type="button" class="react-chip" data-react="${esc(target)}" data-emoji="${e}" aria-pressed="${who.includes(state.me)}" title="${esc(who.join(', '))}">${e} <span>${who.length > 2 ? who.length : who.map(esc).join(', ')}</span></button>`).join('');
+  const canAdd = state.me && !owners.includes(state.me);
+  return `<div class="reacts">${chips}${canAdd ? `<span class="react-add"><button type="button" class="react-plus" data-react-open aria-label="${L('Reagieren', 'React', 'Reagera')}">😊+</button><span class="react-pick" hidden>${REACTIONS.map((e) => `<button type="button" data-react="${esc(target)}" data-emoji="${e}">${e}</button>`).join('')}</span></span>` : ''}</div>`;
+}
+document.addEventListener('click', async (e) => {
+  const open = e.target.closest('[data-react-open]');
+  if (open) {
+    const pk = open.nextElementSibling;
+    document.querySelectorAll('.react-pick').forEach((x) => { if (x !== pk) x.hidden = true; });
+    pk.hidden = !pk.hidden;
+    return;
+  }
+  const b = e.target.closest('[data-react]');
+  if (!b) { document.querySelectorAll('.react-pick').forEach((x) => { x.hidden = true; }); return; }
+  if (!state.me) return;
+  try {
+    state.reactions = (await api('react', { target: b.dataset.react, emoji: b.dataset.emoji, by: state.me })).reactions;
+    renderWeek();
+    renderHome();
+  } catch (err) { toast(err.message); }
+});
 
 // ---------------- Erinnerungen (Push) ----------------
 const isIOS = /iphone|ipad|ipod/i.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
@@ -1144,7 +1172,7 @@ function extraTiles(w) {
   const notes = state.board || [];
   out.board = `<div class="card __CLS__ board-card"><div class="board-head"><h3>📌 ${L('Pinnwand', 'Pinboard', 'Anslagstavla')}</h3>${state.editHome ? '' : `<button type="button" class="small" data-note-add>+ ${L('Zettel', 'Note', 'Lapp')}</button>`}</div>
     <div class="cork">${notes.length ? notes.map((n) => `<div class="note ${n.photo ? 'polaroid' : n.color}" style="--tilt:${n.tilt || 0}deg"><span class="pin"></span>${n.photo ? `<a href="/api/board/photo/${esc(n.id)}" target="_blank" rel="noopener"><img src="/api/board/photo/${esc(n.id)}" alt="" loading="lazy"></a>` : ''}${n.text ? `<p>${esc(n.text).replace(/\n/g, '<br>')}</p>` : ''}
-      ${n.expires ? `<span class="note-exp">⏳ ${L('bis', 'until', 'till')} ${ddmm(n.expires)}</span>` : ''}<small>${n.by ? esc(n.by) : ''} · ${ago(n.at)}${state.editHome ? '' : ` <button type="button" class="note-del" data-note-del="${esc(n.id)}" aria-label="${L('Zettel abnehmen', 'Remove note', 'Ta ner lappen')}">✕</button>`}</small></div>`).join('')
+      ${reactBar(`note:${n.id}`, n.by ? [n.by] : [])}${n.expires ? `<span class="note-exp">⏳ ${L('bis', 'until', 'till')} ${ddmm(n.expires)}</span>` : ''}<small>${n.by ? esc(n.by) : ''} · ${ago(n.at)}${state.editHome ? '' : ` <button type="button" class="note-del" data-note-del="${esc(n.id)}" aria-label="${L('Zettel abnehmen', 'Remove note', 'Ta ner lappen')}">✕</button>`}</small></div>`).join('')
     : `<p class="cork-empty">${L('Noch nichts angepinnt. Häng z.B. das WLAN-Passwort oder „Handwerker kommt Do“ auf.', 'Nothing pinned yet. Put up e.g. the Wi-Fi password or "plumber comes Thu".', 'Inget uppsatt än. Sätt t.ex. upp wifi-lösenordet eller "hantverkaren kommer tors".')}</p>`}</div></div>`;
   // Meine nächsten Dienste
   if (me) {

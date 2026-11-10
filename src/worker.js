@@ -27,6 +27,7 @@ function nextDate(d, every) {
   t.setUTCDate(Math.min(day, last));
   return t.toISOString().slice(0, 10);
 }
+const REACTIONS = ['🙏', '❤️', '🎉', '👍', '😂', '🔥'];
 const pick = (lang) => (de, en, sv) => (lang === 'en' ? en : lang === 'sv' ? sv ?? en : de);
 
 const json = (data, status = 200) =>
@@ -208,6 +209,9 @@ export class Putzplan extends DurableObject {
     if (changed) await this.ctx.storage.put('recurring', list);
     return list;
   }
+  async reactions() {
+    return (await this.ctx.storage.get('reactions')) || {};
+  }
   async board() {
     const today = berlinNow().day;
     return ((await this.ctx.storage.get('board')) || []).filter((n) => !n.expires || n.expires >= today);
@@ -275,7 +279,7 @@ export class Putzplan extends DurableObject {
       const from = validMonday(url.searchParams.get('from')) ? url.searchParams.get('from') : addDays(current, -7);
       const count = Math.min(Math.max(Number(url.searchParams.get('count')) || 12, 1), 30);
       const weeks = await this.weeks([...Array(count)].map((_, i) => addDays(from, i * 7)));
-      return json({ people: PEOPLE, members: await this.members(), absences: await this.absences(), events: await this.events(), polls: await this.polls(), surveys: await this.surveysFor(url.searchParams.get('me')), swapRequests: await this.swapRequests(), board: await this.board(), cleanerContact: await this.cleanerContact(), current, today: berlinNow().day, weeks });
+      return json({ people: PEOPLE, members: await this.members(), absences: await this.absences(), events: await this.events(), polls: await this.polls(), surveys: await this.surveysFor(url.searchParams.get('me')), swapRequests: await this.swapRequests(), board: await this.board(), reactions: await this.reactions(), cleanerContact: await this.cleanerContact(), current, today: berlinNow().day, weeks });
     }
 
     if (path === '/check' && request.method === 'POST') {
@@ -285,6 +289,52 @@ export class Putzplan extends DurableObject {
       if (done) await this.ctx.storage.put(k, { by: PEOPLE.includes(by) ? by : null, at: Date.now() });
       else await this.ctx.storage.delete(k);
       return json(await this.week(monday));
+    }
+
+    // ---------- Reaktionen (Emoji auf erledigte Dienste und Pinnwand-Zettel) ----------
+    if (path === '/react' && request.method === 'POST') {
+      const { target, emoji, by } = body;
+      if (!REACTIONS.includes(emoji) || !PEOPLE.includes(by) || typeof target !== 'string') return json({ error: 'bad request' }, 400);
+      let owners = []; let what = null; let url = '/#start';
+      const tm = /^task:(\d{4}-\d{2}-\d{2}):([a-z-]{2,30})$/.exec(target);
+      const nm = /^note:([a-z0-9]{4,30})$/.exec(target);
+      if (tm && validMonday(tm[1])) {
+        const w = await this.week(tm[1]);
+        const t = w.tasks.find((x) => x.key === tm[2]);
+        if (!t) return json({ error: 'bad request' }, 400);
+        owners = [...new Set(Object.entries(w.checks).filter(([k, c]) => k.startsWith(`${t.key}:`) && c?.by).map(([, c]) => c.by))];
+        if (!owners.length && t.person) owners = [t.person];
+        what = (l) => tr(t.title, l); url = '/#plan';
+      } else if (nm) {
+        const n = (await this.board()).find((x) => x.id === nm[1]);
+        if (!n) return json({ error: 'Der Zettel hängt nicht mehr.' }, 404);
+        owners = n.by ? [n.by] : [];
+        what = (l) => (n.text ? `„${n.text.slice(0, 60)}“` : pick(l)('dein Foto', 'your photo', 'ditt foto'));
+      } else return json({ error: 'bad request' }, 400);
+      const all = await this.reactions();
+      const r = all[target] || {};
+      const list = r[emoji] || [];
+      const adding = !list.includes(by);
+      r[emoji] = adding ? [...list, by] : list.filter((x) => x !== by);
+      if (!r[emoji].length) delete r[emoji];
+      if (Object.keys(r).length) all[target] = r; else delete all[target];
+      // nicht endlos wachsen lassen
+      const keys = Object.keys(all);
+      for (const k of keys.slice(0, Math.max(0, keys.length - 400))) delete all[k];
+      await this.ctx.storage.put('reactions', all);
+      const pushedKey = `reacted:${target}:${by}`;
+      if (adding && !(await this.ctx.storage.get(pushedKey))) {
+        await this.ctx.storage.put(pushedKey, 1);
+        for (const p of owners) {
+          if (p === by) continue;
+          await this.pushToPerson(p, (l) => ({
+            title: `${emoji} ${by}`,
+            body: pick(l)(`${by} hat auf ${what('de')} reagiert: ${emoji}`, `${by} reacted to ${what('en')}: ${emoji}`, `${by} reagerade på ${what('sv')}: ${emoji}`),
+            url,
+          }));
+        }
+      }
+      return json({ reactions: all });
     }
 
     if (path === '/swap' && request.method === 'POST') {

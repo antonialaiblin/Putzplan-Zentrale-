@@ -468,3 +468,19 @@ body.not-home:not(.no-me) main { padding-top: calc(16px + env(safe-area-inset-to
 .shop-item .tick.done { background: var(--accent); border-color: var(--accent); }
 .shop-item .tick.done::after { content: '✓'; position: absolute; inset: 0; display: grid; place-items: center; color: #fff; font-size: 15px; font-weight: 700; }
 .shop-item .name { cursor: pointer; }
+
+/* Reaktionen */
+.reacts { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 8px 0 2px; }
+.react-chip { display: inline-flex; align-items: center; gap: 4px; padding: 3px 9px; border-radius: 999px; border: 1px solid var(--line); background: transparent; color: inherit; font-size: 14px; cursor: pointer; }
+.react-chip span { font-size: 12px; color: var(--muted); }
+.react-chip[aria-pressed="true"] { border-color: var(--accent); background: var(--accent-soft); }
+.react-add { position: relative; display: inline-flex; }
+.react-plus { padding: 3px 9px; border-radius: 999px; border: 1px dashed var(--line); background: transparent; color: var(--muted); font-size: 13px; cursor: pointer; }
+.react-pick { position: absolute; bottom: calc(100% + 6px); left: 0; z-index: 5; display: flex; gap: 2px; padding: 4px 6px; border-radius: 999px; background: var(--card, #fff); border: 1px solid var(--line); box-shadow: 0 4px 14px rgba(0,0,0,.25); }
+.react-pick[hidden] { display: none; }
+.react-pick button { background: none; border: 0; font-size: 22px; padding: 2px 4px; cursor: pointer; }
+.note .reacts { margin: 2px 0 4px; gap: 4px; }
+.note .react-chip { border-color: rgba(0,0,0,.2); padding: 1px 6px; font-size: 12px; }
+.note .react-chip span { color: rgba(0,0,0,.55); font-size: 11px; }
+.note .react-chip[aria-pressed="true"] { background: rgba(255,255,255,.55); border-color: rgba(0,0,0,.4); }
+.note .react-plus { border-color: rgba(0,0,0,.3); color: rgba(0,0,0,.55); padding: 1px 6px; font-size: 11px; }
