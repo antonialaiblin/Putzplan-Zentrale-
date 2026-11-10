@@ -292,7 +292,7 @@ function renderMe() {
   $('#admin-box').hidden = !state.isAdmin;
   // Ohne Auswahl ist nur „Wer bist du?“ (bzw. Beitreten) zu sehen
   document.body.classList.toggle('no-me', !state.me);
-  $('#who-line').textContent = state.me ? (isMyBirthday() ? L(`Alles Gute, ${state.me} 🎁`, `Happy birthday, ${state.me} 🎁`, `Grattis, ${state.me} 🎁`) : L(`Hallo ${state.me} 👋`, `Hi ${state.me} 👋`, `Hej ${state.me} 👋`)) : 'Mission Haussegen';
+  setWho();
   $('#people-buttons').innerHTML = state.people.map((p) => (memberOf(p)?.claimed
     ? `<button type="button" disabled class="taken">${avatar(p, 'sm')}${esc(p)} <span class="lock" title="${L('vergeben', 'taken', 'upptagen')}">🔒</span></button>`
     : `<button type="button" data-me="${esc(p)}">${avatar(p, 'sm')}${esc(p)}</button>`)).join('');
@@ -623,7 +623,7 @@ function rankingHtml() {
   return `<ol class="ranking">${rows.map((r, i) => {
     if (r.n !== last) { place = i + 1; last = r.n; }
     const medal = r.n ? ['🥇', '🥈', '🥉'][place - 1] || `${place}.` : '–';
-    return `<li class="${r.p === state.me ? 'me' : ''}"><span class="rk">${medal}</span>${avatar(r.p, 'sm')}<span class="nm">${esc(r.p)} ${streakChip(r.p)}</span><span class="bar"><b style="width:${Math.round((r.n / max) * 100)}%"></b></span><span class="ct">${r.n}</span></li>`;
+    return `<li class="${r.p === state.me ? 'me' : ''}"><span class="rk">${medal}</span>${avatar(r.p, 'sm')}<span class="nm">${esc(r.p)}${r.p !== state.me ? ` ${streakChip(r.p)}` : ''}</span><span class="bar"><b style="width:${Math.round((r.n / max) * 100)}%"></b></span><span class="ct">${r.n}</span></li>`;
   }).join('')}</ol><p class="muted small" style="margin:6px 0 0">${L('Gezählt wird jede abgehakte Aufgabe.', 'Every ticked-off task counts.', 'Varje avbockad uppgift räknas.')}</p>`;
 }
 document.addEventListener('click', (e) => {
@@ -1327,7 +1327,7 @@ function renderMoney() {
         ? `<details><summary>${L('Aufteilung', 'Split', `Fördelning`)}</summary><p>${Object.entries(e.parts).map(([p, v]) => `${esc(p)}: ${money(v, cur)}`).join(' · ')}</p></details>`
         : '';
       return `<div class="exp${settleRow ? ' settle' : ''}"><div class="d">${e.recurring ? '🔁 ' : ''}${esc(T(e.desc))}<small>${who} · ${e.recurring && e.date ? fmtDay(e.date) : ago(e.at)}</small>${split}</div>
-        <div class="r"><strong>${money(e.amount, cur)}</strong><button class="link small" data-del="${esc(e.id)}">${L('löschen', 'delete', `ta bort`)}</button></div></div>`;
+        <div class="r"><strong>${money(e.amount, cur)}</strong>${!e.net && !settleRow ? `<button class="link small" data-edit-exp="${esc(e.id)}">${L('ändern', 'edit', 'ändra')}</button>` : ''}<button class="link small" data-del="${esc(e.id)}">${L('löschen', 'delete', `ta bort`)}</button></div></div>`;
     }).join('')
     : `<p class="empty">${L('Noch nichts eingetragen.', 'Nothing added yet.', `Inget tillagt än.`)}</p>`;
 }
@@ -1420,11 +1420,14 @@ $('#money-form').addEventListener('submit', async (e) => {
   if (state.mode === 'equal' && !state.split.size) { toast(L('Bitte mindestens eine Person auswählen', 'Please choose at least one person', `Välj minst en person`)); return; }
   const values = Object.fromEntries([...document.querySelectorAll('#m-values input')].map((i) => [i.name, i.value.trim()]));
   try {
+    const editing = state.editExp;
     state.money = await api('money/add', {
       desc: $('#m-desc').value, amount: $('#m-amount').value, currency: $('#m-cur').value, paidBy: $('#m-paid').value,
       mode: state.mode, split: [...state.split], values, by: state.me,
-      repeat: $('#m-repeat-on').checked ? $('#m-repeat').value : null,
+      repeat: !editing && $('#m-repeat-on').checked ? $('#m-repeat').value : null,
+      ...(editing ? { id: editing } : {}),
     });
+    if (editing) { stopEditExp(); renderMoney(); toast(L('Geändert ✓', 'Changed ✓', 'Ändrat ✓')); return; }
     const wasRepeat = $('#m-repeat-on').checked;
     $('#m-repeat-on').checked = false;
     $('#m-repeat-wrap').hidden = true;
@@ -1436,6 +1439,45 @@ $('#money-form').addEventListener('submit', async (e) => {
     toast(L('Eingetragen', 'Added', `Tillagt`));
   } catch (err) { toast(err.message); }
 });
+/** Ausgabe ändern: Formular mit den alten Werten füllen */
+function startEditExp(id) {
+  const e = (state.money?.expenses || []).find((x) => x.id === id);
+  if (!e) return;
+  state.editExp = id;
+  $('#m-desc').value = T(e.desc);
+  $('#m-amount').value = (e.amount / 100).toFixed(2).replace('.', ',');
+  $('#m-cur').value = e.currency || 'EUR';
+  $('#m-paid').value = e.paidBy;
+  state.paidTouched = true;
+  const parts = e.parts || {};
+  if (!e.mode || e.mode === 'equal') {
+    state.mode = 'equal';
+    state.split = new Set(Object.keys(parts).length ? Object.keys(parts) : (e.split || []));
+    $('#m-values').innerHTML = '';
+    renderSplit();
+  } else {
+    state.mode = 'exact';
+    $('#m-values').innerHTML = '';
+    renderSplit();
+    document.querySelectorAll('#m-values input').forEach((i) => { i.value = parts[i.name] ? (parts[i.name] / 100).toFixed(2).replace('.', ',') : ''; });
+    updateHint();
+  }
+  $('#m-repeat-on').checked = false; $('#m-repeat-wrap').hidden = true;
+  $('#m-repeat-on').closest('label').hidden = true;
+  $('#money-form h2').textContent = L('Ausgabe ändern', 'Edit expense', 'Ändra utgift');
+  $('#m-submit').textContent = L('Änderung speichern', 'Save changes', 'Spara ändringar');
+  $('#m-cancel-edit').hidden = false;
+  $('#money-form').scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+function stopEditExp() {
+  state.editExp = null;
+  $('#m-desc').value = ''; $('#m-amount').value = ''; $('#m-values').innerHTML = '';
+  $('#m-repeat-on').closest('label').hidden = false;
+  $('#money-form h2').textContent = L('Ausgabe eintragen', 'Add expense', 'Lägg till utgift');
+  $('#m-submit').textContent = L('Eintragen', 'Add', 'Lägg till');
+  $('#m-cancel-edit').hidden = true;
+}
+$('#m-cancel-edit').addEventListener('click', () => { stopEditExp(); renderSplit(); });
 $('#m-repeat-on').addEventListener('change', () => { $('#m-repeat-wrap').hidden = !$('#m-repeat-on').checked; });
 const REPEAT_LABEL = () => ({ week: L('jede Woche', 'every week', 'varje vecka'), '2week': L('alle 2 Wochen', 'every 2 weeks', 'varannan vecka'), month: L('jeden Monat', 'every month', 'varje månad'), '2month': L('alle 2 Monate', 'every 2 months', 'varannan månad'), quarter: L('alle 3 Monate', 'every 3 months', 'var 3:e månad'), year: L('jedes Jahr', 'every year', 'varje år') });
 function renderRecurring() {
@@ -1477,6 +1519,8 @@ $('#tab-money').addEventListener('click', async (e) => {
     } catch (err) { toast(err.message); }
     return;
   }
+  const ed = e.target.closest('[data-edit-exp]');
+  if (ed) { startEditExp(ed.dataset.editExp); return; }
   const d = e.target.closest('[data-del]');
   if (d) {
     if (!confirm(L('Diesen Eintrag wirklich löschen?', 'Really delete this entry?', `Vill du verkligen ta bort posten?`))) return;
@@ -1646,7 +1690,15 @@ function runShortcut(id) {
   else if (id === 'note') openNoteDialog();
 }
 
+function setWho() {
+  const me = state.me;
+  const chip = me && state.gami?.streaks ? ` ${streakChip(me)}` : '';
+  $('#who-line').innerHTML = me
+    ? (isMyBirthday() ? L(`Alles Gute, ${esc(me)}${chip} 🎁`, `Happy birthday, ${esc(me)}${chip} 🎁`, `Grattis, ${esc(me)}${chip} 🎁`) : L(`Hallo ${esc(me)}${chip} 👋`, `Hi ${esc(me)}${chip} 👋`, `Hej ${esc(me)}${chip} 👋`))
+    : 'Mission Haussegen';
+}
 function renderHome() {
+  setWho();
   const el = $('#home');
   if (!el || !state.current) return;
   const w = state.weeks.get(state.current);
@@ -1670,7 +1722,7 @@ function renderHome() {
       ${me ? (mine.length ? `<div class="big">${mine.map(esc).join(', ')}</div>
         ${total ? `<p>${L(`${done} von ${total} erledigt`, `${done} of ${total} done`, `${done} av ${total} klart`)}</p><div class="progress"><b style="width:${Math.round((done / total) * 100)}%"></b></div>` : ''}`
         : `<div class="big">${L('Frei diese Woche 🎉', 'Free this week 🎉', `Ledig den här veckan 🎉`)}</div>`) : `<p>${L('Tipp oben auf deinen Namen.', 'Tap your name above.', `Tryck på ditt namn ovan.`)}</p>`}
-      ${state.gami ? `<p class="streak-line">${streakLine()}</p>${streaksHtml()}` : ''}</a>`;
+</a>`;
     const t = (k) => w.tasks.find((x) => x.key === k);
     tiles.plan = `<a class="card __CLS__" href="#plan"><h3>${L('Putzplan', 'Cleaning', `Städning`)}</h3>
       <p>${L('Wochendienst', 'Weekly duty', `Veckotjänst`)}: <strong>${esc(t('woche')?.person || '–')}</strong></p>

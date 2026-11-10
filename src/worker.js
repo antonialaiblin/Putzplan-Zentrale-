@@ -501,6 +501,25 @@ export class Putzplan extends DurableObject {
     let me = acct?.person && PEOPLE.includes(acct.person) ? acct.person : null;
     const admin = (await this.ctx.storage.get('admin')) || 'Toni';
     const isAdmin = !!me && me === admin;
+    // Alle (außer der Person selbst) bekommen eine Push, wenn sich in der Kasse etwas tut
+    const notifyMoney = async (action, e, by) => {
+      const fmt = (l) => new Intl.NumberFormat(l === 'en' ? 'en-GB' : l === 'sv' ? 'sv-SE' : 'de-DE', { style: 'currency', currency: e.currency || 'EUR' }).format(e.amount / 100);
+      const settle = e.kind === 'settle';
+      const to = Object.keys(e.parts || {})[0];
+      for (const p of PEOPLE) {
+        if (p === by) continue;
+        await this.pushToPerson(p, (l) => {
+          const L = pick(l);
+          const what = settle ? L(`${e.paidBy} → ${to}: ${fmt(l)} zurückgezahlt`, `${e.paidBy} → ${to}: ${fmt(l)} paid back`, `${e.paidBy} → ${to}: ${fmt(l)} återbetalt`)
+            : L(`${tr(e.desc, 'de')}: ${fmt(l)}, bezahlt von ${e.paidBy}`, `${tr(e.desc, 'en')}: ${fmt(l)}, paid by ${e.paidBy}`, `${tr(e.desc, 'sv')}: ${fmt(l)}, betalt av ${e.paidBy}`);
+          const who = by || L('Jemand', 'Someone', 'Någon');
+          const title = action === 'add' ? (settle ? L(`💸 ${who} hat eine Rückzahlung eingetragen`, `💸 ${who} added a repayment`, `💸 ${who} lade till en återbetalning`) : L(`💶 ${who} hat eine Ausgabe eingetragen`, `💶 ${who} added an expense`, `💶 ${who} lade till en utgift`))
+            : action === 'edit' ? L(`✏️ ${who} hat eine Ausgabe geändert`, `✏️ ${who} changed an expense`, `✏️ ${who} ändrade en utgift`)
+            : L(`🗑️ ${who} hat einen Eintrag gelöscht`, `🗑️ ${who} deleted an entry`, `🗑️ ${who} tog bort en post`);
+          return { title, body: what, url: '/#kasse' };
+        });
+      }
+    };
     const startSession = async (user) => {
       const t = newToken();
       await this.ctx.storage.put(`sess:${t}`, { user, at: Date.now() });
@@ -1310,6 +1329,7 @@ export class Putzplan extends DurableObject {
         const amount = parseEuro(body.price);
         if (amount && PEOPLE.includes(body.by)) {
           await this.addExpense({ desc: item.name, amount, currency: 'EUR', paidBy: body.by, mode: 'equal', parts: computeParts(amount, 'equal', PEOPLE, PEOPLE).parts, split: PEOPLE, by: body.by });
+          await notifyMoney('add', { desc: item.name, amount, currency: 'EUR', paidBy: body.by, kind: 'expense' }, me);
         }
       }
       return json(await this.shop());
@@ -1337,12 +1357,24 @@ export class Putzplan extends DurableObject {
         list.push({ id: rid(), desc, amount, currency, paidBy: body.paidBy, mode, parts, split: Object.keys(parts), every: body.repeat, next: berlinNow().day, by: PEOPLE.includes(body.by) ? body.by : null, since: berlinNow().day });
         await this.ctx.storage.put('recurring', list);
         await this.runRecurring();
+        await notifyMoney('add', { desc, amount, currency, paidBy: body.paidBy, parts, kind }, me);
+        return json(await this.money());
+      }
+      if (body.id) {
+        // Bestehende Ausgabe ändern
+        const key = `exp:${str(body.id, 40)}`;
+        const old = await this.ctx.storage.get(key);
+        if (!old || old.net) return json({ error: 'Diesen Eintrag gibt es nicht mehr.' }, 404);
+        const upd = { ...old, desc, amount, currency, paidBy: body.paidBy, mode, parts, split: Object.keys(parts), editedBy: me || null, editedAt: Date.now() };
+        await this.ctx.storage.put(key, upd);
+        await notifyMoney('edit', upd, me);
         return json(await this.money());
       }
       await this.addExpense({
         desc, amount, currency, paidBy: body.paidBy, mode, parts, split: Object.keys(parts), kind,
         by: PEOPLE.includes(body.by) ? body.by : null,
       });
+      await notifyMoney('add', { desc, amount, currency, paidBy: body.paidBy, parts, kind }, me);
       return json(await this.money());
     }
     if (path === '/money/import' && request.method === 'POST') {
@@ -1416,7 +1448,10 @@ export class Putzplan extends DurableObject {
     }
 
     if (path === '/money/delete' && request.method === 'POST') {
-      await this.ctx.storage.delete(`exp:${str(body.id, 40)}`);
+      const key = `exp:${str(body.id, 40)}`;
+      const old = await this.ctx.storage.get(key);
+      await this.ctx.storage.delete(key);
+      if (old) await notifyMoney('delete', old, me);
       return json(await this.money());
     }
 
