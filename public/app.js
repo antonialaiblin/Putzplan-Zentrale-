@@ -363,7 +363,7 @@ function showTab() {
   renderMe();
   if (tab === 'home') { renderHome(); loadMoney(); loadShop(); }
   if (tab === 'cal') renderCal();
-  document.querySelectorAll('.tabbar a').forEach((a) => a.classList.toggle('active', a.dataset.tab === tab));
+  document.querySelectorAll('.tabbar a').forEach((a) => a.classList.toggle('active', a.dataset.tab === (tab === 'rules' ? 'home' : tab)));
   if (tab === 'shop') loadShop();
   if (tab === 'money') loadMoney();
   window.scrollTo(0, 0);

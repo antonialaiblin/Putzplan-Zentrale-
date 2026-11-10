@@ -150,3 +150,11 @@ test('Putzkraft-Termin kann pro Woche verschoben werden', () => {
   // Datum außerhalb der Woche wird ignoriert
   assert.equal(computeWeek('2026-11-16', { cleanerDate: '2026-11-30' }).cleanerDay, '2026-11-18');
 });
+
+test('Erinnerung am Vortag eines WG-Meetings', async () => {
+  const { meetingPrepMessages } = await import('../src/messages.js');
+  const m = meetingPrepMessages({ title: 'Party', time: '19:00', topics: [{ text: 'Musik' }], participants: [{ name: 'Leo', ok: true }, { name: 'Mo', ok: true }] });
+  assert.deepEqual(Object.keys(m), ['Leo', 'Mo']);
+  assert.match(m.Leo.body, /morgen um 19:00 ist WG-Meeting: Party/);
+  assert.match(m.Leo.body, /Bisherige Themen: Musik/);
+});

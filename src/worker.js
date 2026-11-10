@@ -1,6 +1,6 @@
 import { DurableObject } from 'cloudflare:workers';
 import { computeWeek, simulate, mondayOf, addDays, berlinNow, INITIAL_MEMBERS, CYCLE_START } from './plan.js';
-import { weeklyMessages, fridayMessages, ausfallMessages, cleanerAskMessage, cleanerVisitMessages } from './messages.js';
+import { weeklyMessages, fridayMessages, ausfallMessages, cleanerAskMessage, cleanerVisitMessages, meetingPrepMessages } from './messages.js';
 import { generateVapidKeys, vapidPublicRaw, sendPush } from './webpush.js';
 import { balancesByCurrency, peopleIn, parseSplitwise, computeParts, parseAmount, parseEuro, CURRENCIES, SHOP_CATEGORIES } from './money.js';
 
@@ -8,7 +8,8 @@ import { balancesByCurrency, peopleIn, parseSplitwise, computeParts, parseAmount
 export const SCHEDULE = {
   weekly: { dow: 6, hour: 19 }, // Sonntag 19 Uhr: Plan für die kommende Woche
   friday: { dow: 4, hour: 18 }, // Freitag 18 Uhr: Erinnerung an offene Aufgaben
-  cleanerAsk: { dow: 0, hour: 9 }, // Montag 9 Uhr: Zuständige:r gefragt, ob/wann die Putzkraft kommt
+  cleanerAsk: { dow: 0, hour: 9 },
+  meetingPrep: { hour: 18 }, // Am Vortag eines WG-Meetings 18 Uhr: Themen vorbereiten // Montag 9 Uhr: Zuständige:r gefragt, ob/wann die Putzkraft kommt
 };
 
 const fmtD = (d) => new Date(`${d}T12:00:00Z`).toLocaleDateString('de-DE', { weekday: 'short', day: '2-digit', month: '2-digit', timeZone: 'UTC' });
@@ -521,6 +522,16 @@ export class Putzplan extends DurableObject {
         if (week.plannedCleaner && !week.ausfall && !week.cleanerConfirmed) {
           done.push([contact, await this.pushToPerson(contact, cleanerAskMessage(week, contact))]);
         }
+      }
+    }
+    if (b.hour >= SCHEDULE.meetingPrep.hour) {
+      const tomorrow = addDays(b.day, 1);
+      for (const ev of await this.events()) {
+        if (ev.type !== 'meeting' || ev.from !== tomorrow) continue;
+        const flag = `sent:meetingPrep:${ev.id}:${ev.from}`;
+        if (await this.ctx.storage.get(flag)) continue;
+        await this.ctx.storage.put(flag, Date.now());
+        for (const [p, m] of Object.entries(meetingPrepMessages(ev))) done.push([p, await this.pushToPerson(p, m)]);
       }
     }
     return done;

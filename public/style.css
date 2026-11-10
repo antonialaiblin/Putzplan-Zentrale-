@@ -229,7 +229,7 @@ input:focus, select:focus { outline: 2px solid var(--accent); outline-offset: 0;
 .cat-row .lb { flex: 1; }
 .cat-row button { flex: none; padding: 8px 10px; }
 
-/* ---------- 6 Tabs ---------- */
+/* ---------- 5 Tabs ---------- */
 .tabbar { gap: 2px; padding-left: 4px; padding-right: 4px; }
 .tabbar a { font-size: 11px; padding: 6px 2px; }
 .tabbar a span { font-size: 20px; }
@@ -313,3 +313,4 @@ input:focus, select:focus { outline: 2px solid var(--accent); outline-offset: 0;
 .topics li:last-child { border-bottom: 0; }
 #past-meetings h3 { margin: 16px 0 6px; font-size: 1rem; }
 .ev-actions { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; flex-shrink: 0; }
+.back { color: var(--accent); text-decoration: none; font-weight: 600; }

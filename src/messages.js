@@ -64,6 +64,21 @@ export function ausfallMessages(week) {
   return msgs;
 }
 
+/** Am Vortag eines WG-Meetings an alle Teilnehmenden: Themen vorbereiten. */
+export function meetingPrepMessages(ev) {
+  const msgs = {};
+  const topics = (ev.topics || []).map((t) => t.text);
+  const list = topics.length ? ` Bisherige Themen: ${topics.slice(0, 5).join(', ')}${topics.length > 5 ? ' …' : ''}.` : ' Noch keine Themen eingetragen.';
+  for (const p of ev.participants) {
+    msgs[p.name] = {
+      title: `Morgen WG-Meeting 🗣️`,
+      body: `Hey ${p.name}, morgen${ev.time ? ` um ${ev.time}` : ''} ist ${ev.title && ev.title !== 'WG-Meeting' ? `WG-Meeting: ${ev.title}` : 'WG-Meeting'}. Überleg dir schon mal, was du ansprechen willst, und trag deine Themen in der App ein.${list}`,
+      url: '/#kalender',
+    };
+  }
+  return msgs;
+}
+
 /** Montags an die/den Putzkraft-Zuständige:n: Kommt sie diese Woche? */
 export function cleanerAskMessage(week, contact) {
   return {
