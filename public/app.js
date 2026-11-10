@@ -321,6 +321,7 @@ async function loadShop() {
 function renderShop() {
   const sh = state.shop;
   if (!sh) return;
+  if (!sh.categories.some((c) => c.id === state.shopCat)) state.shopCat = sh.categories[sh.categories.length - 1].id;
   const badge = $('#shop-badge');
   badge.hidden = !sh.items.length;
   badge.textContent = sh.items.length;
@@ -378,6 +379,39 @@ $('#shop-list').addEventListener('click', (e) => {
   };
   dlg.returnValue = '';
   dlg.showModal();
+});
+
+// Kategorien bearbeiten
+function catRow(c = { label: '', icon: '🛒' }) {
+  return `<div class="cat-row" data-id="${esc(c.id || '')}">
+    <input class="ic" value="${esc(c.icon)}" maxlength="8" aria-label="Emoji">
+    <input class="lb" value="${esc(c.label)}" maxlength="40" placeholder="Name" aria-label="Name">
+    <button type="button" class="ghost" data-cat-del aria-label="Löschen">🗑</button></div>`;
+}
+$('#edit-cats').addEventListener('click', () => {
+  $('#cats-list').innerHTML = state.shop.categories.map(catRow).join('');
+  const dlg = $('#cats-dialog');
+  dlg.returnValue = '';
+  dlg.onclose = async () => {
+    if (dlg.returnValue !== 'ok') return;
+    const categories = [...document.querySelectorAll('#cats-list .cat-row')].map((r) => ({
+      id: r.dataset.id || undefined, icon: r.querySelector('.ic').value.trim(), label: r.querySelector('.lb').value.trim(),
+    })).filter((c) => c.label);
+    try {
+      state.shop = await api('shop/categories', { categories });
+      if (!state.shop.categories.some((c) => c.id === state.shopCat)) state.shopCat = state.shop.categories[0].id;
+      renderShop();
+      toast('Kategorien gespeichert');
+    } catch (err) { toast(err.message); }
+  };
+  dlg.showModal();
+});
+$('#cat-add').addEventListener('click', () => {
+  $('#cats-list').insertAdjacentHTML('beforeend', catRow());
+  $('#cats-list .cat-row:last-child .lb').focus();
+});
+$('#cats-list').addEventListener('click', (e) => {
+  if (e.target.closest('[data-cat-del]')) e.target.closest('.cat-row').remove();
 });
 
 // ---------------- WG-Kasse ----------------

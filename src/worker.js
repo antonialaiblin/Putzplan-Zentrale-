@@ -45,7 +45,10 @@ export class Putzplan extends DurableObject {
   }
   async shop() {
     const items = [...(await this.ctx.storage.list({ prefix: 'shop:' })).values()].sort((a, b) => a.at - b.at);
-    return { categories: SHOP_CATEGORIES, items };
+    return { categories: await this.categories(), items };
+  }
+  async categories() {
+    return (await this.ctx.storage.get('shopcats')) || SHOP_CATEGORIES;
   }
   async addExpense(e) {
     // Schlüssel nach Zeit sortierbar
@@ -159,10 +162,28 @@ export class Putzplan extends DurableObject {
     }
     if (path === '/shop/add' && request.method === 'POST') {
       const name = str(body.name, 80);
-      const cat = SHOP_CATEGORIES.some((c) => c.id === body.cat) ? body.cat : 'allgemein';
+      const cats = await this.categories();
+      const cat = cats.some((c) => c.id === body.cat) ? body.cat : cats[cats.length - 1].id;
       if (!name) return json({ error: 'Was soll eingekauft werden?' }, 400);
       const id = newId();
       await this.ctx.storage.put(`shop:${id}`, { id, name, cat, by: PEOPLE.includes(body.by) ? body.by : null, at: Date.now() });
+      return json(await this.shop());
+    }
+    if (path === '/shop/categories' && request.method === 'POST') {
+      // Komplette Liste speichern: [{id?, label, icon}] – neue ohne id, fehlende werden gelöscht
+      const old = await this.categories();
+      const list = (Array.isArray(body.categories) ? body.categories : []).slice(0, 20).map((c) => ({
+        id: typeof c.id === 'string' && old.some((o) => o.id === c.id) ? c.id : `k${newId()}`,
+        label: str(c.label, 40),
+        icon: str(c.icon, 8) || '🛒',
+      })).filter((c) => c.label);
+      if (!list.length) return json({ error: 'Mindestens eine Kategorie muss bleiben.' }, 400);
+      await this.ctx.storage.put('shopcats', list);
+      // Sachen aus gelöschten Kategorien landen in „Allgemein“ (oder der letzten Kategorie)
+      const fallback = (list.find((c) => c.id === 'allgemein') || list[list.length - 1]).id;
+      for (const [k, item] of await this.ctx.storage.list({ prefix: 'shop:' })) {
+        if (!list.some((c) => c.id === item.cat)) await this.ctx.storage.put(k, { ...item, cat: fallback });
+      }
       return json(await this.shop());
     }
     if (path === '/shop/done' && request.method === 'POST') {

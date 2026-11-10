@@ -73,6 +73,7 @@
           <button type="submit">Hinzufügen</button>
         </div>
         <div class="chips" id="shop-cats" role="radiogroup" aria-label="Kategorie"></div>
+        <button type="button" class="link small edit-cats" id="edit-cats">Kategorien bearbeiten</button>
       </form>
       <div id="shop-list"></div>
     </div>
@@ -182,6 +183,19 @@
       <div class="row end">
         <button value="cancel" class="ghost" formnovalidate>Abbrechen</button>
         <button value="ok" id="bought-ok">Fertig</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="cats-dialog">
+    <form method="dialog" id="cats-form">
+      <h2>Kategorien bearbeiten</h2>
+      <p class="muted small">Emoji und Name ändern, neue hinzufügen oder löschen. Sachen aus einer gelöschten Kategorie landen in „Allgemein“.</p>
+      <div id="cats-list" class="cats-list"></div>
+      <button type="button" class="ghost small" id="cat-add">+ Neue Kategorie</button>
+      <div class="row end">
+        <button value="cancel" class="ghost" formnovalidate>Abbrechen</button>
+        <button value="ok">Speichern</button>
       </div>
     </form>
   </dialog>

@@ -221,3 +221,10 @@ input:focus, select:focus { outline: 2px solid var(--accent); outline-offset: 0;
 .rules li { margin: 8px 0; }
 .rules a { color: var(--accent); }
 .rules .intro p { margin: 0; }
+
+.edit-cats { margin-top: 10px; }
+.cats-list { display: grid; gap: 8px; margin: 12px 0; }
+.cat-row { display: flex; gap: 8px; align-items: center; }
+.cat-row .ic { flex: 0 0 56px; text-align: center; }
+.cat-row .lb { flex: 1; }
+.cat-row button { flex: none; padding: 8px 10px; }

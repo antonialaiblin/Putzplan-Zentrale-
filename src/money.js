@@ -119,7 +119,7 @@ export const parseEuro = (input) => parseAmount(input);
 export const CURRENCIES = ['EUR', 'USD', 'GBP', 'CHF', 'PLN', 'CZK', 'DKK', 'SEK', 'NOK', 'HUF', 'TRY', 'RON', 'BGN', 'AUD', 'CAD'];
 
 export const SHOP_CATEGORIES = [
-  { id: 'putzsachen', label: 'Putzsachen', icon: '🧴' },
+  { id: 'putzsachen', label: 'Putzsachen allgemein', icon: '🧴' },
   { id: 'bad', label: 'Bad', icon: '🛁' },
   { id: 'kueche', label: 'Küche', icon: '🍳' },
   { id: 'allgemein', label: 'Allgemein', icon: '🛒' },
