@@ -639,6 +639,10 @@ export class Putzplan extends DurableObject {
       await this.ctx.storage.put(acctKey(acct.username), { ...acct, hint: hint || null });
       return json({ ok: true });
     }
+    if (path === '/auth/logout' && request.method === 'POST') {
+      if (sess) await this.ctx.storage.delete(`sess:${token}`);
+      return json({ ok: true });
+    }
     if (path === '/auth/password' && request.method === 'POST') {
       if (!pwOk(body.password)) return json({ error: 'Das Passwort braucht mindestens 4 Zeichen.' }, 400);
       if (typeof body.old !== 'string' || (await pwHash(body.old, acct.salt)) !== acct.hash) return json({ error: 'Das alte Passwort stimmt nicht.' }, 400);

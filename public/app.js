@@ -478,6 +478,13 @@ $('#hint-change').onclick = async () => {
   try { await api('auth/hint', { hint }); toast(L('Merkhilfe gespeichert 💡', 'Hint saved 💡', 'Ledtråden är sparad 💡')); } catch (err) { toast(err.message); }
 };
 
+$('#logout').onclick = async () => {
+  if (!confirm(L('Abmelden? Beim nächsten Öffnen brauchst du Name und Passwort.', 'Sign out? Next time you need your name and password.', 'Logga ut? Nästa gång behöver du namn och lösenord.'))) return;
+  try { await api('auth/logout', {}); } catch { /* egal */ }
+  store.set('token', ''); store.set('me', '');
+  location.hash = '#start';
+  location.reload();
+};
 $('#pw-change').onclick = async () => {
   const old = prompt(L('Altes Passwort:', 'Current password:', 'Nuvarande lösenord:'));
   if (old === null) return;
