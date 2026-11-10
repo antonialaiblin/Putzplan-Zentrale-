@@ -16,6 +16,17 @@ export const SCHEDULE = {
 };
 
 const fmtD = (d, lang = 'de') => dayLabel(d, lang);
+/** Nächster Termin einer wiederkehrenden Ausgabe */
+const REPEATS = { week: [0, 7], '2week': [0, 14], month: [1, 0], '2month': [2, 0], quarter: [3, 0], year: [12, 0] };
+function nextDate(d, every) {
+  const [months, days] = REPEATS[every] || REPEATS.month;
+  if (days) return addDays(d, days);
+  const [y, m, day] = d.split('-').map(Number);
+  const t = new Date(Date.UTC(y, m - 1 + months, 1));
+  const last = new Date(Date.UTC(t.getUTCFullYear(), t.getUTCMonth() + 1, 0)).getUTCDate();
+  t.setUTCDate(Math.min(day, last));
+  return t.toISOString().slice(0, 10);
+}
 const pick = (lang) => (de, en, sv) => (lang === 'en' ? en : lang === 'sv' ? sv ?? en : de);
 
 const json = (data, status = 200) =>
@@ -178,6 +189,28 @@ export class Putzplan extends DurableObject {
   async categories() {
     return (await this.ctx.storage.get('shopcats')) || SHOP_CATEGORIES;
   }
+  /** Wiederkehrende Ausgaben fällig? Dann eintragen und nächsten Termin setzen. */
+  async runRecurring(today = berlinNow().day) {
+    const list = (await this.ctx.storage.get('recurring')) || [];
+    let changed = false;
+    for (const r of list) {
+      let guard = 0;
+      while (r.next <= today && guard++ < 60) {
+        const id = `${Date.now().toString(36).padStart(10, '0')}${Math.random().toString(36).slice(2, 6)}`;
+        await this.ctx.storage.put(`exp:${id}`, {
+          id, kind: 'expense', desc: r.desc, amount: r.amount, currency: r.currency, paidBy: r.paidBy, mode: r.mode, parts: r.parts, split: r.split,
+          by: r.by, recurring: r.id, date: r.next, at: Date.parse(`${r.next}T10:00:00Z`) || Date.now(),
+        });
+        r.next = nextDate(r.next, r.every);
+        changed = true;
+      }
+    }
+    if (changed) await this.ctx.storage.put('recurring', list);
+    return list;
+  }
+  async board() {
+    return (await this.ctx.storage.get('board')) || [];
+  }
   async addExpense(e) {
     // Schlüssel nach Zeit sortierbar
     const id = `${Date.now().toString(36).padStart(10, '0')}${Math.random().toString(36).slice(2, 6)}`;
@@ -192,6 +225,7 @@ export class Putzplan extends DurableObject {
       former,
       currencies: CURRENCIES,
       byCurrency: balancesByCurrency(all, [...people, ...former]),
+      recurring: (await this.ctx.storage.get('recurring')) || [],
       expenses: all.sort((a, b) => b.at - a.at).slice(0, 100),
       total: all.length,
     };
@@ -231,7 +265,7 @@ export class Putzplan extends DurableObject {
       const from = validMonday(url.searchParams.get('from')) ? url.searchParams.get('from') : addDays(current, -7);
       const count = Math.min(Math.max(Number(url.searchParams.get('count')) || 12, 1), 30);
       const weeks = await this.weeks([...Array(count)].map((_, i) => addDays(from, i * 7)));
-      return json({ people: PEOPLE, members: await this.members(), absences: await this.absences(), events: await this.events(), polls: await this.polls(), surveys: await this.surveys(), swapRequests: await this.swapRequests(), cleanerContact: await this.cleanerContact(), current, today: berlinNow().day, weeks });
+      return json({ people: PEOPLE, members: await this.members(), absences: await this.absences(), events: await this.events(), polls: await this.polls(), surveys: await this.surveys(), swapRequests: await this.swapRequests(), board: await this.board(), cleanerContact: await this.cleanerContact(), current, today: berlinNow().day, weeks });
     }
 
     if (path === '/check' && request.method === 'POST') {
@@ -809,6 +843,7 @@ export class Putzplan extends DurableObject {
 
     // ---------- WG-Kasse ----------
     if (path === '/money' && request.method === 'GET') {
+      await this.runRecurring();
       return json(await this.money());
     }
     if (path === '/money/add' && request.method === 'POST') {
@@ -822,6 +857,14 @@ export class Putzplan extends DurableObject {
       if (error) return json({ error }, 400);
       if (kind === 'settle' && (Object.keys(parts).length !== 1 || parts[body.paidBy])) return json({ error: 'Ungültige Rückzahlung.' }, 400);
       const desc = str(body.desc, 80) || (kind === 'settle' ? 'Rückzahlung' : 'Ausgabe');
+      if (kind === 'expense' && REPEATS[body.repeat]) {
+        // Wiederkehrend: heute zum ersten Mal, danach automatisch
+        const list = (await this.ctx.storage.get('recurring')) || [];
+        list.push({ id: rid(), desc, amount, currency, paidBy: body.paidBy, mode, parts, split: Object.keys(parts), every: body.repeat, next: berlinNow().day, by: PEOPLE.includes(body.by) ? body.by : null, since: berlinNow().day });
+        await this.ctx.storage.put('recurring', list);
+        await this.runRecurring();
+        return json(await this.money());
+      }
       await this.addExpense({
         desc, amount, currency, paidBy: body.paidBy, mode, parts, split: Object.keys(parts), kind,
         by: PEOPLE.includes(body.by) ? body.by : null,
@@ -837,6 +880,54 @@ export class Putzplan extends DurableObject {
       for (const e of r.entries) await this.ctx.storage.put(`exp:${e.id}`, { ...e, by: PEOPLE.includes(body.by) ? body.by : null });
       return json({ imported: r.entries.length, matches: r.matches, ...(await this.money()) });
     }
+    if (path === '/money/recurring/stop' && request.method === 'POST') {
+      const list = (await this.ctx.storage.get('recurring')) || [];
+      await this.ctx.storage.put('recurring', list.filter((r) => r.id !== body.id));
+      return json(await this.money());
+    }
+
+    // ---------- Freundlich erinnern ----------
+    if (path === '/remind' && request.method === 'POST') {
+      const { monday, task, by } = body;
+      if (!validMonday(monday) || !PEOPLE.includes(by)) return json({ error: 'bad request' }, 400);
+      const t = (await this.week(monday)).tasks.find((x) => x.key === task);
+      if (!t || !t.person || t.person === by) return json({ error: 'bad request' }, 400);
+      const flag = `remind:${monday}:${task}`;
+      const last = await this.ctx.storage.get(flag);
+      if (last && Date.now() - last < 6 * 3600e3) return json({ error: 'Es wurde gerade erst erinnert. Bitte später nochmal.' }, 429);
+      await this.ctx.storage.put(flag, Date.now());
+      await this.pushToPerson(t.person, (l) => {
+        const L = pick(l);
+        return {
+          title: L('🔔 Kleine Erinnerung', '🔔 A little reminder', '🔔 En liten påminnelse'),
+          body: L(`${by} erinnert dich freundlich an: ${t.title}. Danke dir! 🙂`, `${by} is kindly reminding you about: ${tr(t.title, 'en')}. Thank you! 🙂`, `${by} påminner dig vänligt om: ${tr(t.title, 'sv')}. Tack! 🙂`),
+          url: '/#plan',
+        };
+      });
+      return json({ ok: true });
+    }
+
+    // ---------- Pinnwand ----------
+    if (path.startsWith('/board/') && request.method === 'POST') {
+      let list = await this.board();
+      if (path === '/board/add') {
+        const text = str(body.text, 300);
+        if (!text) return json({ error: 'Bitte etwas auf den Zettel schreiben.' }, 400);
+        const color = ['yellow', 'pink', 'blue', 'green', 'orange'].includes(body.color) ? body.color : 'yellow';
+        const by = PEOPLE.includes(body.by) ? body.by : null;
+        list.unshift({ id: rid(), text, color, by, at: Date.now(), tilt: Math.round((Math.random() * 6 - 3) * 10) / 10 });
+        list = list.slice(0, 40);
+        for (const p of PEOPLE) {
+          if (p === by) continue;
+          await this.pushToPerson(p, (l) => ({ title: pick(l)(`📌 Neuer Zettel an der Pinnwand${by ? ` von ${by}` : ''}`, `📌 New note on the board${by ? ` from ${by}` : ''}`, `📌 Ny lapp på anslagstavlan${by ? ` från ${by}` : ''}`), body: text, url: '/#start' }));
+        }
+      } else if (path === '/board/delete') {
+        list = list.filter((n) => n.id !== body.id);
+      } else return json({ error: 'bad request' }, 400);
+      await this.ctx.storage.put('board', list);
+      return json({ board: list });
+    }
+
     if (path === '/money/delete' && request.method === 'POST') {
       await this.ctx.storage.delete(`exp:${str(body.id, 40)}`);
       return json(await this.money());
@@ -880,6 +971,7 @@ export class Putzplan extends DurableObject {
   async runCron(now = new Date()) {
     const b = berlinNow(now);
     const done = [];
+    await this.runRecurring(b.day);
     if (b.dow === SCHEDULE.weekly.dow && b.hour >= SCHEDULE.weekly.hour) {
       const monday = addDays(b.day, 1);
       const flag = `sent:weekly:${monday}`;

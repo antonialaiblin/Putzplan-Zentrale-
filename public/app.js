@@ -59,11 +59,61 @@ function translateStatic() {
     }
   }
 }
+// ---------------- Hell / Dunkel ----------------
+/** Sonnenauf- und -untergang in Berlin (NOAA-Näherung), als Date */
+function sunTimes(date, lat = 52.52, lng = 13.405) {
+  const rad = Math.PI / 180;
+  const start = Date.UTC(date.getUTCFullYear(), 0, 0);
+  const N = Math.floor((Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()) - start) / 864e5);
+  const lngHour = lng / 15;
+  const calc = (rising) => {
+    const t = N + ((rising ? 6 : 18) - lngHour) / 24;
+    const M = 0.9856 * t - 3.289;
+    let Ls = (M + 1.916 * Math.sin(M * rad) + 0.020 * Math.sin(2 * M * rad) + 282.634) % 360;
+    if (Ls < 0) Ls += 360;
+    let RA = Math.atan(0.91764 * Math.tan(Ls * rad)) / rad;
+    RA = (RA + 360) % 360;
+    RA += Math.floor(Ls / 90) * 90 - Math.floor(RA / 90) * 90;
+    RA /= 15;
+    const sinDec = 0.39782 * Math.sin(Ls * rad);
+    const cosDec = Math.cos(Math.asin(sinDec));
+    const cosH = (Math.cos(90.833 * rad) - sinDec * Math.sin(lat * rad)) / (cosDec * Math.cos(lat * rad));
+    let H = Math.acos(Math.max(-1, Math.min(1, cosH))) / rad;
+    if (rising) H = 360 - H;
+    H /= 15;
+    const T0 = H + RA - 0.06571 * t - 6.622;
+    const UT = ((T0 - lngHour) % 24 + 24) % 24;
+    return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()) + UT * 3600e3);
+  };
+  return { rise: calc(true), set: calc(false) };
+}
+const themePref = () => { try { return localStorage.getItem('theme') || 'auto'; } catch { return 'auto'; } };
+function applyTheme() {
+  const pref = themePref();
+  const now = new Date();
+  const { rise, set } = sunTimes(now);
+  const theme = pref === 'auto' ? (now >= rise && now < set ? 'light' : 'dark') : pref;
+  document.documentElement.dataset.theme = theme;
+  document.querySelector('meta[name="theme-color"]')?.setAttribute('content', theme === 'dark' ? '#151816' : '#2f6f5e');
+  document.querySelectorAll('#set-theme [data-theme-set]').forEach((b) => b.setAttribute('aria-checked', b.dataset.themeSet === pref));
+  const hm = (d) => d.toLocaleTimeString(locale(), { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Berlin' });
+  if ($('#theme-hint')) $('#theme-hint').textContent = pref === 'auto' ? L(`Heute hell von ${hm(rise)} bis ${hm(set)} (Sonnenauf- und -untergang in Berlin).`, `Light today from ${hm(rise)} to ${hm(set)} (sunrise and sunset in Berlin).`, `Ljust i dag från ${hm(rise)} till ${hm(set)} (soluppgång och solnedgång i Berlin).`) : '';
+}
+setInterval(applyTheme, 60e3);
+applyTheme();
+document.addEventListener('click', (e) => {
+  const b = e.target.closest('[data-theme-set]');
+  if (!b) return;
+  try { localStorage.setItem('theme', b.dataset.themeSet); } catch { /* egal */ }
+  applyTheme();
+});
+
 function setLang(lang, { rerender = true } = {}) {
   state.lang = ['en', 'sv'].includes(lang) ? lang : 'de';
   store.set('lang', state.lang);
   document.documentElement.lang = state.lang;
   translateStatic();
+  applyTheme();
   if (rerender) {
     render();
     renderShop();
@@ -117,6 +167,7 @@ async function load() {
   state.polls = data.polls || [];
   state.surveys = data.surveys || [];
   state.swapRequests = data.swapRequests || [];
+  state.board = data.board || [];
   state.cleanerContact = data.cleanerContact || null;
   state.today = data.today;
   state.current = data.current;
@@ -238,7 +289,8 @@ function renderWeek() {
       }).join('')}
       ${t.person ? (() => {
         const req = openSwaps().find((r) => r.monday === w.monday && r.task === t.key);
-        return `<div class="actions">${req ? `<span class="muted small">⏳ ${L(`Tausch-Anfrage an ${esc(req.to)} läuft`, `Swap request to ${esc(req.to)} pending`, `Bytesförfrågan till ${esc(req.to)} väntar`)}</span>` : ''}<button class="ghost small" data-swap="${t.key}">${L('Tauschen', 'Swap', `Byt`)}</button></div>`;
+        const canRemind = state.me && t.person !== state.me && !complete && w.monday <= state.current;
+        return `<div class="actions">${canRemind ? `<button class="ghost small" data-remind="${t.key}">🔔 ${L('Erinnern', 'Remind', 'Påminn')}</button>` : ''}${req ? `<span class="muted small">⏳ ${L(`Tausch-Anfrage an ${esc(req.to)} läuft`, `Swap request to ${esc(req.to)} pending`, `Bytesförfrågan till ${esc(req.to)} väntar`)}</span>` : ''}<button class="ghost small" data-swap="${t.key}">${L('Tauschen', 'Swap', `Byt`)}</button></div>`;
       })() : ''}
     </article>`;
   }
@@ -380,6 +432,13 @@ document.addEventListener('click', async (e) => {
     setTimeout(() => { $('#settings').open = true; $('#settings').scrollIntoView({ behavior: 'smooth' }); }, 50);
     return;
   }
+  if (e.target.closest('[data-note-add]')) { openNoteDialog(); return; }
+  const nd = e.target.closest('[data-note-del]');
+  if (nd) {
+    if (!confirm(L('Zettel von der Pinnwand abnehmen?', 'Take this note off the board?', 'Ta ner lappen från anslagstavlan?'))) return;
+    try { state.board = (await api('board/delete', { id: nd.dataset.noteDel })).board; renderHome(); } catch (err) { toast(err.message); }
+    return;
+  }
   const sc = e.target.closest('[data-shortcut]');
   if (sc && !state.editHome) { runShortcut(sc.dataset.shortcut); return; }
   if (state.editHome && e.target.closest('.tile-edit') && !e.target.closest('.tile-tools')) { e.preventDefault(); return; }
@@ -405,6 +464,15 @@ document.addEventListener('click', async (e) => {
       const x = layout[+ts.dataset.tileSize]; x.size = x.size === 'w' ? 's' : 'w';
     } else layout.splice(+td.dataset.tileDel, 1);
     saveHome(layout);
+    return;
+  }
+  const rem = e.target.closest('[data-remind]');
+  if (rem) {
+    const t = state.weeks.get(state.view).tasks.find((x) => x.key === rem.dataset.remind);
+    try {
+      await api('remind', { monday: state.view, task: rem.dataset.remind, by: state.me });
+      toast(L(`${t.person} wurde freundlich erinnert 🔔`, `${t.person} got a friendly reminder 🔔`, `${t.person} har fått en vänlig påminnelse 🔔`));
+    } catch (err) { toast(err.message); }
     return;
   }
   const ans = e.target.closest('[data-swap-answer]');
@@ -831,6 +899,7 @@ function renderMoney() {
   }
   renderSplit();
 
+  renderRecurring();
   $('#money-list').innerHTML = m.expenses.length
     ? m.expenses.map((e) => {
       const cur = e.currency || 'EUR';
@@ -853,7 +922,7 @@ function renderMoney() {
       const split = !e.net && e.parts && !settleRow
         ? `<details><summary>${L('Aufteilung', 'Split', `Fördelning`)}</summary><p>${Object.entries(e.parts).map(([p, v]) => `${esc(p)}: ${money(v, cur)}`).join(' · ')}</p></details>`
         : '';
-      return `<div class="exp${settleRow ? ' settle' : ''}"><div class="d">${esc(T(e.desc))}<small>${who} · ${ago(e.at)}</small>${split}</div>
+      return `<div class="exp${settleRow ? ' settle' : ''}"><div class="d">${e.recurring ? '🔁 ' : ''}${esc(T(e.desc))}<small>${who} · ${e.recurring && e.date ? fmtDay(e.date) : ago(e.at)}</small>${split}</div>
         <div class="r"><strong>${money(e.amount, cur)}</strong><button class="link small" data-del="${esc(e.id)}">${L('löschen', 'delete', `ta bort`)}</button></div></div>`;
     }).join('')
     : `<p class="empty">${L('Noch nichts eingetragen.', 'Nothing added yet.', `Inget tillagt än.`)}</p>`;
@@ -950,13 +1019,32 @@ $('#money-form').addEventListener('submit', async (e) => {
     state.money = await api('money/add', {
       desc: $('#m-desc').value, amount: $('#m-amount').value, currency: $('#m-cur').value, paidBy: $('#m-paid').value,
       mode: state.mode, split: [...state.split], values, by: state.me,
+      repeat: $('#m-repeat-on').checked ? $('#m-repeat').value : null,
     });
+    const wasRepeat = $('#m-repeat-on').checked;
+    $('#m-repeat-on').checked = false;
+    $('#m-repeat-wrap').hidden = true;
+    if (wasRepeat) toast(L('Eingetragen, ab jetzt automatisch 🔁', 'Added, automatic from now on 🔁', 'Tillagt, automatiskt från och med nu 🔁'));
     $('#m-desc').value = '';
     $('#m-amount').value = '';
     $('#m-values').innerHTML = '';
     renderMoney();
     toast(L('Eingetragen', 'Added', `Tillagt`));
   } catch (err) { toast(err.message); }
+});
+$('#m-repeat-on').addEventListener('change', () => { $('#m-repeat-wrap').hidden = !$('#m-repeat-on').checked; });
+const REPEAT_LABEL = () => ({ week: L('jede Woche', 'every week', 'varje vecka'), '2week': L('alle 2 Wochen', 'every 2 weeks', 'varannan vecka'), month: L('jeden Monat', 'every month', 'varje månad'), '2month': L('alle 2 Monate', 'every 2 months', 'varannan månad'), quarter: L('alle 3 Monate', 'every 3 months', 'var 3:e månad'), year: L('jedes Jahr', 'every year', 'varje år') });
+function renderRecurring() {
+  const list = state.money?.recurring || [];
+  $('#recurring-card').hidden = !list.length;
+  $('#recurring-list').innerHTML = list.map((r) => `<div class="exp"><div class="d">🔁 ${esc(T(r.desc))}<small>${esc(r.paidBy)} · ${REPEAT_LABEL()[r.every] || ''} · ${L('nächstes Mal', 'next', 'nästa gång')} ${fmtDay(r.next)}</small></div>
+    <div class="a"><strong>${money(r.amount, r.currency)}</strong><button class="link small" data-stop-rec="${esc(r.id)}">${L('beenden', 'stop', 'avsluta')}</button></div></div>`).join('');
+}
+document.addEventListener('click', async (e) => {
+  const b = e.target.closest('[data-stop-rec]');
+  if (!b) return;
+  if (!confirm(L('Diese wiederkehrende Ausgabe beenden? Bisherige Einträge bleiben.', 'Stop this recurring expense? Past entries stay.', 'Avsluta den här återkommande utgiften? Tidigare poster finns kvar.'))) return;
+  try { state.money = await api('money/recurring/stop', { id: b.dataset.stopRec }); renderMoney(); } catch (err) { toast(err.message); }
 });
 $('#sw-import').addEventListener('click', () => $('#sw-file').click());
 $('#sw-file').addEventListener('change', async () => {
@@ -999,6 +1087,7 @@ const plural = (n, de1, deN, en1, enN, sv1, svN) => (n === 1 ? L(de1, en1, sv1) 
 // ---------- Übersicht: Kacheln pro Person ----------
 const WIDGETS = {
   week: { de: 'Deine Woche', en: 'Your week', sv: 'Din vecka', size: 'w' },
+  board: { de: 'Pinnwand', en: 'Pinboard', sv: 'Anslagstavla', size: 'w' },
   plan: { de: 'Putzplan', en: 'Cleaning', sv: 'Städning', size: 's' },
   shop: { de: 'Einkauf', en: 'Shopping', sv: 'Handla', size: 's' },
   money: { de: 'Kasse', en: 'Money', sv: 'Kassa', size: 's' },
@@ -1019,9 +1108,10 @@ const SHORTCUTS = {
   cleaner: { icon: '🧹', de: 'Putzkraft-Termin', en: 'Cleaner date', sv: 'Tid för städhjälpen' },
   swap: { icon: '🔁', de: 'Dienst tauschen', en: 'Swap duty', sv: 'Byt tjänst' },
   icscal: { icon: '📲', de: 'Handy-Kalender', en: 'Phone calendar', sv: 'Mobilkalender' },
+  note: { icon: '📌', de: 'Zettel anpinnen', en: 'Pin a note', sv: 'Sätt upp en lapp' },
   invite: { icon: '➕', de: 'Mitglied einladen', en: 'Invite member', sv: 'Bjud in medlem' },
 };
-const DEFAULT_HOME = ['week', 'plan', 'shop', 'money', 'cal', 'meetings', 'rules'].map((id) => ({ id, size: WIDGETS[id].size }));
+const DEFAULT_HOME = ['week', 'board', 'plan', 'shop', 'money', 'cal', 'meetings', 'rules'].map((id) => ({ id, size: WIDGETS[id].size }));
 const widgetName = (id) => (id.startsWith('sc:') ? L(SHORTCUTS[id.slice(3)]?.de || id, SHORTCUTS[id.slice(3)]?.en || id, SHORTCUTS[id.slice(3)]?.sv || id) : L(WIDGETS[id]?.de || id, WIDGETS[id]?.en || id, WIDGETS[id]?.sv || id));
 function homeLayout() {
   if (state.homeDraft) return state.homeDraft;
@@ -1043,6 +1133,12 @@ function extraTiles(w) {
   const me = state.me;
   const out = {};
   const today = state.today;
+  // Pinnwand
+  const notes = state.board || [];
+  out.board = `<div class="card __CLS__ board-card"><div class="board-head"><h3>📌 ${L('Pinnwand', 'Pinboard', 'Anslagstavla')}</h3>${state.editHome ? '' : `<button type="button" class="small" data-note-add>+ ${L('Zettel', 'Note', 'Lapp')}</button>`}</div>
+    <div class="cork">${notes.length ? notes.map((n) => `<div class="note ${n.color}" style="--tilt:${n.tilt || 0}deg"><span class="pin"></span><p>${esc(n.text).replace(/\n/g, '<br>')}</p>
+      <small>${n.by ? esc(n.by) : ''} · ${ago(n.at)}${state.editHome ? '' : ` <button type="button" class="note-del" data-note-del="${esc(n.id)}" aria-label="${L('Zettel abnehmen', 'Remove note', 'Ta ner lappen')}">✕</button>`}</small></div>`).join('')
+    : `<p class="cork-empty">${L('Noch nichts angepinnt. Häng z.B. das WLAN-Passwort oder „Handwerker kommt Do“ auf.', 'Nothing pinned yet. Put up e.g. the Wi-Fi password or "plumber comes Thu".', 'Inget uppsatt än. Sätt t.ex. upp wifi-lösenordet eller "hantverkaren kommer tors".')}</p>`}</div></div>`;
   // Meine nächsten Dienste
   if (me) {
     const list = [...state.weeks.values()].filter((x) => x.monday >= state.current).sort((a, b) => (a.monday < b.monday ? -1 : 1))
@@ -1095,6 +1191,27 @@ function openHomeAdd() {
   dlg.showModal();
 }
 
+function openNoteDialog() {
+  const dlg = $('#note-dialog');
+  $('#note-text').value = '';
+  let color = 'yellow';
+  const mark = () => document.querySelectorAll('#note-colors [data-color]').forEach((b) => b.setAttribute('aria-checked', b.dataset.color === color));
+  $('#note-colors').onclick = (e) => { const b = e.target.closest('[data-color]'); if (b) { color = b.dataset.color; mark(); } };
+  mark();
+  $('#note-form').onsubmit = async (e) => {
+    if (e.submitter?.value !== 'ok') return;
+    e.preventDefault();
+    try {
+      state.board = (await api('board/add', { text: $('#note-text').value, color, by: state.me })).board;
+      dlg.close();
+      renderHome();
+      toast(L('Angepinnt 📌 Alle bekommen Bescheid', 'Pinned 📌 Everyone gets notified', 'Uppsatt 📌 Alla får en notis'));
+    } catch (err) { toast(err.message); }
+  };
+  dlg.showModal();
+  $('#note-text').focus();
+}
+
 function runShortcut(id) {
   const go = (hash, fn) => { location.hash = hash; if (fn) setTimeout(fn, 120); };
   if (id === 'shop') go('#einkauf', () => $('#shop-name').focus());
@@ -1105,6 +1222,7 @@ function runShortcut(id) {
   else if (id === 'swap') { state.view = state.current; go('#plan', () => render()); }
   else if (id === 'icscal') go('#kalender', () => $('#ics-open').click());
   else if (id === 'invite') $('#invite').click();
+  else if (id === 'note') openNoteDialog();
 }
 
 function renderHome() {

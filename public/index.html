@@ -14,6 +14,7 @@
   <meta name="apple-mobile-web-app-title" content="Zentrale">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
   <link rel="stylesheet" href="/style.css">
+<script>try{var t=localStorage.getItem('theme')||'auto',h=new Date().getHours();document.documentElement.dataset.theme=t==='auto'?(h>=7&&h<17?'light':'dark'):t;}catch(e){}</script>
 </head>
 <body>
   <header class="top">
@@ -83,6 +84,13 @@
             <button type="button" role="radio" data-lang="en">English</button>
             <button type="button" role="radio" data-lang="sv">Svenska</button>
           </div></div>
+        <div class="set-row"><span>Ansicht</span>
+          <div class="seg three-seg" id="set-theme" role="radiogroup" aria-label="Ansicht">
+            <button type="button" role="radio" data-theme-set="auto">🌗 Auto</button>
+            <button type="button" role="radio" data-theme-set="light">☀️ Hell</button>
+            <button type="button" role="radio" data-theme-set="dark">🌙 Dunkel</button>
+          </div></div>
+        <p class="muted small theme-hint" id="theme-hint"></p>
         <section id="notify" class="notify" hidden><div id="notify-body"></div></section>
         <div class="set-row"><span></span><button type="button" class="ghost small" id="leave-open">Ich ziehe aus</button></div>
       </details>
@@ -231,8 +239,21 @@
           <div id="m-values" class="values" hidden></div>
           <p class="muted small" id="m-hint"></p>
         </fieldset>
+        <label class="check-row"><input type="checkbox" id="m-repeat-on"> <span>🔁 Wiederkehrende Ausgabe</span></label>
+        <label class="field" id="m-repeat-wrap" hidden><span>Wie oft?</span><select id="m-repeat">
+          <option value="week">Jede Woche</option>
+          <option value="2week">Alle 2 Wochen</option>
+          <option value="month" selected>Jeden Monat</option>
+          <option value="2month">Alle 2 Monate</option>
+          <option value="quarter">Alle 3 Monate</option>
+          <option value="year">Jedes Jahr</option>
+        </select><small class="muted">Wird heute zum ersten Mal eingetragen und danach automatisch.</small></label>
         <div class="row end"><button type="submit">Eintragen</button></div>
       </form>
+      <section class="card" id="recurring-card" hidden>
+        <h2>🔁 Wiederkehrende Ausgaben</h2>
+        <div id="recurring-list"></div>
+      </section>
       <section class="card">
         <h2>Letzte Einträge</h2>
         <div id="money-list"></div>
@@ -438,6 +459,25 @@
       <div class="row end">
         <button value="cancel" class="ghost" formnovalidate>Abbrechen</button>
         <button value="ok">Speichern</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="note-dialog">
+    <form method="dialog" id="note-form">
+      <h2>Zettel anpinnen 📌</h2>
+      <label class="field"><span>Was soll an die Pinnwand?</span><textarea id="note-text" rows="4" maxlength="300" required placeholder="z.B. Handwerker kommt Donnerstag 10 Uhr"></textarea></label>
+      <div class="note-colors" id="note-colors" role="radiogroup" aria-label="Farbe">
+        <button type="button" role="radio" data-color="yellow" class="note yellow" aria-label="Gelb"></button>
+        <button type="button" role="radio" data-color="pink" class="note pink" aria-label="Rosa"></button>
+        <button type="button" role="radio" data-color="blue" class="note blue" aria-label="Blau"></button>
+        <button type="button" role="radio" data-color="green" class="note green" aria-label="Grün"></button>
+        <button type="button" role="radio" data-color="orange" class="note orange" aria-label="Orange"></button>
+      </div>
+      <p class="muted small">Alle bekommen eine kurze Nachricht.</p>
+      <div class="row end">
+        <button value="cancel" class="ghost" formnovalidate>Abbrechen</button>
+        <button value="ok">Anpinnen</button>
       </div>
     </form>
   </dialog>
