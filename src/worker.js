@@ -341,14 +341,39 @@ export class Putzplan extends DurableObject {
     const dropSessions = async (user, except) => {
       for (const [k, s] of await this.ctx.storage.list({ prefix: 'sess:' })) if (s.user?.toLowerCase() === user.toLowerCase() && k !== `sess:${except}`) await this.ctx.storage.delete(k);
     };
-    const claimed = async () => new Set((await accounts()).map((a) => a.person).filter(Boolean));
+    const claimed = async () => new Set((await accounts()).flatMap((a) => [a.person, a.pending?.type === 'claim' ? a.pending.person : null]).filter(Boolean));
+    const notifyAdmin = async (a, what) => {
+      await this.pushToPerson(admin, (l) => ({ title: pick(l)('🚪 Neue Beitritts-Anfrage', '🚪 New join request', '🚪 Ny förfrågan om att gå med'), body: pick(l)(`„${a.username}“ möchte als ${what} in die Zentrale. Bitte in den Einstellungen unter „Accounts verwalten“ zulassen oder ablehnen.`, `"${a.username}" wants to join the Zentrale as ${what}. Please approve or decline in Settings under "Manage accounts".`, `"${a.username}" vill gå med i Zentrale som ${what}. Godkänn eller avböj under Inställningar › "Hantera konton".`), url: '/#start' }));
+    };
+    /** Neue Person anlegen (nach Freigabe durch die Admin) */
+    const doJoin = async (a, pend) => {
+      const { name, side, lang, fields } = pend;
+      const members = await this.members();
+      if (members.some((m) => m.name.toLowerCase() === name.toLowerCase() && (!m.until || m.until > mondayOf(berlinNow().day)))) return `${name} gibt es schon.`;
+      // Ab nächstem Montag im Putzplan, die laufende Woche bleibt, wie sie ist
+      const since = addDays(mondayOf(berlinNow().day), 7);
+      const rest = members.filter((m) => !(m.name.toLowerCase() === name.toLowerCase()));
+      const photo = await this.savePhoto(name, pend.photo || undefined);
+      await this.ctx.storage.put('members', [...rest, { name, side, since, until: null, lang, ...fields, ...(photo ? { photo } : {}) }]);
+      await this.ctx.storage.put(acctKey(a.username), { ...a, person: name, pending: null });
+      const g = fields.gender;
+      for (const p of PEOPLE) {
+        if (p === name) continue;
+        await this.pushToPerson(p, (l) => (l === 'en'
+          ? { title: '🎉 New flatmate', body: `${name} has joined the flat (${side === 'vorne' ? 'front' : 'back'} room) and is on the cleaning rota from ${fmtD(since, 'en')}. Say hi!`, url: '/#start' }
+          : l === 'sv' ? { title: '🎉 Ny i kollektivet', body: `${name} har flyttat in (rum ${side === 'vorne' ? 'fram' : 'bak'}) och är med i städschemat från ${fmtD(since, 'sv')}. Säg hej!`, url: '/#start' }
+          : { title: `🎉 ${g === 'w' ? 'Neue Mitbewohnerin' : g === 'm' ? 'Neuer Mitbewohner' : 'Neu in der WG'}`, body: `${name} ist neu in der WG (Zimmer ${side}) und ab ${fmtD(since)} im Putzplan. Sag hallo!`, url: '/#start' }));
+      }
+      return null;
+    };
     if (path === '/auth/people' && request.method === 'GET') {
       const taken = await claimed();
       const members = (await this.members()).filter((m) => PEOPLE.includes(m.name));
       return json({
         people: PEOPLE, admin,
         members: members.map((m) => ({ name: m.name, photo: m.photo, gender: m.gender, lang: m.lang, claimed: taken.has(m.name) })),
-        account: acct ? { username: acct.username, person: me } : null,
+        account: acct ? { username: acct.username, person: me, pending: acct.pending ? { type: acct.pending.type, person: acct.pending.person || acct.pending.name } : null } : null,
+        pendingCount: isAdmin ? (await accounts()).filter((a) => a.pending || a.forgot).length : 0,
       });
     }
     if (path === '/auth/register' && request.method === 'POST') {
@@ -364,7 +389,15 @@ export class Putzplan extends DurableObject {
     }
     if (path === '/auth/login' && request.method === 'POST') {
       const name = typeof body.username === 'string' ? body.username.trim().toLowerCase() : '';
-      const a = (await accounts()).find((x) => x.username.toLowerCase() === name) || (await accounts()).find((x) => x.person?.toLowerCase() === name);
+      let a = (await accounts()).find((x) => x.username.toLowerCase() === name) || (await accounts()).find((x) => x.person?.toLowerCase() === name);
+      // Passwort aus der ersten Version (eins pro Person) übernehmen
+      const legacyPerson = !a && PEOPLE.find((p) => p.toLowerCase() === name);
+      const legacy = legacyPerson ? await this.ctx.storage.get(`auth:${legacyPerson}`) : null;
+      if (legacy && !(await claimed()).has(legacyPerson) && typeof body.password === 'string' && (await pwHash(body.password, legacy.salt)) === legacy.hash) {
+        a = { username: legacyPerson, salt: legacy.salt, hash: legacy.hash, person: legacyPerson, at: Date.now() };
+        await this.ctx.storage.put(acctKey(legacyPerson), a);
+        await this.ctx.storage.delete(`auth:${legacyPerson}`);
+      }
       const failKey = `authfail:${name}`;
       const fail = (await this.ctx.storage.get(failKey)) || { n: 0, at: 0 };
       if (fail.n >= 5 && Date.now() - fail.at < 10 * 60e3) return json({ error: 'Zu viele falsche Versuche. Bitte in 10 Minuten nochmal.' }, 429);
@@ -375,13 +408,35 @@ export class Putzplan extends DurableObject {
       await this.ctx.storage.delete(failKey);
       return json({ token: await startSession(a.username), username: a.username, person: a.person && PEOPLE.includes(a.person) ? a.person : null });
     }
+    if (path === '/auth/forgot' && request.method === 'POST') {
+      // Passwort vergessen: die Admin bekommt Bescheid und setzt ein neues
+      const name = typeof body.username === 'string' ? body.username.trim().toLowerCase() : '';
+      const a = (await accounts()).find((x) => x.username.toLowerCase() === name) || (await accounts()).find((x) => x.person?.toLowerCase() === name);
+      if (a && !(a.forgot && Date.now() - a.forgot < 3600e3)) {
+        await this.ctx.storage.put(acctKey(a.username), { ...a, forgot: Date.now() });
+        await this.pushToPerson(admin, (l) => ({ title: pick(l)('🔑 Passwort vergessen', '🔑 Forgotten password', '🔑 Glömt lösenord'), body: pick(l)(`${a.person || a.username} hat das Passwort vergessen. Setz unter „Accounts verwalten“ ein neues und sag es der Person.`, `${a.person || a.username} forgot their password. Set a new one under "Manage accounts" and tell them.`, `${a.person || a.username} har glömt sitt lösenord. Sätt ett nytt under "Hantera konton" och berätta det.`), url: '/#start' }));
+      }
+      // Immer gleich antworten, damit man nicht herausfinden kann, welche Namen es gibt
+      return json({ ok: true, admin });
+    }
     if (!acct && path.startsWith('/auth/')) return json({ error: 'Bitte melde dich an.', auth: true }, 401);
     if (path === '/auth/claim' && request.method === 'POST') {
       if (me) return json({ error: 'Dein Account ist schon mit einer Person verbunden.' }, 400);
       if (!PEOPLE.includes(body.person)) return json({ error: 'Mitglied nicht gefunden.' }, 404);
       if ((await claimed()).has(body.person)) return json({ error: `${body.person} ist schon mit einem anderen Account verbunden.` }, 400);
-      await this.ctx.storage.put(acctKey(acct.username), { ...acct, person: body.person });
-      return json({ ok: true, person: body.person });
+      // Die Admin-Person darf sich beim allerersten Mal selbst verbinden, alle anderen brauchen eine Freigabe
+      const adminLinked = (await accounts()).some((a) => a.person === admin);
+      if (body.person === admin && !adminLinked) {
+        await this.ctx.storage.put(acctKey(acct.username), { ...acct, person: body.person, pending: null });
+        return json({ ok: true, person: body.person });
+      }
+      await this.ctx.storage.put(acctKey(acct.username), { ...acct, pending: { type: 'claim', person: body.person, at: Date.now() } });
+      await notifyAdmin(acct, body.person);
+      return json({ ok: true, pending: true });
+    }
+    if (path === '/auth/cancel' && request.method === 'POST') {
+      await this.ctx.storage.put(acctKey(acct.username), { ...acct, pending: null });
+      return json({ ok: true });
     }
     if (path === '/auth/password' && request.method === 'POST') {
       if (!pwOk(body.password)) return json({ error: 'Das Passwort braucht mindestens 4 Zeichen.' }, 400);
@@ -393,14 +448,35 @@ export class Putzplan extends DurableObject {
     // Nur die Verwalterin: Accounts ansehen, Passwort neu setzen, Account löschen
     if (path.startsWith('/auth/admin')) {
       if (!isAdmin) return json({ error: 'Das darf nur die Verwalterin der App.' }, 403);
-      const list = async () => json({ accounts: (await accounts()).map((a) => ({ username: a.username, person: a.person || null, at: a.at })).sort((x, y) => (x.person || '~').localeCompare(y.person || '~')) });
+      const list = async () => json({ admin, accounts: (await accounts()).map((a) => ({ username: a.username, person: a.person || null, at: a.at, forgot: !!a.forgot, pending: a.pending ? { type: a.pending.type, person: a.pending.person || a.pending.name, side: a.pending.side || null } : null })).sort((x, y) => (x.person || '~').localeCompare(y.person || '~')) });
       if (path === '/auth/admin/list') return list();
+      if (path === '/auth/admin/transfer') {
+        const to = body.person;
+        if (!PEOPLE.includes(to) || to === me || !(await accounts()).some((a) => a.person === to)) return json({ error: 'Diese Person hat noch keinen Account.' }, 400);
+        await this.ctx.storage.put('admin', to);
+        await this.pushToPerson(to, (l) => ({ title: pick(l)('🔑 Du bist jetzt Admin', '🔑 You are now the admin', '🔑 Du är nu administratör'), body: pick(l)(`${me} hat dich zum Admin der Zentrale ernannt. Du kannst jetzt neue Mitglieder zulassen und Passwörter zurücksetzen.`, `${me} made you the admin of the Zentrale. You can now approve new members and reset passwords.`, `${me} har gjort dig till administratör. Du kan nu godkänna nya medlemmar och återställa lösenord.`), url: '/#start' }));
+        return json({ ok: true, admin: to });
+      }
       const target = (await accounts()).find((a) => a.username === body.username);
       if (!target) return json({ error: 'Account nicht gefunden.' }, 404);
       if (path === '/auth/admin/password') {
         if (!pwOk(body.password)) return json({ error: 'Das Passwort braucht mindestens 4 Zeichen.' }, 400);
-        await this.ctx.storage.put(acctKey(target.username), { ...target, ...(await hashPw(body.password)) });
+        await this.ctx.storage.put(acctKey(target.username), { ...target, ...(await hashPw(body.password)), forgot: null });
         await dropSessions(target.username);
+        return list();
+      }
+      if (path === '/auth/admin/approve' || path === '/auth/admin/decline') {
+        const pend = target.pending;
+        if (!pend) return json({ error: 'Diese Anfrage gibt es nicht mehr.' }, 400);
+        if (path === '/auth/admin/decline') { await this.ctx.storage.put(acctKey(target.username), { ...target, pending: null }); return list(); }
+        if (pend.type === 'claim') {
+          const others = (await accounts()).filter((a) => a.username !== target.username);
+          if (!PEOPLE.includes(pend.person) || others.some((a) => a.person === pend.person)) return json({ error: `${pend.person} ist schon mit einem anderen Account verbunden.` }, 400);
+          await this.ctx.storage.put(acctKey(target.username), { ...target, person: pend.person, pending: null });
+        } else {
+          const err = await doJoin(target, pend);
+          if (err) return json({ error: err }, 400);
+        }
         return list();
       }
       if (path === '/auth/admin/delete') {
@@ -749,24 +825,12 @@ export class Putzplan extends DurableObject {
       if (members.some((m) => m.name.toLowerCase() === name.toLowerCase() && (!m.until || m.until > mondayOf(berlinNow().day)))) {
         return json({ error: `${name} gibt es schon. Nimm z.B. noch den ersten Buchstaben vom Nachnamen dazu.` }, 400);
       }
-      // Ab nächstem Montag im Putzplan, die laufende Woche bleibt, wie sie ist
-      const since = addDays(mondayOf(berlinNow().day), 7);
-      const rest = members.filter((m) => !(m.name.toLowerCase() === name.toLowerCase()));
-      const lang = ['en', 'sv'].includes(body.lang) ? body.lang : 'de';
       const prof = this.checkProfile(body, { requireAll: !body.quick });
       if (prof.error) return json({ error: prof.error }, 400);
-      const photo = await this.savePhoto(name, body.photo || undefined);
-      await this.ctx.storage.put('members', [...rest, { name, side, since, until: null, lang, ...prof.fields, ...(photo ? { photo } : {}) }]);
-      const g = prof.fields.gender;
-      for (const p of PEOPLE) {
-        if (p === name) continue;
-        await this.pushToPerson(p, (l) => (l === 'en'
-          ? { title: '🎉 New flatmate', body: `${name} has joined the flat (${side === 'vorne' ? 'front' : 'back'} room) and is on the cleaning rota from ${fmtD(since, 'en')}. Say hi!`, url: '/#start' }
-          : l === 'sv' ? { title: '🎉 Ny i kollektivet', body: `${name} har flyttat in (rum ${side === 'vorne' ? 'fram' : 'bak'}) och är med i städschemat från ${fmtD(since, 'sv')}. Säg hej!`, url: '/#start' }
-          : { title: `🎉 ${g === 'w' ? 'Neue Mitbewohnerin' : g === 'm' ? 'Neuer Mitbewohner' : 'Neu in der WG'}`, body: `${name} ist neu in der WG (Zimmer ${side}) und ab ${fmtD(since)} im Putzplan. Sag hallo!`, url: '/#start' }));
-      }
-      await this.ctx.storage.put(acctKey(acct.username), { ...acct, person: name });
-      return json({ ok: true, name, since, members: await this.members() });
+      const pend = { type: 'join', name, side, lang: ['en', 'sv'].includes(body.lang) ? body.lang : 'de', fields: prof.fields, photo: typeof body.photo === 'string' ? body.photo : null, at: Date.now() };
+      await this.ctx.storage.put(acctKey(acct.username), { ...acct, pending: pend });
+      await notifyAdmin(acct, name);
+      return json({ ok: true, pending: true });
     }
     if (path === '/members/profile' && request.method === 'POST') {
       const members = await this.members();
@@ -821,6 +885,7 @@ export class Putzplan extends DurableObject {
       const members = await this.members();
       const m = members.find((x) => x.name === body.name && !x.until);
       if (!m) return json({ error: 'Mitglied nicht gefunden.' }, 404);
+      if (m.name === admin) return json({ error: 'Du bist Admin. Bitte ernenne vorher unter „Accounts verwalten“ einen neuen Admin.' }, 400);
       const day = isDay(body.date) ? body.date : berlinNow().day;
       // Ab dem Montag nach dem Auszug nicht mehr im Plan
       const until = addDays(mondayOf(day), 7);

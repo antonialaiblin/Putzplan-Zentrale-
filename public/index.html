@@ -54,6 +54,14 @@
         <label class="field"><span>Passwort wiederholen</span><input type="password" id="reg-pw2" minlength="4" maxlength="100" autocomplete="new-password" required></label>
         <div class="row end"><button type="button" class="ghost" data-auth-back>Zurück</button><button type="submit">Weiter</button></div>
       </form>
+      <div id="auth-wait" hidden>
+        <h2>Fast geschafft ⏳</h2>
+        <p class="muted" id="wait-text"></p>
+        <div class="auth-choice">
+          <button type="button" id="wait-refresh">Nochmal prüfen</button>
+          <button type="button" class="ghost" id="wait-cancel">Anfrage zurückziehen</button>
+        </div>
+      </div>
       <div id="auth-pick" hidden>
         <h2>Wer bist du?</h2>
         <p class="muted">Wähl deine Person. Sie wird fest mit deinem Account verbunden und kann danach von niemand anderem mehr gewählt werden.</p>
@@ -99,6 +107,7 @@
 
     <!-- Übersicht -->
     <div id="tab-home" class="tab" hidden>
+      <div id="admin-requests" hidden></div>
       <details class="card settings" id="settings">
         <summary>⚙️ Einstellungen</summary>
         <div class="set-row"><span>Mein Profil</span><button type="button" class="ghost small" id="profile-open">Profil bearbeiten</button></div>

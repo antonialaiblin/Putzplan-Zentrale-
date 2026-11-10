@@ -516,3 +516,6 @@ body.not-home:not(.no-me) main { padding-top: calc(16px + env(safe-area-inset-to
 .acct-row { width: 100%; display: flex; flex-direction: column; gap: 6px; padding: 10px 0; border-top: 1px solid var(--line); }
 .acct-row > div:first-child { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 #join.quick .join-extra, #join.quick #join-cancel { display: none !important; }
+
+.banner-btn { width: 100%; text-align: left; margin-bottom: 12px; padding: 14px 16px; border-radius: 14px; font-weight: 600; }
+.acct-row.pending { background: var(--accent-soft); border-radius: 12px; padding: 10px; border-top: 0; margin-bottom: 6px; }

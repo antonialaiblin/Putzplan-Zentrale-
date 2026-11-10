@@ -180,6 +180,7 @@ async function load() {
   const who = await api('auth/people');
   state.admin = who.admin;
   state.account = who.account;
+  state.pendingCount = who.pendingCount || 0;
   if (!who.account) store.set('token', '');
   if (!who.account?.person) { state.people = who.people; state.members = who.members; state.me = null; renderMe(); return; }
   state.me = who.account.person;
@@ -238,7 +239,7 @@ function renderMe() {
   const acct = state.account;
   // Alle Personen vergeben: direkt Vorname eingeben, Person wird automatisch angelegt
   const allTaken = !!acct && !acct.person && state.people.length > 0 && state.people.every((p) => memberOf(p)?.claimed);
-  const joining = !state.me && !!acct && (location.hash === '#beitreten' || state.joining || allTaken);
+  const joining = !state.me && !!acct && !acct.pending && (location.hash === '#beitreten' || state.joining || allTaken);
   $('#join').classList.toggle('quick', allTaken);
   $('#join-birthday').required = !allTaken;
   $('#join-title').textContent = allTaken ? L('Wie heißt du? 👋', "What's your name? 👋", 'Vad heter du? 👋') : L('Willkommen in der WG! 🎉', 'Welcome to the flat! 🎉', 'Välkommen till kollektivet! 🎉');
@@ -248,7 +249,12 @@ function renderMe() {
   $('#join').hidden = !joining;
   pick.hidden = !!state.me || joining;
   // Ohne Account: Start / Anmelden / Registrieren, mit Account ohne Person: Person wählen
-  const view = acct ? 'pick' : (state.authView || (location.hash === '#beitreten' ? 'register' : 'start'));
+  const view = acct ? (acct.pending ? 'wait' : 'pick') : (state.authView || (location.hash === '#beitreten' ? 'register' : 'start'));
+  $('#auth-wait').hidden = view !== 'wait';
+  if (acct?.pending) $('#wait-text').textContent = L(`Deine Anfrage als ${acct.pending.person} liegt bei ${state.admin}. Sobald ${state.admin} zustimmt, kannst du loslegen.`, `Your request to join as ${acct.pending.person} is with ${state.admin}. As soon as ${state.admin} approves, you can get started.`, `Din förfrågan som ${acct.pending.person} ligger hos ${state.admin}. Så fort ${state.admin} godkänner kan du sätta igång.`);
+  const pr = $('#admin-requests');
+  pr.hidden = !(state.isAdmin && state.pendingCount);
+  if (!pr.hidden) pr.innerHTML = `<button type="button" class="banner-btn" id="admin-requests-open">🚪 ${L(`${state.pendingCount} ${state.pendingCount === 1 ? 'Anfrage wartet' : 'Anfragen warten'} auf dich (Beitritt / Passwort)`, `${state.pendingCount} ${state.pendingCount === 1 ? 'request is' : 'requests are'} waiting for you (join / password)`, `${state.pendingCount} ${state.pendingCount === 1 ? 'förfrågan väntar' : 'förfrågningar väntar'} på dig (medlem / lösenord)`)} ›</button>`;
   $('#auth-start').hidden = view !== 'start';
   $('#login-form').hidden = view !== 'login';
   $('#register-form').hidden = view !== 'register';
@@ -398,7 +404,15 @@ $('#register-form').addEventListener('submit', async (e) => {
     toast(L('Account erstellt 🎉', 'Account created 🎉', 'Konto skapat 🎉'));
   } catch (err) { toast(err.message); }
 });
-$('#auth-forgot').onclick = () => alert(L(`Passwort vergessen? Sag ${state.admin || 'der Verwalterin'} Bescheid. Sie kann dir ein neues Passwort setzen.`, `Forgot your password? Tell ${state.admin || 'the admin'}. She can set a new password for you.`, `Glömt lösenordet? Säg till ${state.admin || 'administratören'}. Hon kan ge dig ett nytt lösenord.`));
+$('#auth-forgot').onclick = async () => {
+  let name = $('#login-user').value.trim();
+  if (!name) name = (prompt(L('Wie ist dein Name (Benutzername oder Vorname)?', 'What is your name (username or first name)?', 'Vad heter du (användarnamn eller förnamn)?')) || '').trim();
+  if (!name) return;
+  try {
+    const r = await api('auth/forgot', { username: name });
+    alert(L(`${r.admin} bekommt Bescheid und setzt dir ein neues Passwort. Du erfährst es dann direkt von ${r.admin}.`, `${r.admin} will be notified and will set a new password for you. ${r.admin} will tell you directly.`, `${r.admin} får en notis och sätter ett nytt lösenord åt dig. ${r.admin} berättar det direkt för dig.`));
+  } catch (err) { toast(err.message); }
+};
 $('#pw-change').onclick = async () => {
   const old = prompt(L('Altes Passwort:', 'Current password:', 'Nuvarande lösenord:'));
   if (old === null) return;
@@ -410,16 +424,48 @@ async function openAdmin(data) {
   const d = data || await api('auth/admin/list');
   $('#swap-title').textContent = L('🔑 Accounts verwalten', '🔑 Manage accounts', '🔑 Hantera konton');
   $('#swap-text').textContent = L('Nur du siehst das. Du kannst ein neues Passwort setzen (die Person wird abgemeldet) oder einen Account löschen, dann ist die Person wieder frei.', 'Only you can see this. You can set a new password (the person gets signed out) or delete an account, which frees the person again.', 'Bara du ser detta. Du kan sätta ett nytt lösenord (personen loggas ut) eller ta bort ett konto, då blir personen ledig igen.');
-  $('#swap-people').innerHTML = d.accounts.map((a) => `<div class="acct-row"><div>${a.person ? avatar(a.person, 'sm') : ''}<strong>${esc(a.person || L('(noch keine Person)', '(no person yet)', '(ingen person än)'))}</strong> <span class="muted small">${L('Name', 'Name', 'Namn')}: ${esc(a.username)}</span></div>
-    <div class="row"><button type="button" class="ghost small" data-acct-pw="${esc(a.username)}">${L('Neues Passwort', 'New password', 'Nytt lösenord')}</button>${a.person === state.me ? '' : `<button type="button" class="ghost small" data-acct-del="${esc(a.username)}">${L('Löschen', 'Delete', 'Ta bort')}</button>`}</div></div>`).join('') || `<p class="muted">${L('Noch keine Accounts.', 'No accounts yet.', 'Inga konton än.')}</p>`;
+  const pend = d.accounts.filter((a) => a.pending);
+  const forgot = d.accounts.filter((a) => a.forgot);
+  const forgotHtml = forgot.length ? `<h3 class="add-h">🔑 ${L('Passwort vergessen', 'Forgotten passwords', 'Glömda lösenord')}</h3>${forgot.map((a) => `<div class="acct-row pending"><div><strong>${esc(a.person || a.username)}</strong> <span class="muted small">${L('Name', 'Name', 'Namn')}: ${esc(a.username)}</span></div><div class="row"><button type="button" class="small" data-acct-pw="${esc(a.username)}">${L('Neues Passwort setzen', 'Set new password', 'Sätt nytt lösenord')}</button></div></div>`).join('')}` : '';
+  const pendHtml = pend.length ? `<h3 class="add-h">🚪 ${L('Anfragen', 'Requests', 'Förfrågningar')}</h3>${pend.map((a) => `<div class="acct-row pending"><div><strong>${esc(a.pending.person)}</strong> <span class="muted small">${a.pending.type === 'join' ? L(`neu in der WG, Zimmer ${a.pending.side}`, `new flatmate, ${a.pending.side === 'vorne' ? 'front' : 'back'} room`, `ny i kollektivet, rum ${a.pending.side === 'vorne' ? 'fram' : 'bak'}`) : L('möchte diese Person sein', 'wants to be this person', 'vill vara den här personen')} · ${L('Name', 'Name', 'Namn')}: ${esc(a.username)}</span></div>
+    <div class="row"><button type="button" class="small" data-acct-ok="${esc(a.username)}">✓ ${L('Zulassen', 'Approve', 'Godkänn')}</button><button type="button" class="ghost small" data-acct-no="${esc(a.username)}">${L('Ablehnen', 'Decline', 'Avböj')}</button></div></div>`).join('')}<h3 class="add-h">${L('Alle Accounts', 'All accounts', 'Alla konton')}</h3>` : '';
+  const heirs = d.accounts.filter((a) => a.person && a.person !== state.me).map((a) => a.person);
+  const transferHtml = `<h3 class="add-h">👑 ${L('Admin übergeben', 'Hand over admin', 'Lämna över administratör')}</h3><p class="muted small" style="width:100%;margin:0 0 6px">${L('Zum Beispiel bevor du ausziehst. Die neue Person kann dann Mitglieder zulassen und Passwörter zurücksetzen, du nicht mehr.', 'For example before you move out. The new person can then approve members and reset passwords, and you no longer can.', 'Till exempel innan du flyttar ut. Den nya personen kan då godkänna medlemmar och återställa lösenord, inte du längre.')}</p>${heirs.map((p) => `<button type="button" class="ghost small" data-admin-to="${esc(p)}">${avatar(p, 'sm')}${esc(p)}</button>`).join('') || `<p class="muted small">${L('Noch niemand sonst hat einen Account.', 'Nobody else has an account yet.', 'Ingen annan har ett konto än.')}</p>`}`;
+  $('#swap-people').innerHTML = forgotHtml + pendHtml + (forgot.length && !pend.length ? `<h3 class="add-h">${L('Alle Accounts', 'All accounts', 'Alla konton')}</h3>` : '') + d.accounts.filter((a) => !a.pending || a.person).map((a) => `<div class="acct-row"><div>${a.person ? avatar(a.person, 'sm') : ''}<strong>${esc(a.person || L('(noch keine Person)', '(no person yet)', '(ingen person än)'))}</strong> <span class="muted small">${L('Name', 'Name', 'Namn')}: ${esc(a.username)}</span></div>
+    <div class="row"><button type="button" class="ghost small" data-acct-pw="${esc(a.username)}">${L('Neues Passwort', 'New password', 'Nytt lösenord')}</button>${a.person === state.me ? '' : `<button type="button" class="ghost small" data-acct-del="${esc(a.username)}">${L('Löschen', 'Delete', 'Ta bort')}</button>`}</div></div>`).join('') + transferHtml;
   $('#swap-people').onclick = async (e) => {
     const pw = e.target.closest('[data-acct-pw]');
     const del = e.target.closest('[data-acct-del]');
+    const ok = e.target.closest('[data-acct-ok]');
+    const no = e.target.closest('[data-acct-no]');
+    const to = e.target.closest('[data-admin-to]');
     try {
+      if (ok || no) {
+        const nd = await api(ok ? 'auth/admin/approve' : 'auth/admin/decline', { username: (ok || no).dataset[ok ? 'acctOk' : 'acctNo'] });
+        state.pendingCount = nd.accounts.filter((a) => a.pending || a.forgot).length;
+        renderMe();
+        await openAdmin(nd);
+        toast(ok ? L('Zugelassen 🎉', 'Approved 🎉', 'Godkänd 🎉') : L('Abgelehnt', 'Declined', 'Avböjd'));
+        if (ok) { state.weeks.clear(); load().catch(() => {}); }
+        return;
+      }
+      if (to) {
+        const p = to.dataset.adminTo;
+        if (!confirm(L(`${p} zum Admin machen? Danach kannst du keine Mitglieder mehr zulassen und keine Passwörter mehr zurücksetzen.`, `Make ${p} the admin? Afterwards you can no longer approve members or reset passwords.`, `Göra ${p} till administratör? Efteråt kan du inte längre godkänna medlemmar eller återställa lösenord.`))) return;
+        await api('auth/admin/transfer', { person: p });
+        $('#swap-dialog').close();
+        state.isAdmin = false; state.admin = p;
+        renderMe();
+        toast(L(`${p} ist jetzt Admin 👑`, `${p} is now the admin 👑`, `${p} är nu administratör 👑`));
+        return;
+      }
       if (pw) {
         const np = prompt(L(`Neues Passwort für ${pw.dataset.acctPw} (mind. 4 Zeichen). Sag es der Person danach.`, `New password for ${pw.dataset.acctPw} (at least 4 characters). Tell them afterwards.`, `Nytt lösenord för ${pw.dataset.acctPw} (minst 4 tecken). Berätta det för personen efteråt.`));
         if (!np) return;
-        await openAdmin(await api('auth/admin/password', { username: pw.dataset.acctPw, password: np }));
+        const nd = await api('auth/admin/password', { username: pw.dataset.acctPw, password: np });
+        state.pendingCount = nd.accounts.filter((a) => a.pending || a.forgot).length;
+        renderMe();
+        await openAdmin(nd);
         toast(L('Passwort gesetzt', 'Password set', 'Lösenordet är satt'));
       } else if (del) {
         if (!confirm(L(`Account „${del.dataset.acctDel}“ wirklich löschen? Die Person kann dann neu gewählt werden.`, `Really delete the account "${del.dataset.acctDel}"? The person can then be chosen again.`, `Vill du verkligen ta bort kontot "${del.dataset.acctDel}"? Personen kan då väljas igen.`))) return;
@@ -431,6 +477,9 @@ async function openAdmin(data) {
   if (!dlg.open) dlg.showModal();
 }
 $('#admin-open').onclick = () => openAdmin().catch((err) => toast(err.message));
+document.addEventListener('click', (e) => { if (e.target.closest('#admin-requests-open')) openAdmin().catch((err) => toast(err.message)); });
+$('#wait-refresh').onclick = async () => { await afterLogin(); if (state.me) toast(L(`Du bist drin 🎉 Willkommen, ${state.me}!`, `You're in 🎉 Welcome, ${state.me}!`, `Du är inne 🎉 Välkommen, ${state.me}!`)); else toast(L('Noch nicht freigegeben ⏳', 'Not approved yet ⏳', 'Inte godkänd än ⏳')); };
+$('#wait-cancel').onclick = async () => { if (!confirm(L('Anfrage zurückziehen?', 'Withdraw your request?', 'Dra tillbaka förfrågan?'))) return; try { await api('auth/cancel', {}); await load(); } catch (err) { toast(err.message); } };
 
 // ---------------- Gamification ----------------
 function cheer() {
@@ -651,7 +700,9 @@ document.addEventListener('click', async (e) => {
   if (meBtn && meBtn.closest('#people-buttons')) {
     const who = meBtn.dataset.me;
     if (!confirm(L(`Bist du ${who}? Das wird fest mit deinem Account verbunden.`, `Are you ${who}? This will be permanently linked to your account.`, `Är du ${who}? Det kopplas permanent till ditt konto.`))) return;
-    try { await api('auth/claim', { person: who }); } catch (err) { toast(err.message); loadLogin().catch(() => {}); return; }
+    let cr;
+    try { cr = await api('auth/claim', { person: who }); } catch (err) { toast(err.message); loadLogin().catch(() => {}); return; }
+    if (cr.pending) { await load(); return; }
     await afterLogin();
     // Erstes Mal: Profil einrichten (überspringbar), danach Einstellungen aufgeklappt zeigen
     state.askedProfile = true;
@@ -1737,19 +1788,10 @@ $('#join').addEventListener('submit', async (e) => {
       name: $('#join-name').value, side: state.joinSide, lang: state.lang,
       birthday: $('#join-birthday').value || undefined, gender: joinProfile.gender || undefined, photo: joinProfile.photo || undefined, quick,
     });
-    state.me = r.name;
-    store.set('me', r.name);
     state.joining = false;
     history.replaceState(null, '', '#start');
-    state.weeks.clear();
     await load();
-    showTab();
-    if (quick) {
-      // Danach wie beim ersten Mal: Profil ergänzen (überspringbar), dann Einstellungen offen
-      openProfile(true);
-      $('#profile-dialog').addEventListener('close', () => { $('#settings').open = true; setTimeout(() => $('#settings').scrollIntoView({ behavior: 'smooth', block: 'start' }), 50); }, { once: true });
-    }
-    toast(L(`Willkommen als ${G(r.name, 'neue Mitbewohnerin', 'neuer Mitbewohner', 'neue:r Mitbewohner:in')}, ${r.name}! Ab ${ddmm(r.since)} bist du im Putzplan.`, `Welcome, ${r.name}! You're on the cleaning rota from ${ddmm(r.since)}.`, `Välkommen, ${r.name}! Du är med i städschemat från ${ddmm(r.since)}.`));
+    toast(L(`Anfrage gesendet ✉️ ${state.admin || 'Die Admin'} muss dich noch freigeben.`, `Request sent ✉️ ${state.admin || 'The admin'} still has to approve you.`, `Förfrågan skickad ✉️ ${state.admin || 'Administratören'} måste godkänna dig.`));
   } catch (err) { toast(err.message); }
 });
 $('#invite').onclick = async () => {
