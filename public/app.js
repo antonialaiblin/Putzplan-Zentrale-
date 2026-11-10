@@ -1,4 +1,5 @@
 import { EN, tr } from './i18n.js';
+import { berlinHolidays, holidayOn, holidayInfo } from './holidays.js';
 
 const $ = (s) => document.querySelector(s);
 const addDays = (s, n) => {
@@ -1270,6 +1271,8 @@ function renderCal() {
     const wk = state.weeks.get(addDays(d, -dowOf(d)));
     const cleaner = wk && wk.cleaner && wk.cleanerDay === d;
     const pills = [];
+    const hol = holidayOn(d);
+    if (hol) pills.push(`<span class="pill hol${hol.legal || hol.sunday ? ' closed' : ''}" title="${esc(`${L(hol.de, hol.en)}: ${holidayInfo(hol, state.lang)}`)}">${hol.legal ? '🔴' : hol.sunday ? '' : '⚪'} ${esc(L(hol.de, hol.en))}</span>`);
     for (const m of (state.members || []).filter((x) => x.birthday && state.people.includes(x.name) && x.birthday.slice(5) === d.slice(5))) {
       pills.push(`<span class="pill bday" title="${L('Geburtstag', 'Birthday')}">🎂 ${esc(m.name)}</span>`);
     }
@@ -1281,10 +1284,14 @@ function renderCal() {
         pills.push(`<span class="pill ${e.type}" title="${esc(evTitle(e))}">${e.time ? `${e.time} ` : ''}${esc(evTitle(e))}</span>`);
       }
     }
-    html += `<div class="day${d.slice(0, 7) !== state.calMonth ? ' out' : ''}${d === state.today ? ' today' : ''}">
+    html += `<div class="day${d.slice(0, 7) !== state.calMonth ? ' out' : ''}${d === state.today ? ' today' : ''}${hol && hol.legal ? ' holiday' : ''}">
       <span class="n">${+d.slice(8)}${cleaner ? `<span title="${L('Putzkraft', 'Cleaner')}">🧹</span>` : ''}</span>${pills.join('')}</div>`;
   }
   $('#cal-grid').innerHTML = html;
+  const hols = berlinHolidays(y).filter((h) => h.date.startsWith(state.calMonth));
+  $('#cal-holidays').innerHTML = hols.length
+    ? `<h3>${L('Feiertage in Berlin', 'Holidays in Berlin')}</h3>${hols.map((h) => `<div class="hol-row${h.legal ? ' legal' : ''}"><span>${h.legal ? '🔴' : h.sunday ? '⚫' : '⚪'}</span><span><strong>${fmtDay(h.date)} · ${esc(L(h.de, h.en))}</strong><br><small>${holidayInfo(h, state.lang)}</small></span></div>`).join('')}`
+    : '';
   renderInbox();
   renderPolls();
   renderEvList();

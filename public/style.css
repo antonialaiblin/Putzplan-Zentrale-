@@ -375,3 +375,16 @@ img.logo { padding: 0; object-fit: cover; }
 .s-opt .t { flex: 1; }
 .s-opt .who { color: var(--muted); font-size: 12px; text-align: right; }
 .survey.closed .s-opt { cursor: default; }
+
+/* Feiertage */
+.cal .pill.hol { background: #eef0f3; color: #4b5563; }
+.cal .pill.hol.closed { background: #fde2e2; color: #a12a2a; }
+.cal .day.holiday .n { color: #c0392b; font-weight: 700; }
+.cal-holidays h3 { margin: 14px 0 6px; font-size: 15px; }
+.hol-row { display: flex; gap: 8px; align-items: flex-start; padding: 6px 0; border-top: 1px solid var(--line); font-size: 14px; }
+.hol-row small { color: var(--muted); }
+@media (prefers-color-scheme: dark) {
+  .cal .pill.hol { background: #2a2e33; color: #c4c9d0; }
+  .cal .pill.hol.closed { background: #4a2020; color: #ffb4b4; }
+  .cal .day.holiday .n { color: #ff8a80; }
+}

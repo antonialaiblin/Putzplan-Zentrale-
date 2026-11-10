@@ -111,6 +111,7 @@ export const EN = {
   'Was möchtest du eintragen?': 'What would you like to enter?',
   'Neuer Tag': 'New day',
   '🧹 Putzkraft': '🧹 Cleaner',
+  '🔴 gesetzlicher Feiertag, alles zu · ⚪ Feiertag, aber offen': '🔴 public holiday, everything closed · ⚪ holiday, but open',
   'Speichern': 'Save',
 
   // Aufgaben (kommen vom Server)
