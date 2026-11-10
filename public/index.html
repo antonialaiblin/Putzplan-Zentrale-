@@ -23,7 +23,7 @@
         <p class="sub" id="who-line">Mission Haussegen</p>
       </div>
     </div>
-    <button class="ghost small" id="change-me" hidden>Wechseln</button>
+    <button class="ghost small" id="lang-quick" hidden>🇬🇧 English</button>
   </header>
 
   <main>
@@ -46,18 +46,34 @@
           <button type="button" role="radio" aria-checked="false" data-side="hinten">Hinten</button>
         </div>
       </fieldset>
+      <fieldset class="field"><legend>Sprache / Language</legend>
+        <div class="seg two-seg" id="join-lang" role="radiogroup">
+          <button type="button" role="radio" aria-checked="true" data-jlang="de">Deutsch</button>
+          <button type="button" role="radio" aria-checked="false" data-jlang="en">English</button>
+        </div>
+      </fieldset>
       <div class="row end"><button type="button" class="ghost" id="join-cancel">Abbrechen</button><button type="submit">Mitglied werden</button></div>
     </form>
 
     <!-- Übersicht -->
     <div id="tab-home" class="tab" hidden>
+      <details class="card settings" id="settings">
+        <summary>⚙️ Einstellungen</summary>
+        <div class="set-row"><span id="set-me"></span><button type="button" class="ghost small" id="change-me">Mitglied wechseln</button></div>
+        <div class="set-row"><span>App-Sprache</span>
+          <div class="seg two-seg" id="set-lang" role="radiogroup" aria-label="App-Sprache">
+            <button type="button" role="radio" data-lang="de">Deutsch</button>
+            <button type="button" role="radio" data-lang="en">English</button>
+          </div></div>
+        <section id="notify" class="notify" hidden><div id="notify-body"></div></section>
+        <div class="set-row"><span></span><button type="button" class="ghost small" id="leave-open">Ich ziehe aus</button></div>
+      </details>
       <div id="home"></div>
       <section class="card">
         <h2>Unsere WG</h2>
         <div id="members-list" class="members"></div>
         <div class="row" style="margin-top:12px">
           <button type="button" id="invite">Mitglied einladen</button>
-          <button type="button" class="ghost" id="leave-open">Ich ziehe aus</button>
         </div>
       </section>
     </div>
@@ -114,10 +130,7 @@
     </div>
 
     <div id="tab-plan" class="tab" hidden>
-    <!-- Erinnerungen -->
-    <section id="notify" class="card notify" hidden>
-      <div id="notify-body"></div>
-    </section>
+    <div id="notify-nudge"></div>
 
     <!-- Wochen-Navigation -->
     <nav class="weeknav" aria-label="Woche wählen">
@@ -195,6 +208,7 @@
     <!-- Hausregeln -->
     <div id="tab-rules" class="tab rules" hidden>
       <p><a href="#start" class="back">‹ Zur Übersicht</a></p>
+      <div class="only-de">
       <section class="card intro">
         <h2>Mission Haussegen 🏡</h2>
         <p class="muted">Regeln für den WG-Seelenfrieden (Stand 03.11.2026)</p>
@@ -237,6 +251,51 @@
         <li>Getauscht werden darf jederzeit. Einfach in der WG-Gruppe Bescheid geben und im Putzplan auf „Tauschen“ tippen.</li>
         <li><strong>Kühlschrank:</strong> Jede*r putzt einmal im Monat die eigenen Fächer und wirft Abgelaufenes weg, bis zum letzten Sonntag des Monats.</li>
       </ul></details>
+      </div>
+      <div class="only-en" lang="en">
+      <section class="card intro">
+        <h2>Mission Haussegen 🏡</h2>
+        <p class="muted">Rules for peace in the flat (as of 3 Nov 2026)</p>
+      </section>
+      <details class="card" open><summary>🔇 General rules</summary><ul>
+        <li><strong>Noise:</strong> From 11 pm, especially on weekdays, please be quiet: in the kitchen, the entrance, the back bathroom and everywhere in the flat, as long as it isn't clear whether everyone is still awake.</li>
+        <li><strong>Lights:</strong> Only leave them on in rooms where someone is. Please switch off all lights when you leave.</li>
+        <li>Whoever leaves the flat last checks that all windows are closed and locks the front door from outside.</li>
+        <li><strong>Guests:</strong> If you invite more than 3 people to cook or hang out in the shared rooms, give a quick heads-up in the flat group. Please also announce overnight guests. Of course you don't need to for spontaneous plans ;)</li>
+        <li>After get-togethers and parties, the hosts clean everything spotless by the next day at the latest.</li>
+        <li><strong>Money:</strong> Add everything you spend for the flat that isn't covered by the bottle deposit money to the <a href="#kasse">flat money</a>.</li>
+      </ul></details>
+      <details class="card"><summary>🍽️ Kitchen &amp; dishwasher</summary><ul>
+        <li>Empty the dishwasher as soon as you see it's clean. Switch it on when it's dirty and full: eco programme at night, turbo during the day.</li>
+        <li>Rinse off bigger leftovers before dishes go into the dishwasher.</li>
+        <li>Only put large flat plates at the edge of the bottom rack, otherwise nothing gets clean.</li>
+        <li>Wood and sharp knives don't go in the dishwasher. Wash and dry knives right after use so they don't rust.</li>
+      </ul></details>
+      <details class="card"><summary>🧊 Fridge &amp; supplies</summary><ul>
+        <li><strong>Belongings:</strong> Don't just take food or other things from flatmates. Please ask.</li>
+        <li><strong>Fridge:</strong> Everyone has their own shelf. If that's not enough, there's the vegetable drawer, or ask others if you can store something on their shelf. Don't fill other people's shelves without asking.</li>
+        <li><strong>Before a holiday:</strong> use up your food, take it with you or agree who will eat or throw it out. Don't leave anything perishable in the fridge.</li>
+        <li>Salt or spices empty: just buy new ones on your next shop.</li>
+        <li><strong>Shared things</strong> (olive oil, oat milk, onions, garlic): make sure there's always enough and restock regularly, so nobody plans with something that has run out. Put empty things on the <a href="#einkauf">shopping list</a>.</li>
+        <li>Don't open a new oat milk while 3 open ones are still in the fridge, otherwise they all go off.</li>
+      </ul></details>
+      <details class="card"><summary>👕 Laundry</summary><ul>
+        <li>Don't start a wash if you can't take it out soon after it finishes.</li>
+        <li>Forgotten laundry may be moved to a laundry basket. Please write a quick message in the flat group so the person knows.</li>
+        <li>Drying rack full and dry: don't throw other people's clothes on the floor. Stack them on the washing machine (back) or put them in their room and let the person know.</li>
+        <li>Don't leave piles of clothes or single socks in the shared rooms.</li>
+        <li>Don't leave dirty laundry on the bathroom floor.</li>
+      </ul></details>
+      <details class="card"><summary>🧽 Cleaning rules</summary><ul>
+        <li><strong>After cooking:</strong> within 3 hours everything is washed up, cleaned and back to normal (hob, worktop, sink, table), and the sink strainer is emptied.</li>
+        <li>The cleaner comes every 2 weeks on Wednesday, cleans all shared areas incl. bathrooms, mops all floors and empties the bins. In the weeks in between we clean ourselves (see <a href="#plan">cleaning rota</a>).</li>
+        <li>Vacuuming and mopping always means: in the corners too, and under or behind furniture that can be moved.</li>
+        <li><strong>If the cleaner cancels,</strong> we do the deep clean ourselves that week. The rota then moves back one week from the following week. Just tap "Cleaner cancelled?" on the cleaning rota.</li>
+        <li><strong>Appointments with the cleaner</strong> are arranged by one person (can be changed on the cleaning rota under "In charge of the cleaner"). They get a message on Monday morning and enter when the cleaner is coming. Everyone else is then notified.</li>
+        <li>You can swap at any time. Just let the flat group know and tap "Swap" on the cleaning rota.</li>
+        <li><strong>Fridge:</strong> Everyone cleans their own shelves once a month and throws out expired food, by the last Sunday of the month.</li>
+      </ul></details>
+      </div>
     </div>
   </main>
 

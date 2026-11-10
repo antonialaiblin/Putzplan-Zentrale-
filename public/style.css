@@ -314,3 +314,17 @@ input:focus, select:focus { outline: 2px solid var(--accent); outline-offset: 0;
 #past-meetings h3 { margin: 16px 0 6px; font-size: 1rem; }
 .ev-actions { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; flex-shrink: 0; }
 .back { color: var(--accent); text-decoration: none; font-weight: 600; }
+
+/* Sprache: Inhalte nur für eine Sprache */
+html[lang="en"] .only-de, html[lang="de"] .only-en { display: none !important; }
+
+/* Einstellungen */
+.settings summary { font-weight: 700; font-size: 1.05rem; cursor: pointer; list-style: none; display: flex; justify-content: space-between; }
+.settings summary::-webkit-details-marker { display: none; }
+.settings summary::after { content: '›'; transform: rotate(90deg); color: var(--muted); }
+.settings[open] summary::after { transform: rotate(-90deg); }
+.set-row { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 10px 0; border-top: 1px solid var(--line); }
+.set-row .seg { width: 180px; }
+.settings .notify { border-top: 1px solid var(--line); padding: 10px 0; }
+.settings .notify h3 { margin: 0 0 6px; font-size: 1rem; }
+#lang-quick { white-space: nowrap; }

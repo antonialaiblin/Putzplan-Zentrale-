@@ -1,6 +1,6 @@
 import { DurableObject } from 'cloudflare:workers';
 import { computeWeek, simulate, mondayOf, addDays, berlinNow, INITIAL_MEMBERS, CYCLE_START } from './plan.js';
-import { weeklyMessages, fridayMessages, ausfallMessages, cleanerAskMessage, cleanerVisitMessages, meetingPrepMessages } from './messages.js';
+import { weeklyMessages, fridayMessages, ausfallMessages, cleanerAskMessage, cleanerVisitMessages, meetingPrepMessages, dayLabel } from './messages.js';
 import { generateVapidKeys, vapidPublicRaw, sendPush } from './webpush.js';
 import { balancesByCurrency, peopleIn, parseSplitwise, computeParts, parseAmount, parseEuro, CURRENCIES, SHOP_CATEGORIES } from './money.js';
 
@@ -12,7 +12,8 @@ export const SCHEDULE = {
   meetingPrep: { hour: 18 }, // Am Vortag eines WG-Meetings 18 Uhr: Themen vorbereiten // Montag 9 Uhr: Zuständige:r gefragt, ob/wann die Putzkraft kommt
 };
 
-const fmtD = (d) => new Date(`${d}T12:00:00Z`).toLocaleDateString('de-DE', { weekday: 'short', day: '2-digit', month: '2-digit', timeZone: 'UTC' });
+const fmtD = (d, lang = 'de') => dayLabel(d, lang);
+const pick = (lang) => (de, en) => (lang === 'en' ? en : de);
 
 const json = (data, status = 200) =>
   new Response(JSON.stringify(data), { status, headers: { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' } });
@@ -30,6 +31,10 @@ export class Putzplan extends DurableObject {
   // ---------- Mitglieder & Abwesenheiten ----------
   async members() {
     return (await this.ctx.storage.get('members')) || INITIAL_MEMBERS;
+  }
+  /** Sprache je Person: { Name: 'de' | 'en' } */
+  async langs() {
+    return Object.fromEntries((await this.members()).map((m) => [m.name, m.lang === 'en' ? 'en' : 'de']));
   }
   /** Kalender-Einträge: {id, type: urlaub|meeting|sonstiges, title, from, to, time, note, participants:[{name, ok}], by} */
   async events() {
@@ -177,7 +182,7 @@ export class Putzplan extends DurableObject {
       const flag = `sent:ausfall:${monday}`;
       if (ov.ausfall && !(await this.ctx.storage.get(flag))) {
         await this.ctx.storage.put(flag, Date.now());
-        for (const [p, m] of Object.entries(ausfallMessages(week))) await this.pushToPerson(p, m);
+        for (const [p, m] of Object.entries(ausfallMessages(week, await this.langs()))) await this.pushToPerson(p, m);
       }
       return json(week);
     }
@@ -200,7 +205,7 @@ export class Putzplan extends DurableObject {
       await this.ctx.storage.put(`ov:${monday}`, ov);
       const week = await this.week(monday);
       if (!week.plannedCleaner) return json({ error: 'In dieser Woche ist keine Putzkraft geplant.' }, 400);
-      for (const [p, m] of Object.entries(cleanerVisitMessages(week, PEOPLE.includes(by) ? by : null))) await this.pushToPerson(p, m);
+      for (const [p, m] of Object.entries(cleanerVisitMessages(week, PEOPLE.includes(by) ? by : null, await this.langs()))) await this.pushToPerson(p, m);
       return json(week);
     }
 
@@ -225,9 +230,10 @@ export class Putzplan extends DurableObject {
     if (path === '/test' && request.method === 'POST') {
       const entry = typeof body.endpoint === 'string' && (await this.ctx.storage.get(`sub:${await sha(body.endpoint)}`));
       if (!entry) return json({ error: 'Dieses Gerät ist nicht angemeldet.' }, 404);
+      const L = pick((await this.langs())[entry.person]);
       const r = await this.push(`sub:${await sha(body.endpoint)}`, entry, {
         title: 'Zentrale 🧽',
-        body: `Hallo ${entry.person}, die Erinnerungen funktionieren!`,
+        body: L(`Hallo ${entry.person}, die Erinnerungen funktionieren!`, `Hi ${entry.person}, notifications are working!`),
       });
       return json(r, r.ok ? 200 : 502);
     }
@@ -246,8 +252,16 @@ export class Putzplan extends DurableObject {
       // Ab nächstem Montag im Putzplan, die laufende Woche bleibt, wie sie ist
       const since = addDays(mondayOf(berlinNow().day), 7);
       const rest = members.filter((m) => !(m.name.toLowerCase() === name.toLowerCase()));
-      await this.ctx.storage.put('members', [...rest, { name, side, since, until: null }]);
+      const lang = body.lang === 'en' ? 'en' : 'de';
+      await this.ctx.storage.put('members', [...rest, { name, side, since, until: null, lang }]);
       return json({ ok: true, name, since, members: await this.members() });
+    }
+    if (path === '/members/lang' && request.method === 'POST') {
+      const members = await this.members();
+      if (!members.some((m) => m.name === body.name)) return json({ error: 'Mitglied nicht gefunden.' }, 404);
+      const lang = body.lang === 'en' ? 'en' : 'de';
+      await this.ctx.storage.put('members', members.map((m) => (m.name === body.name ? { ...m, lang } : m)));
+      return json({ ok: true, members: await this.members() });
     }
     if (path === '/members/leave' && request.method === 'POST') {
       const members = await this.members();
@@ -284,13 +298,28 @@ export class Putzplan extends DurableObject {
       const participants = names.map((n) => ({ name: n, ok: type !== 'urlaub' || n === by }));
       const ev = { id: rid(), type, title: str(body.title, 60), from, to, time: type !== 'urlaub' && isTime(body.time) ? body.time : '', note: str(body.note, 200), by, participants };
       await this.ctx.storage.put('events', [...(await this.events()), ev].sort((a, b) => (a.from + a.time < b.from + b.time ? -1 : 1)));
-      const when = `${fmtD(from)}${to !== from ? ` – ${fmtD(to)}` : ''}${ev.time ? ` um ${ev.time}` : ''}`;
+      const when = (lang) => `${fmtD(from, lang)}${to !== from ? ` – ${fmtD(to, lang)}` : ''}${ev.time ? `${lang === 'en' ? ' at' : ' um'} ${ev.time}` : ''}`;
       for (const p of participants) {
         if (p.name === by) continue;
         if (type === 'urlaub') {
-          await this.pushToPerson(p.name, { title: 'Urlaub bestätigen? 🏖️', body: `${by || 'Jemand'} hat dich beim Urlaub ${ev.title ? `„${ev.title}“ ` : ''}${when} eingetragen. Bitte in der Zentrale bestätigen.`, url: '/#kalender' });
+          await this.pushToPerson(p.name, (lang) => {
+            const L = pick(lang);
+            return {
+              title: L('Urlaub bestätigen? 🏖️', 'Confirm holiday? 🏖️'),
+              body: L(`${by || 'Jemand'} hat dich beim Urlaub ${ev.title ? `„${ev.title}“ ` : ''}${when(lang)} eingetragen. Bitte in der Zentrale bestätigen.`,
+                `${by || 'Someone'} added you to the holiday ${ev.title ? `"${ev.title}" ` : ''}${when(lang)}. Please confirm in the app.`),
+              url: '/#kalender',
+            };
+          });
         } else {
-          await this.pushToPerson(p.name, { title: `${type === 'meeting' ? '🗣️ ' : '📅 '}${ev.title || label(type)}`, body: `Neuer Termin: ${when}${by ? ` (von ${by})` : ''}.`, url: '/#kalender' });
+          await this.pushToPerson(p.name, (lang) => {
+            const L = pick(lang);
+            return {
+              title: `${type === 'meeting' ? '🗣️ ' : '📅 '}${ev.title || (lang === 'en' ? { meeting: 'Flat meeting', sonstiges: 'Event' }[type] : label(type))}`,
+              body: L(`Neuer Termin: ${when(lang)}${by ? ` (von ${by})` : ''}.`, `New event: ${when(lang)}${by ? ` (from ${by})` : ''}.`),
+              url: '/#kalender',
+            };
+          });
         }
       }
       return calState();
@@ -343,7 +372,17 @@ export class Putzplan extends DurableObject {
       const poll = { id: rid(), title: str(body.title, 60) || 'WG-Meeting', note: str(body.note, 200), by, options, votes: by ? { [by]: Object.fromEntries(options.map((o) => [o.id, 'yes'])) } : {}, status: 'open', at: Date.now() };
       await this.ctx.storage.put('polls', [...(await this.polls()), poll]);
       for (const p of PEOPLE) {
-        if (p !== by) await this.pushToPerson(p, { title: '🗳️ WG-Meeting: wann passt es dir?', body: `${by || 'Jemand'} wünscht sich ein Meeting${poll.title !== 'WG-Meeting' ? ` („${poll.title}“)` : ''}. Stimm in der Zentrale ab.`, url: '/#kalender' });
+        if (p !== by) {
+          await this.pushToPerson(p, (lang) => {
+            const L = pick(lang);
+            return {
+              title: L('🗳️ WG-Meeting: wann passt es dir?', '🗳️ Flat meeting: when suits you?'),
+              body: L(`${by || 'Jemand'} wünscht sich ein Meeting${poll.title !== 'WG-Meeting' ? ` („${poll.title}“)` : ''}. Stimm in der Zentrale ab.`,
+                `${by || 'Someone'} would like a meeting${poll.title !== 'WG-Meeting' ? ` ("${poll.title}")` : ''}. Vote in the app.`),
+              url: '/#kalender',
+            };
+          });
+        }
       }
       return calState();
     }
@@ -368,7 +407,9 @@ export class Putzplan extends DurableObject {
       await this.ctx.storage.put('polls', polls);
       await this.ctx.storage.put('events', [...(await this.events()), ev].sort((a, b) => (a.from + a.time < b.from + b.time ? -1 : 1)));
       for (const p of PEOPLE) {
-        await this.pushToPerson(p, { title: '🗣️ WG-Meeting steht fest', body: `${poll.title}: ${fmtD(opt.date)} um ${opt.time} Uhr. Bis dann!`, url: '/#kalender' });
+        await this.pushToPerson(p, (lang) => (lang === 'en'
+          ? { title: '🗣️ Flat meeting is set', body: `${poll.title === 'WG-Meeting' ? 'Flat meeting' : poll.title}: ${fmtD(opt.date, 'en')} at ${opt.time}. See you then!`, url: '/#kalender' }
+          : { title: '🗣️ WG-Meeting steht fest', body: `${poll.title}: ${fmtD(opt.date)} um ${opt.time} Uhr. Bis dann!`, url: '/#kalender' }));
       }
       return calState();
     }
@@ -482,7 +523,9 @@ export class Putzplan extends DurableObject {
       return { ok: false, error: String(e) };
     }
   }
+  /** message: {title, body} oder Funktion (lang) => {title, body} */
   async pushToPerson(person, message) {
+    if (typeof message === 'function') message = message((await this.langs())[person] || 'de');
     let sent = 0;
     for (const [key, entry] of await this.subscriptions()) {
       if (entry.person !== person) continue;
@@ -499,7 +542,7 @@ export class Putzplan extends DurableObject {
       const flag = `sent:weekly:${monday}`;
       if (!(await this.ctx.storage.get(flag))) {
         await this.ctx.storage.put(flag, Date.now());
-        const msgs = weeklyMessages(await this.week(monday));
+        const msgs = weeklyMessages(await this.week(monday), await this.langs());
         for (const [p, m] of Object.entries(msgs)) done.push([p, await this.pushToPerson(p, m)]);
       }
     }
@@ -508,7 +551,7 @@ export class Putzplan extends DurableObject {
       const flag = `sent:friday:${monday}`;
       if (!(await this.ctx.storage.get(flag))) {
         await this.ctx.storage.put(flag, Date.now());
-        const msgs = fridayMessages(await this.week(monday));
+        const msgs = fridayMessages(await this.week(monday), await this.langs());
         for (const [p, m] of Object.entries(msgs)) done.push([p, await this.pushToPerson(p, m)]);
       }
     }
@@ -520,7 +563,7 @@ export class Putzplan extends DurableObject {
         await this.ctx.storage.put(flag, Date.now());
         const week = await this.week(monday);
         if (week.plannedCleaner && !week.ausfall && !week.cleanerConfirmed) {
-          done.push([contact, await this.pushToPerson(contact, cleanerAskMessage(week, contact))]);
+          done.push([contact, await this.pushToPerson(contact, cleanerAskMessage(week, contact, (await this.langs())[contact]))]);
         }
       }
     }
@@ -531,7 +574,7 @@ export class Putzplan extends DurableObject {
         const flag = `sent:meetingPrep:${ev.id}:${ev.from}`;
         if (await this.ctx.storage.get(flag)) continue;
         await this.ctx.storage.put(flag, Date.now());
-        for (const [p, m] of Object.entries(meetingPrepMessages(ev))) done.push([p, await this.pushToPerson(p, m)]);
+        for (const [p, m] of Object.entries(meetingPrepMessages(ev, await this.langs()))) done.push([p, await this.pushToPerson(p, m)]);
       }
     }
     return done;

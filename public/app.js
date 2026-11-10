@@ -1,5 +1,6 @@
+import { EN, tr } from './i18n.js';
+
 const $ = (s) => document.querySelector(s);
-const ddmm = (s) => `${s.slice(8, 10)}.${s.slice(5, 7)}.`;
 const addDays = (s, n) => {
   const [y, m, d] = s.split('-').map(Number);
   return new Date(Date.UTC(y, m - 1, d + n)).toISOString().slice(0, 10);
@@ -8,25 +9,79 @@ const store = {
   get(k) { try { return localStorage.getItem(k); } catch { return null; } },
   set(k, v) { try { localStorage.setItem(k, v); } catch { /* egal */ } },
 };
-const WD = ['So', 'Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa'];
-const wd = (s) => WD[new Date(`${s}T12:00:00Z`).getUTCDay()];
-const cleanerWhen = (w) => `${wd(w.cleanerDay)} ${ddmm(w.cleanerDay)}${w.cleanerTime ? ` um ${w.cleanerTime}` : ''}`;
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
 const state = {
   me: store.get('me'),
+  lang: store.get('lang') === 'en' ? 'en' : 'de',
   people: [],
   current: null,
   view: null,
   weeks: new Map(), // monday -> week
 };
 
+// ---------------- Sprache ----------------
+/** L('Deutsch', 'English') */
+const L = (de, en) => (state.lang === 'en' ? en : de);
+/** Texte vom Server (Aufgaben, Kategorien, Fehlermeldungen) übersetzen */
+const T = (s) => tr(s, state.lang);
+const locale = () => (state.lang === 'en' ? 'en-GB' : 'de-DE');
+const MON_EN = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+const ddmm = (s) => (state.lang === 'en' ? `${+s.slice(8, 10)} ${MON_EN[+s.slice(5, 7) - 1]}` : `${s.slice(8, 10)}.${s.slice(5, 7)}.`);
+const WD = { de: ['So', 'Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa'], en: ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'] };
+const wd = (s) => WD[state.lang][new Date(`${s}T12:00:00Z`).getUTCDay()];
+const atTime = (t) => (t ? L(` um ${t}`, ` at ${t}`) : '');
+const clock = (t) => L(`${t} Uhr`, t);
+const cleanerWhen = (w) => `${wd(w.cleanerDay)} ${ddmm(w.cleanerDay)}${atTime(w.cleanerTime)}`;
+const fmtDay = (d) => new Date(`${d}T12:00:00Z`).toLocaleDateString(locale(), { weekday: 'short', day: '2-digit', month: state.lang === 'en' ? 'short' : '2-digit', timeZone: 'UTC' });
+
+// Feste Texte in index.html: deutsches Original merken und je nach Sprache austauschen
+const ORIG = new WeakMap();
+function translateStatic() {
+  const walk = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+  for (let n = walk.nextNode(); n; n = walk.nextNode()) {
+    const orig = ORIG.get(n) ?? n.nodeValue;
+    const key = orig.trim();
+    if (!key || EN[key] === undefined) continue;
+    ORIG.set(n, orig);
+    const want = state.lang === 'en' ? orig.replace(key, EN[key]) : orig;
+    if (n.nodeValue !== want) n.nodeValue = want;
+  }
+  for (const el of document.body.querySelectorAll('[placeholder],[aria-label],[title]')) {
+    for (const a of ['placeholder', 'aria-label', 'title']) {
+      if (!el.hasAttribute(a)) continue;
+      const orig = el.getAttribute(`data-de-${a}`) ?? el.getAttribute(a);
+      if (EN[orig] === undefined) continue;
+      el.setAttribute(`data-de-${a}`, orig);
+      el.setAttribute(a, state.lang === 'en' ? EN[orig] : orig);
+    }
+  }
+}
+function setLang(lang, { rerender = true } = {}) {
+  state.lang = lang === 'en' ? 'en' : 'de';
+  store.set('lang', state.lang);
+  document.documentElement.lang = state.lang;
+  translateStatic();
+  if (rerender) {
+    render();
+    renderShop();
+    renderMoney();
+    renderEvForm();
+  }
+}
+/** Sprache des gewählten Mitglieds übernehmen */
+function syncLang() {
+  const m = (state.members || []).find((x) => x.name === state.me);
+  const want = m?.lang || state.lang;
+  if (want !== state.lang || document.documentElement.lang !== want) setLang(want, { rerender: false });
+}
+
 async function api(path, body) {
   const res = await fetch(`/api/${path}`, body
     ? { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }
     : undefined);
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data.error || `Fehler ${res.status}`);
+  if (!res.ok) throw new Error(T(data.error) || L(`Fehler ${res.status}`, `Error ${res.status}`));
   return data;
 }
 
@@ -52,6 +107,7 @@ async function load() {
   if (state.me && !state.people.includes(state.me)) { state.me = null; store.set('me', ''); }
   for (const w of data.weeks) state.weeks.set(w.monday, w);
   if (!state.view || !state.weeks.has(state.view)) state.view = state.current;
+  syncLang();
   render();
 }
 async function ensureWeek(monday) {
@@ -76,17 +132,23 @@ function renderMe() {
   const joining = location.hash === '#beitreten' || state.joining;
   $('#join').hidden = !joining;
   pick.hidden = !!state.me || joining;
-  $('#change-me').hidden = !state.me;
-  $('#who-line').textContent = state.me ? `Hallo ${state.me} 👋` : 'Mission Haussegen';
+  $('#who-line').textContent = state.me ? L(`Hallo ${state.me} 👋`, `Hi ${state.me} 👋`) : 'Mission Haussegen';
   $('#people-buttons').innerHTML = state.people.map((p) => `<button data-me="${esc(p)}">${esc(p)}</button>`).join('');
+  // Sprachknopf oben nur, solange noch niemand ausgewählt ist (sonst in den Einstellungen)
+  const quick = $('#lang-quick');
+  quick.hidden = !!state.me;
+  quick.textContent = state.lang === 'en' ? '🇩🇪 Deutsch' : '🇬🇧 English';
+  $('#set-me').innerHTML = state.me ? L(`Du bist <strong>${esc(state.me)}</strong>`, `You are <strong>${esc(state.me)}</strong>`) : '';
+  document.querySelectorAll('#set-lang [data-lang]').forEach((b) => b.setAttribute('aria-checked', b.dataset.lang === state.lang));
+  $('#settings').hidden = !state.me;
 }
 
 function weekTitle(monday) {
   const diff = Math.round((Date.parse(monday) - Date.parse(state.current)) / (7 * 86400000));
-  if (diff === 0) return 'Diese Woche';
-  if (diff === 1) return 'Nächste Woche';
-  if (diff === -1) return 'Letzte Woche';
-  return diff > 0 ? `In ${diff} Wochen` : `Vor ${-diff} Wochen`;
+  if (diff === 0) return L('Diese Woche', 'This week');
+  if (diff === 1) return L('Nächste Woche', 'Next week');
+  if (diff === -1) return L('Letzte Woche', 'Last week');
+  return diff > 0 ? L(`In ${diff} Wochen`, `In ${diff} weeks`) : L(`Vor ${-diff} Wochen`, `${-diff} weeks ago`);
 }
 
 function renderWeek() {
@@ -97,23 +159,27 @@ function renderWeek() {
 
   let html = '';
   const contact = state.cleanerContact;
-  const contactLine = `<p class="muted small">Zuständig für die Putzkraft: <strong>${contact ? esc(contact) : 'niemand'}</strong>
-    <button class="link" data-cleaner-contact>ändern</button></p>`;
+  const contactLine = `<p class="muted small">${L('Zuständig für die Putzkraft', 'In charge of the cleaner')}: <strong>${contact ? esc(contact) : L('niemand', 'nobody')}</strong>
+    <button class="link" data-cleaner-contact>${L('ändern', 'change')}</button></p>`;
   if (w.plannedCleaner) {
     const isContact = state.me && state.me === contact;
     html += `<div class="banner"><p>${w.ausfall
-      ? '⚠️ <strong>Putzkraft fällt aus.</strong> Diese Woche putzen wir selbst (Intensivputz). Ab nächster Woche ist der Plan eine Woche später dran.'
-      : `🧹 <strong>Putzkraft kommt ${cleanerWhen(w)}</strong>${w.cleanerConfirmed ? ' ✓' : ' <span class="muted">(laut Plan, noch nicht bestätigt)</span>'} und putzt Bäder, Böden und Müll.`}</p>
-      ${isContact && !w.ausfall && !w.cleanerConfirmed ? '<p class="small"><strong>Du stimmst die Termine mit der Putzkraft ab:</strong> Kommt sie diese Woche? Dann trag bitte Tag und Uhrzeit ein.</p>' : ''}
-      <div class="row">${w.ausfall ? '' : `<button class="link" data-cleaner-visit>${w.cleanerConfirmed ? 'Termin ändern' : 'Tag & Uhrzeit eintragen'}</button>`}
-      <button class="link" data-ausfall="${w.ausfall ? 0 : 1}">${w.ausfall ? 'Doch nicht ausgefallen' : 'Putzkraft fällt aus?'}</button></div>
+      ? L('⚠️ <strong>Putzkraft fällt aus.</strong> Diese Woche putzen wir selbst (Intensivputz). Ab nächster Woche ist der Plan eine Woche später dran.',
+        "⚠️ <strong>Cleaner cancelled.</strong> This week we clean ourselves (deep clean). From next week the rota moves back one week.")
+      : L(`🧹 <strong>Putzkraft kommt ${cleanerWhen(w)}</strong>${w.cleanerConfirmed ? ' ✓' : ' <span class="muted">(laut Plan, noch nicht bestätigt)</span>'} und putzt Bäder, Böden und Müll.`,
+        `🧹 <strong>The cleaner comes ${cleanerWhen(w)}</strong>${w.cleanerConfirmed ? ' ✓' : ' <span class="muted">(as planned, not confirmed yet)</span>'} and cleans bathrooms, floors and bins.`)}</p>
+      ${isContact && !w.ausfall && !w.cleanerConfirmed ? `<p class="small">${L('<strong>Du stimmst die Termine mit der Putzkraft ab:</strong> Kommt sie diese Woche? Dann trag bitte Tag und Uhrzeit ein.', '<strong>You arrange the dates with the cleaner:</strong> Is she coming this week? Then please enter the day and time.')}</p>` : ''}
+      <div class="row">${w.ausfall ? '' : `<button class="link" data-cleaner-visit>${w.cleanerConfirmed ? L('Termin ändern', 'Change date') : L('Tag & Uhrzeit eintragen', 'Enter day & time')}</button>`}
+      <button class="link" data-ausfall="${w.ausfall ? 0 : 1}">${w.ausfall ? L('Doch nicht ausgefallen', 'Not cancelled after all') : L('Putzkraft fällt aus?', 'Cleaner cancelled?')}</button></div>
       ${contactLine}</div>`;
   } else {
-    html += `<div class="banner"><p>🫧 <strong>Woche ohne Putzkraft.</strong> Wir putzen selbst.</p>${contactLine}</div>`;
+    html += `<div class="banner"><p>${L('🫧 <strong>Woche ohne Putzkraft.</strong> Wir putzen selbst.', '🫧 <strong>Week without the cleaner.</strong> We clean ourselves.')}</p>${contactLine}</div>`;
   }
 
   if (w.away && w.away.length) {
-    html += `<div class="banner"><p>🏖️ <strong>${w.away.map(esc).join(', ')}</strong> ${w.away.length > 1 ? 'sind' : 'ist'} diese Woche weg und wurde${w.away.length > 1 ? 'n' : ''} im Plan übersprungen.</p></div>`;
+    const names = `<strong>${w.away.map(esc).join(', ')}</strong>`;
+    html += `<div class="banner"><p>🏖️ ${L(`${names} ${w.away.length > 1 ? 'sind' : 'ist'} diese Woche weg und wurde${w.away.length > 1 ? 'n' : ''} im Plan übersprungen.`,
+      `${names} ${w.away.length > 1 ? 'are' : 'is'} away this week and ${w.away.length > 1 ? 'were' : 'was'} skipped on the rota.`)}</p></div>`;
   }
   const tasks = [...w.tasks].sort((a, b) => (b.person === state.me) - (a.person === state.me));
   for (const t of tasks) {
@@ -122,15 +188,15 @@ function renderWeek() {
     const mine = t.person === state.me || items.some((it) => it.person === state.me);
     const complete = items.length > 0 && doneCount === items.length;
     html += `<article class="card task${mine ? ' mine' : ''}${complete ? ' complete' : ''}">
-      <header><h3>${esc(t.title)}</h3>${t.person ? `<span class="person">${esc(t.person)}${t.person !== t.planned ? ` <span class="swapped">(statt ${esc(t.planned)})</span>` : ''}</span>` : `<span class="muted small">${doneCount}/${items.length}</span>`}</header>
-      ${t.note ? `<p class="note">${esc(t.note)}</p>` : ''}
+      <header><h3>${esc(T(t.title))}</h3>${t.person ? `<span class="person">${esc(t.person)}${t.person !== t.planned ? ` <span class="swapped">(${L('statt', 'instead of')} ${esc(t.planned)})</span>` : ''}</span>` : `<span class="muted small">${doneCount}/${items.length}</span>`}</header>
+      ${t.note ? `<p class="note">${esc(T(t.note))}</p>` : ''}
       ${items.map((it) => {
         const key = `${t.key}:${it.id}`;
         const c = w.checks[key];
         return `<label class="check${c ? ' done' : ''}"><input type="checkbox" data-check="${esc(key)}" ${c ? 'checked' : ''}>
-          <span>${esc(it.label)}${c?.by ? `<small>erledigt von ${esc(c.by)}</small>` : ''}</span></label>`;
+          <span>${esc(T(it.label))}${c?.by ? `<small>${L('erledigt von', 'done by')} ${esc(c.by)}</small>` : ''}</span></label>`;
       }).join('')}
-      ${t.person ? `<div class="actions"><button class="ghost small" data-swap="${t.key}">Tauschen</button></div>` : ''}
+      ${t.person ? `<div class="actions"><button class="ghost small" data-swap="${t.key}">${L('Tauschen', 'Swap')}</button></div>` : ''}
     </article>`;
   }
   $('#week').innerHTML = html;
@@ -148,7 +214,7 @@ function renderUpcoming() {
       return t.person === state.me ? `<span class="me">${name}</span>` : name;
     };
     rows.push(`<tr class="${i === 0 ? 'current' : ''}${w.cleaner ? ' pk' : ''}"><td>${ddmm(w.monday)}</td>
-      <td>${w.plannedCleaner ? (w.ausfall ? 'fällt aus' : wd(w.cleanerDay)) : '–'}</td>
+      <td>${w.plannedCleaner ? (w.ausfall ? L('fällt aus', 'cancelled') : wd(w.cleanerDay)) : '–'}</td>
       <td>${p('woche')}</td><td>${p('bad-vorne')}</td><td>${p('bad-hinten')}</td></tr>`);
   }
   $('#upcoming').innerHTML = rows.join('');
@@ -165,51 +231,71 @@ async function currentSubscription() {
   return reg.pushManager.getSubscription();
 }
 
+/** Im Putzplan kurz darauf hinweisen, wenn die Erinnerungen noch aus sind */
+function nudge(on) {
+  $('#notify-nudge').innerHTML = on && state.me
+    ? `<div class="banner"><p>🔔 ${L('Erinnerungen sind noch aus.', 'Reminders are still off.')}</p><button class="link" data-open-settings>${L('In den Einstellungen einschalten', 'Turn on in settings')}</button></div>`
+    : '';
+}
+
 async function renderNotify() {
   const box = $('#notify');
   const body = $('#notify-body');
-  if (!state.me) { box.hidden = true; return; }
+  if (!state.me) { box.hidden = true; nudge(false); return; }
   box.hidden = false;
 
   if (!pushSupported) {
     if (isIOS && !isStandalone) {
-      body.innerHTML = `<h2>🔔 Erinnerungen aufs iPhone</h2>
+      body.innerHTML = L(`<h3>🔔 Erinnerungen aufs iPhone</h3>
         <p>Damit dein iPhone dich erinnern kann, musst du die Seite einmal zum Home-Bildschirm hinzufügen:</p>
         <ol class="steps"><li>Unten in Safari auf <strong>Teilen</strong> tippen (Viereck mit Pfeil).</li>
         <li><strong>Zum Home-Bildschirm</strong> wählen und hinzufügen.</li>
-        <li>Die Putzplan-App vom Home-Bildschirm öffnen und hier auf „Erinnerungen aktivieren“ tippen.</li></ol>`;
+        <li>Die App vom Home-Bildschirm öffnen und hier auf „Erinnerungen aktivieren“ tippen.</li></ol>`,
+      `<h3>🔔 Reminders on your iPhone</h3>
+        <p>For your iPhone to remind you, add this page to your home screen once:</p>
+        <ol class="steps"><li>In Safari, tap <strong>Share</strong> at the bottom (square with an arrow).</li>
+        <li>Choose <strong>Add to Home Screen</strong>.</li>
+        <li>Open the app from your home screen and tap "Turn on reminders" here.</li></ol>`);
+      nudge(true);
     } else {
-      body.innerHTML = '<h2>🔔 Erinnerungen</h2><p class="muted">Dieser Browser kann leider keine Erinnerungen empfangen. Probier es mit Chrome, Firefox, Edge oder Safari.</p>';
+      body.innerHTML = L('<h3>🔔 Erinnerungen</h3><p class="muted">Dieser Browser kann leider keine Erinnerungen empfangen. Probier es mit Chrome, Firefox, Edge oder Safari.</p>',
+        "<h3>🔔 Reminders</h3><p class=\"muted\">Sorry, this browser can't receive reminders. Try Chrome, Firefox, Edge or Safari.</p>");
+      nudge(false);
     }
     return;
   }
 
   const sub = await currentSubscription();
   if (sub) {
-    // Server-Zuordnung aktuell halten (z.B. nach "Person wechseln")
+    // Server-Zuordnung aktuell halten (z.B. nach "Mitglied wechseln")
     api('subscribe', { person: state.me, subscription: sub.toJSON() }).catch(() => {});
     body.innerHTML = `<div class="row" style="justify-content:space-between">
-      <p style="margin:0">🔔 <strong>Erinnerungen sind an.</strong><br><span class="muted small">Sonntag 19 Uhr für die neue Woche, Freitag 18 Uhr falls noch was offen ist.</span></p>
-      <div class="row"><button class="ghost small" id="test-push">Test</button><button class="link" id="push-off">Ausschalten</button></div></div>`;
+      <p style="margin:0">🔔 <strong>${L('Erinnerungen sind an.', 'Reminders are on.')}</strong><br><span class="muted small">${L('Sonntag 19 Uhr für die neue Woche, Freitag 18 Uhr falls noch was offen ist.', 'Sunday 7 pm for the new week, Friday 6 pm if something is still open.')}</span></p>
+      <div class="row"><button class="ghost small" id="test-push">Test</button><button class="link" id="push-off">${L('Ausschalten', 'Turn off')}</button></div></div>`;
     $('#test-push').onclick = async () => {
-      try { await api('test', { endpoint: sub.endpoint }); toast('Test-Nachricht ist unterwegs'); } catch (e) { toast(e.message); }
+      try { await api('test', { endpoint: sub.endpoint }); toast(L('Test-Nachricht ist unterwegs', 'Test notification is on its way')); } catch (e) { toast(e.message); }
     };
     $('#push-off').onclick = async () => {
       await api('unsubscribe', { endpoint: sub.endpoint }).catch(() => {});
       await sub.unsubscribe();
       renderNotify();
     };
+    nudge(false);
     return;
   }
 
   if (Notification.permission === 'denied') {
-    body.innerHTML = '<h2>🔔 Erinnerungen blockiert</h2><p class="muted">Du hast Benachrichtigungen für diese Seite abgelehnt. Erlaube sie in den Einstellungen deines Browsers bzw. Handys und lade die Seite neu.</p>';
+    body.innerHTML = L('<h3>🔔 Erinnerungen blockiert</h3><p class="muted">Du hast Benachrichtigungen für diese Seite abgelehnt. Erlaube sie in den Einstellungen deines Browsers bzw. Handys und lade die Seite neu.</p>',
+      '<h3>🔔 Reminders blocked</h3><p class="muted">You blocked notifications for this page. Allow them in your browser or phone settings and reload the page.</p>');
+    nudge(false);
     return;
   }
-  body.innerHTML = `<h2>🔔 Erinnerungen bekommen</h2>
-    <p>Sonntagabend siehst du, was in der neuen Woche ansteht. Wenn am Freitag noch etwas nicht abgehakt ist, kommt eine kurze Erinnerung.</p>
-    <button id="push-on">Erinnerungen aktivieren</button>`;
+  body.innerHTML = `<h3>🔔 ${L('Erinnerungen bekommen', 'Get reminders')}</h3>
+    <p>${L('Sonntagabend siehst du, was in der neuen Woche ansteht. Wenn am Freitag noch etwas nicht abgehakt ist, kommt eine kurze Erinnerung.', "On Sunday evening you'll see what's coming up in the new week. If something isn't ticked off by Friday, you'll get a short reminder.")}</p>
+    <button id="push-on">${L('Erinnerungen aktivieren', 'Turn on reminders')}</button>`;
   $('#push-on').onclick = enablePush;
+  nudge(true);
+  if (!state.settingsOpened) { state.settingsOpened = true; $('#settings').open = true; }
 }
 
 async function enablePush() {
@@ -220,9 +306,9 @@ async function enablePush() {
     const reg = await navigator.serviceWorker.ready;
     const sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: publicKey });
     await api('subscribe', { person: state.me, subscription: sub.toJSON() });
-    toast('Erinnerungen sind an 🎉');
+    toast(L('Erinnerungen sind an 🎉', 'Reminders are on 🎉'));
   } catch (e) {
-    toast(`Hat nicht geklappt: ${e.message}`);
+    toast(L(`Hat nicht geklappt: ${e.message}`, `That didn't work: ${e.message}`));
   }
   renderNotify();
 }
@@ -233,8 +319,15 @@ document.addEventListener('click', async (e) => {
   if (meBtn && meBtn.closest('#people-buttons')) {
     state.me = meBtn.dataset.me;
     store.set('me', state.me);
+    syncLang();
     render();
     if (state.money) renderMoney();
+    renderShop();
+    return;
+  }
+  if (e.target.closest('[data-open-settings]')) {
+    location.hash = '#start';
+    setTimeout(() => { $('#settings').open = true; $('#settings').scrollIntoView({ behavior: 'smooth' }); }, 50);
     return;
   }
   const swapBtn = e.target.closest('[data-swap]');
@@ -246,8 +339,9 @@ document.addEventListener('click', async (e) => {
   if (ausfall) {
     const value = ausfall.dataset.ausfall === '1';
     const msg = value
-      ? 'Putzkraft fällt diese Woche aus?\n\nDann putzen wir diese Woche selbst (Küche, Flure, Bäder), ab nächster Woche rutscht der ganze Plan um eine Woche, und alle bekommen sofort eine Nachricht.'
-      : 'Doch nicht ausgefallen? Der Plan rutscht dann wieder zurück.';
+      ? L('Putzkraft fällt diese Woche aus?\n\nDann putzen wir diese Woche selbst (Küche, Flure, Bäder), ab nächster Woche rutscht der ganze Plan um eine Woche, und alle bekommen sofort eine Nachricht.',
+        'Is the cleaner cancelled this week?\n\nThen we clean ourselves this week (kitchen, hallways, bathrooms), from next week the whole rota moves back one week, and everyone gets a notification right away.')
+      : L('Doch nicht ausgefallen? Der Plan rutscht dann wieder zurück.', 'Not cancelled after all? The rota then moves back again.');
     if (!confirm(msg)) return;
     try {
       await api('ausfall', { monday: state.view, value });
@@ -255,7 +349,7 @@ document.addEventListener('click', async (e) => {
       await load();
       await ensureWeek(state.view);
       renderWeek();
-      toast(value ? 'Eingetragen, alle wurden benachrichtigt' : 'Zurückgenommen');
+      toast(value ? L('Eingetragen, alle wurden benachrichtigt', 'Saved, everyone has been notified') : L('Zurückgenommen', 'Undone'));
     } catch (err) { toast(err.message); }
   }
 });
@@ -263,7 +357,21 @@ document.addEventListener('click', async (e) => {
 $('#change-me').onclick = () => {
   state.me = null;
   render();
+  window.scrollTo(0, 0);
 };
+$('#lang-quick').onclick = () => setLang(state.lang === 'en' ? 'de' : 'en');
+$('#set-lang').addEventListener('click', async (e) => {
+  const b = e.target.closest('[data-lang]');
+  if (!b || b.dataset.lang === state.lang) return;
+  setLang(b.dataset.lang);
+  if (!state.me) return;
+  try {
+    const r = await api('members/lang', { name: state.me, lang: state.lang });
+    state.members = r.members;
+    renderHome();
+    toast(L('Sprache gespeichert, auch für deine Erinnerungen', 'Language saved, also for your reminders'));
+  } catch (err) { toast(err.message); }
+});
 
 document.addEventListener('change', async (e) => {
   const key = e.target.dataset?.check;
@@ -274,10 +382,10 @@ document.addEventListener('change', async (e) => {
     const w = await api('check', { monday: state.view, key, done, by: state.me });
     state.weeks.set(w.monday, w);
     renderWeek();
-    if (done) toast('Super, danke! ✨');
+    if (done) toast(L('Super, danke! ✨', 'Great, thanks! ✨'));
   } catch (err) {
     e.target.checked = !done;
-    toast(`Konnte nicht speichern: ${err.message}`);
+    toast(L(`Konnte nicht speichern: ${err.message}`, `Could not save: ${err.message}`));
   }
 });
 
@@ -295,10 +403,11 @@ async function go(days) {
 function openSwap(taskKey) {
   const w = state.weeks.get(state.view);
   const t = w.tasks.find((x) => x.key === taskKey);
-  $('#swap-title').textContent = `${t.title} tauschen`;
-  $('#swap-text').textContent = `Wer übernimmt diese Woche (${ddmm(w.monday)} – ${ddmm(w.sunday)}) statt ${t.person}? Sagt am besten auch kurz in der WG-Gruppe Bescheid.`;
+  $('#swap-title').textContent = L(`${t.title} tauschen`, `Swap: ${T(t.title)}`);
+  $('#swap-text').textContent = L(`Wer übernimmt diese Woche (${ddmm(w.monday)} – ${ddmm(w.sunday)}) statt ${t.person}? Sagt am besten auch kurz in der WG-Gruppe Bescheid.`,
+    `Who takes over this week (${ddmm(w.monday)} – ${ddmm(w.sunday)}) instead of ${t.person}? Best to also give a quick heads-up in the flat group.`);
   $('#swap-people').innerHTML = state.people.filter((p) => p !== t.person)
-    .map((p) => `<button type="button" data-swap-to="${esc(p)}">${esc(p)}${p === t.planned ? ' (laut Plan)' : ''}</button>`).join('');
+    .map((p) => `<button type="button" data-swap-to="${esc(p)}">${esc(p)}${p === t.planned ? L(' (laut Plan)', ' (as planned)') : ''}</button>`).join('');
   const dlg = $('#swap-dialog');
   $('#swap-people').onclick = async (e) => {
     const b = e.target.closest('[data-swap-to]');
@@ -308,7 +417,7 @@ function openSwap(taskKey) {
     state.weeks.set(nw.monday, nw);
     dlg.close();
     render();
-    toast('Getauscht');
+    toast(L('Getauscht', 'Swapped'));
   };
   dlg.showModal();
 }
@@ -319,7 +428,8 @@ function openCleanerVisit() {
   const d = $('#cleaner-date');
   d.min = w.monday; d.max = w.sunday; d.value = w.cleanerDay;
   $('#cleaner-time').value = w.cleanerTime || '';
-  $('#cleaner-week').textContent = `Woche ${ddmm(w.monday)} – ${ddmm(w.sunday)} – alle bekommen eine kurze Nachricht mit dem Termin.`;
+  $('#cleaner-week').textContent = L(`Woche ${ddmm(w.monday)} – ${ddmm(w.sunday)} – alle bekommen eine kurze Nachricht mit dem Termin.`,
+    `Week ${ddmm(w.monday)} – ${ddmm(w.sunday)} – everyone gets a short notification with the date.`);
   $('#cleaner-form').onsubmit = async (e) => {
     if (e.submitter?.value !== 'ok') return;
     e.preventDefault();
@@ -328,7 +438,7 @@ function openCleanerVisit() {
       state.weeks.set(nw.monday, nw);
       dlg.close();
       render();
-      toast('Eingetragen, alle wurden benachrichtigt');
+      toast(L('Eingetragen, alle wurden benachrichtigt', 'Saved, everyone has been notified'));
     } catch (err) { toast(err.message); }
   };
   dlg.showModal();
@@ -336,10 +446,11 @@ function openCleanerVisit() {
 
 function openCleanerContact() {
   const dlg = $('#swap-dialog');
-  $('#swap-title').textContent = 'Zuständig für die Putzkraft';
-  $('#swap-text').textContent = 'Wer stimmt die Termine mit der Putzkraft ab? Diese Person bekommt montags die Frage, ob und wann die Putzkraft kommt.';
+  $('#swap-title').textContent = L('Zuständig für die Putzkraft', 'In charge of the cleaner');
+  $('#swap-text').textContent = L('Wer stimmt die Termine mit der Putzkraft ab? Diese Person bekommt montags die Frage, ob und wann die Putzkraft kommt.',
+    'Who arranges the dates with the cleaner? This person gets asked on Mondays whether and when the cleaner is coming.');
   $('#swap-people').innerHTML = state.people
-    .map((p) => `<button type="button" data-contact="${esc(p)}">${esc(p)}${p === state.cleanerContact ? ' (bisher)' : ''}</button>`).join('');
+    .map((p) => `<button type="button" data-contact="${esc(p)}">${esc(p)}${p === state.cleanerContact ? L(' (bisher)', ' (current)') : ''}</button>`).join('');
   $('#swap-people').onclick = async (e) => {
     const b = e.target.closest('[data-contact]');
     if (!b) return;
@@ -348,7 +459,7 @@ function openCleanerContact() {
       state.cleanerContact = r.cleanerContact;
       dlg.close();
       render();
-      toast(`${r.cleanerContact} ist jetzt zuständig`);
+      toast(L(`${r.cleanerContact} ist jetzt zuständig`, `${r.cleanerContact} is now in charge`));
     } catch (err) { toast(err.message); }
   };
   dlg.showModal();
@@ -372,15 +483,15 @@ window.addEventListener('hashchange', showTab);
 
 function ago(ts) {
   const min = Math.round((Date.now() - ts) / 60000);
-  if (min < 1) return 'gerade eben';
-  if (min < 60) return `vor ${min} Min.`;
+  if (min < 1) return L('gerade eben', 'just now');
+  if (min < 60) return L(`vor ${min} Min.`, `${min} min ago`);
   const h = Math.round(min / 60);
-  if (h < 24) return `vor ${h} Std.`;
+  if (h < 24) return L(`vor ${h} Std.`, `${h} h ago`);
   const d = Math.round(h / 24);
-  if (d === 1) return 'gestern';
-  if (d < 7) return `vor ${d} Tagen`;
+  if (d === 1) return L('gestern', 'yesterday');
+  if (d < 7) return L(`vor ${d} Tagen`, `${d} days ago`);
   const d2 = new Date(ts);
-  return d2.toLocaleDateString('de-DE', d2.getFullYear() === new Date().getFullYear() ? { day: '2-digit', month: '2-digit' } : { day: '2-digit', month: '2-digit', year: 'numeric' });
+  return d2.toLocaleDateString(locale(), d2.getFullYear() === new Date().getFullYear() ? { day: '2-digit', month: '2-digit' } : { day: '2-digit', month: '2-digit', year: 'numeric' });
 }
 
 // ---------------- Einkaufsliste ----------------
@@ -398,17 +509,17 @@ function renderShop() {
   badge.hidden = !sh.items.length;
   badge.textContent = sh.items.length;
   $('#shop-cats').innerHTML = sh.categories.map((c) =>
-    `<button type="button" class="chip" role="radio" aria-checked="${c.id === state.shopCat}" data-cat="${c.id}">${c.icon} ${esc(c.label)}</button>`).join('');
+    `<button type="button" class="chip" role="radio" aria-checked="${c.id === state.shopCat}" data-cat="${c.id}">${c.icon} ${esc(T(c.label))}</button>`).join('');
   if (!sh.items.length) {
-    $('#shop-list').innerHTML = '<div class="card"><p class="empty">Alles da! 🎉 Wenn etwas leer ist, trag es oben ein.</p></div>';
+    $('#shop-list').innerHTML = `<div class="card"><p class="empty">${L('Alles da! 🎉 Wenn etwas leer ist, trag es oben ein.', "We've got everything! 🎉 If something runs out, add it above.")}</p></div>`;
     return;
   }
   $('#shop-list').innerHTML = sh.categories.map((c) => {
     const items = sh.items.filter((i) => i.cat === c.id);
     if (!items.length) return '';
-    return `<section class="card shop-cat"><h2>${c.icon} ${esc(c.label)} <span class="muted small">${items.length}</span></h2>
+    return `<section class="card shop-cat"><h2>${c.icon} ${esc(T(c.label))} <span class="muted small">${items.length}</span></h2>
       ${items.map((i) => `<div class="shop-item"><div class="name">${esc(i.name)}<small>${i.by ? `${esc(i.by)}, ` : ''}${ago(i.at)}</small></div>
-        <button class="ghost small" data-bought="${esc(i.id)}">Gekauft ✓</button></div>`).join('')}
+        <button class="ghost small" data-bought="${esc(i.id)}">${L('Gekauft ✓', 'Bought ✓')}</button></div>`).join('')}
     </section>`;
   }).join('');
 }
@@ -421,7 +532,7 @@ $('#shop-form').addEventListener('submit', async (e) => {
     state.shop = await api('shop/add', { name, cat: state.shopCat, by: state.me });
     input.value = '';
     renderShop();
-    toast('Steht auf der Liste');
+    toast(L('Steht auf der Liste', 'Added to the list'));
   } catch (err) { toast(err.message); }
 });
 $('#shop-cats').addEventListener('click', (e) => {
@@ -436,7 +547,7 @@ $('#shop-list').addEventListener('click', (e) => {
   if (!b) return;
   const item = state.shop.items.find((i) => i.id === b.dataset.bought);
   if (!item) return;
-  $('#bought-title').textContent = `${item.name} gekauft 🎉`;
+  $('#bought-title').textContent = L(`${item.name} gekauft 🎉`, `${item.name} bought 🎉`);
   $('#bought-price').value = '';
   const dlg = $('#bought-dialog');
   dlg.onclose = async () => {
@@ -445,7 +556,7 @@ $('#shop-list').addEventListener('click', (e) => {
     try {
       state.shop = await api('shop/done', { id: item.id, price: price || undefined, by: state.me });
       renderShop();
-      toast(price ? 'Danke! Betrag steht in der WG-Kasse.' : 'Danke!');
+      toast(price ? L('Danke! Betrag steht in der WG-Kasse.', 'Thanks! The amount is in the flat money.') : L('Danke!', 'Thanks!'));
       state.money = null;
     } catch (err) { toast(err.message); }
   };
@@ -453,12 +564,12 @@ $('#shop-list').addEventListener('click', (e) => {
   dlg.showModal();
 });
 
-// Kategorien bearbeiten
+// Kategorien bearbeiten (Namen bleiben so gespeichert, wie sie eingegeben werden)
 function catRow(c = { label: '', icon: '🛒' }) {
   return `<div class="cat-row" data-id="${esc(c.id || '')}">
     <input class="ic" value="${esc(c.icon)}" maxlength="8" aria-label="Emoji">
-    <input class="lb" value="${esc(c.label)}" maxlength="40" placeholder="Name" aria-label="Name">
-    <button type="button" class="ghost" data-cat-del aria-label="Löschen">🗑</button></div>`;
+    <input class="lb" value="${esc(T(c.label))}" data-orig="${esc(c.label)}" maxlength="40" placeholder="${L('Name', 'Name')}" aria-label="Name">
+    <button type="button" class="ghost" data-cat-del aria-label="${L('Löschen', 'Delete')}">🗑</button></div>`;
 }
 $('#edit-cats').addEventListener('click', () => {
   $('#cats-list').innerHTML = state.shop.categories.map(catRow).join('');
@@ -466,14 +577,17 @@ $('#edit-cats').addEventListener('click', () => {
   dlg.returnValue = '';
   dlg.onclose = async () => {
     if (dlg.returnValue !== 'ok') return;
-    const categories = [...document.querySelectorAll('#cats-list .cat-row')].map((r) => ({
-      id: r.dataset.id || undefined, icon: r.querySelector('.ic').value.trim(), label: r.querySelector('.lb').value.trim(),
-    })).filter((c) => c.label);
+    const categories = [...document.querySelectorAll('#cats-list .cat-row')].map((r) => {
+      const lb = r.querySelector('.lb');
+      const label = lb.value.trim();
+      // Unveränderte, nur übersetzt angezeigte Namen im Original speichern
+      return { id: r.dataset.id || undefined, icon: r.querySelector('.ic').value.trim(), label: lb.dataset.orig && label === T(lb.dataset.orig) ? lb.dataset.orig : label };
+    }).filter((c) => c.label);
     try {
       state.shop = await api('shop/categories', { categories });
       if (!state.shop.categories.some((c) => c.id === state.shopCat)) state.shopCat = state.shop.categories[0].id;
       renderShop();
-      toast('Kategorien gespeichert');
+      toast(L('Kategorien gespeichert', 'Categories saved'));
     } catch (err) { toast(err.message); }
   };
   dlg.showModal();
@@ -491,13 +605,13 @@ state.money = null;
 state.split = null;
 state.mode = 'equal';
 state.cur = store.get('cur') || 'EUR';
-const money = (cents, cur = 'EUR') => new Intl.NumberFormat('de-DE', { style: 'currency', currency: cur }).format(cents / 100);
-const MODE_HINT = {
-  equal: 'Wird gleichmäßig auf die ausgewählten Personen aufgeteilt.',
-  percent: 'Prozent pro Person eintragen, zusammen 100 %.',
-  shares: 'Anteile eintragen, z.B. 2 und 1 heißt: die erste Person zahlt doppelt so viel.',
-  exact: 'Genaue Beträge eintragen, zusammen der Gesamtbetrag.',
-};
+const money = (cents, cur = 'EUR') => new Intl.NumberFormat(locale(), { style: 'currency', currency: cur }).format(cents / 100);
+const modeHint = (mode) => ({
+  equal: L('Wird gleichmäßig auf die ausgewählten Personen aufgeteilt.', 'Split equally between the selected people.'),
+  percent: L('Prozent pro Person eintragen, zusammen 100 %.', 'Enter a percentage per person, 100 % in total.'),
+  shares: L('Anteile eintragen, z.B. 2 und 1 heißt: die erste Person zahlt doppelt so viel.', 'Enter shares, e.g. 2 and 1 means the first person pays twice as much.'),
+  exact: L('Genaue Beträge eintragen, zusammen der Gesamtbetrag.', 'Enter exact amounts that add up to the total.'),
+}[mode]);
 
 async function loadMoney() {
   try { state.money = await api('money'); renderMoney(); renderHome(); } catch (e) { toast(e.message); }
@@ -518,12 +632,12 @@ function renderMoney() {
     tHtml += transfers.length
       ? transfers.map((t) => `<div class="transfer"><span>${esc(t.from)} → ${esc(t.to)}</span>
           <span class="row"><strong>${money(t.amount, c)}</strong>
-          <button class="ghost small" data-settle='${esc(JSON.stringify({ ...t, currency: c }))}'>Bezahlt</button></span></div>`).join('')
-      : '<p class="empty">Alle sind quitt. 🙌</p>';
+          <button class="ghost small" data-settle='${esc(JSON.stringify({ ...t, currency: c }))}'>${L('Bezahlt', 'Paid')}</button></span></div>`).join('')
+      : `<p class="empty">${L('Alle sind quitt. 🙌', 'Everyone is square. 🙌')}</p>`;
     if (multi) bHtml += `<p class="cur-head" style="grid-column:1/-1">${c}</p>`;
     bHtml += [...m.people, ...(m.former || []).filter((p) => balances[p])].map((p) => {
       const v = balances[p] || 0;
-      return `<div class="bal${p === state.me ? ' mine-bal' : ''}"><div class="who">${esc(p)}${m.people.includes(p) ? '' : ' (ausgezogen)'}</div>
+      return `<div class="bal${p === state.me ? ' mine-bal' : ''}"><div class="who">${esc(p)}${m.people.includes(p) ? '' : L(' (ausgezogen)', ' (moved out)')}</div>
         <div class="amt ${v > 0 ? 'pos' : v < 0 ? 'neg' : ''}">${v > 0 ? '+' : ''}${money(v, c)}</div></div>`;
     }).join('');
   }
@@ -547,23 +661,26 @@ function renderMoney() {
       if (e.net) { // aus Splitwise importiert
         const to = Object.entries(e.net).filter(([, v]) => v < 0).map(([p]) => p);
         who = settleRow
-          ? `${esc(e.paidBy)} hat ${to.map(esc).join(', ')} Geld zurückgegeben · Splitwise`
-          : `${esc(e.paidBy || '?')} hat bezahlt · Splitwise`;
+          ? L(`${esc(e.paidBy)} hat ${to.map(esc).join(', ')} Geld zurückgegeben · Splitwise`, `${esc(e.paidBy)} paid back ${to.map(esc).join(', ')} · Splitwise`)
+          : L(`${esc(e.paidBy || '?')} hat bezahlt · Splitwise`, `${esc(e.paidBy || '?')} paid · Splitwise`);
       } else {
         const parts = e.parts || Object.fromEntries((e.split || []).map((p) => [p, null]));
         let forWho;
         if (e.mode && e.mode !== 'equal') forWho = Object.entries(parts).map(([p, v]) => `${esc(p)} ${money(v, cur)}`).join(', ');
-        else forWho = Object.keys(parts).length === m.people.length ? 'für alle' : `für ${Object.keys(parts).map(esc).join(', ')}`;
-        who = settleRow ? `${esc(e.paidBy)} hat ${esc(Object.keys(parts)[0])} Geld zurückgegeben` : `${esc(e.paidBy)} hat bezahlt · ${forWho}`;
+        else forWho = Object.keys(parts).length === m.people.length ? L('für alle', 'for everyone') : `${L('für', 'for')} ${Object.keys(parts).map(esc).join(', ')}`;
+        who = settleRow
+          ? L(`${esc(e.paidBy)} hat ${esc(Object.keys(parts)[0])} Geld zurückgegeben`, `${esc(e.paidBy)} paid back ${esc(Object.keys(parts)[0])}`)
+          : `${L(`${esc(e.paidBy)} hat bezahlt`, `${esc(e.paidBy)} paid`)} · ${forWho}`;
       }
-      return `<div class="exp${settleRow ? ' settle' : ''}"><div class="d">${esc(e.desc)}<small>${who} · ${ago(e.at)}</small></div>
-        <div class="r"><strong>${money(e.amount, cur)}</strong><button class="link small" data-del="${esc(e.id)}">löschen</button></div></div>`;
+      return `<div class="exp${settleRow ? ' settle' : ''}"><div class="d">${esc(T(e.desc))}<small>${who} · ${ago(e.at)}</small></div>
+        <div class="r"><strong>${money(e.amount, cur)}</strong><button class="link small" data-del="${esc(e.id)}">${L('löschen', 'delete')}</button></div></div>`;
     }).join('')
-    : '<p class="empty">Noch nichts eingetragen.</p>';
+    : `<p class="empty">${L('Noch nichts eingetragen.', 'Nothing added yet.')}</p>`;
 }
 
 function renderSplit() {
   const m = state.money;
+  if (!m) return;
   document.querySelectorAll('#m-mode [data-mode]').forEach((b) => b.setAttribute('aria-checked', b.dataset.mode === state.mode));
   const equal = state.mode === 'equal';
   $('#m-split').hidden = !equal;
@@ -572,23 +689,23 @@ function renderSplit() {
     $('#m-split').innerHTML = m.people.map((p) =>
       `<button type="button" class="chip" aria-pressed="${state.split.has(p)}" data-split="${esc(p)}">${esc(p)}</button>`).join('');
   } else {
-    const unit = state.mode === 'percent' ? '%' : state.mode === 'shares' ? 'Anteile' : $('#m-cur').value || 'EUR';
+    const unit = state.mode === 'percent' ? '%' : state.mode === 'shares' ? L('Anteile', 'shares') : $('#m-cur').value || 'EUR';
     const old = Object.fromEntries([...document.querySelectorAll('#m-values input')].map((i) => [i.name, i.value]));
     $('#m-values').innerHTML = m.people.map((p) => `<label><span>${esc(p)}</span>
-      <input name="${esc(p)}" inputmode="decimal" placeholder="0" value="${esc(old[p] ?? '')}" aria-label="${esc(p)} in ${unit}"><small class="muted">${unit}</small></label>`).join('');
+      <input name="${esc(p)}" inputmode="decimal" placeholder="0" value="${esc(old[p] ?? '')}" aria-label="${esc(p)} ${L('in', 'in')} ${unit}"><small class="muted">${unit}</small></label>`).join('');
   }
   updateHint();
 }
 function updateHint() {
-  let hint = MODE_HINT[state.mode];
+  let hint = modeHint(state.mode);
   if (state.mode !== 'equal') {
     const nums = [...document.querySelectorAll('#m-values input')].map((i) => Number(i.value.replace(',', '.')) || 0);
     const sum = nums.reduce((a, b) => a + b, 0);
-    if (state.mode === 'percent') hint += ` Bisher: ${Math.round(sum * 100) / 100} %.`;
+    if (state.mode === 'percent') hint += L(` Bisher: ${Math.round(sum * 100) / 100} %.`, ` So far: ${Math.round(sum * 100) / 100} %.`);
     if (state.mode === 'exact') {
       const total = Number($('#m-amount').value.replace(',', '.')) || 0;
       const rest = Math.round((total - sum) * 100);
-      hint += rest ? ` Noch zu verteilen: ${money(rest, $('#m-cur').value)}.` : ' Passt genau.';
+      hint += rest ? L(` Noch zu verteilen: ${money(rest, $('#m-cur').value)}.`, ` Still to split: ${money(rest, $('#m-cur').value)}.`) : L(' Passt genau.', ' Adds up exactly.');
     }
   }
   $('#m-hint').textContent = hint;
@@ -614,7 +731,7 @@ $('#m-split').addEventListener('click', (e) => {
 });
 $('#money-form').addEventListener('submit', async (e) => {
   e.preventDefault();
-  if (state.mode === 'equal' && !state.split.size) { toast('Bitte mindestens eine Person auswählen'); return; }
+  if (state.mode === 'equal' && !state.split.size) { toast(L('Bitte mindestens eine Person auswählen', 'Please choose at least one person')); return; }
   const values = Object.fromEntries([...document.querySelectorAll('#m-values input')].map((i) => [i.name, i.value.trim()]));
   try {
     state.money = await api('money/add', {
@@ -625,7 +742,7 @@ $('#money-form').addEventListener('submit', async (e) => {
     $('#m-amount').value = '';
     $('#m-values').innerHTML = '';
     renderMoney();
-    toast('Eingetragen');
+    toast(L('Eingetragen', 'Added'));
   } catch (err) { toast(err.message); }
 });
 $('#sw-import').addEventListener('click', () => $('#sw-file').click());
@@ -637,33 +754,34 @@ $('#sw-file').addEventListener('change', async () => {
     const r = await api('money/import', { csv: await file.text(), by: state.me });
     state.money = r;
     renderMoney();
-    toast(`${r.imported} Einträge übernommen${r.matches ? ', Salden stimmen mit Splitwise überein ✓' : ''}`);
+    toast(L(`${r.imported} Einträge übernommen${r.matches ? ', Salden stimmen mit Splitwise überein ✓' : ''}`,
+      `${r.imported} entries imported${r.matches ? ', balances match Splitwise ✓' : ''}`));
   } catch (err) { toast(err.message); }
 });
 $('#tab-money').addEventListener('click', async (e) => {
   const s = e.target.closest('[data-settle]');
   if (s) {
     const t = JSON.parse(s.dataset.settle);
-    if (!confirm(`Hat ${t.from} ${t.to} ${money(t.amount, t.currency)} zurückgezahlt?`)) return;
+    if (!confirm(L(`Hat ${t.from} ${t.to} ${money(t.amount, t.currency)} zurückgezahlt?`, `Has ${t.from} paid ${t.to} ${money(t.amount, t.currency)} back?`))) return;
     try {
       state.money = await api('money/add', {
         kind: 'settle', desc: 'Rückzahlung', amount: (t.amount / 100).toFixed(2), currency: t.currency, paidBy: t.from, split: [t.to], by: state.me,
       });
       renderMoney();
-      toast('Ausgeglichen 👍');
+      toast(L('Ausgeglichen 👍', 'Settled 👍'));
     } catch (err) { toast(err.message); }
     return;
   }
   const d = e.target.closest('[data-del]');
   if (d) {
-    if (!confirm('Diesen Eintrag wirklich löschen?')) return;
+    if (!confirm(L('Diesen Eintrag wirklich löschen?', 'Really delete this entry?'))) return;
     try { state.money = await api('money/delete', { id: d.dataset.del }); renderMoney(); } catch (err) { toast(err.message); }
   }
 });
 
 // ---------------- Übersicht (Dashboard) ----------------
-const fmtDay = (d) => new Date(`${d}T12:00:00Z`).toLocaleDateString('de-DE', { weekday: 'short', day: '2-digit', month: '2-digit' });
 function absentNow(day) { return (state.absences || []).filter((a) => a.from <= day && a.to >= day); }
+const plural = (n, de1, deN, en1, enN) => (n === 1 ? L(de1, en1) : L(deN, enN));
 
 function renderHome() {
   const el = $('#home');
@@ -682,35 +800,35 @@ function renderHome() {
         total++;
         if (w.checks[`${t.key}:${it.id}`]) done++;
       }
-      if (t.person === me && t.key !== 'kuehlschrank') mine.push(t.title + (t.key.startsWith('bad-') && !t.cleaningWeek ? ' (nur Klopapier)' : ''));
+      if (t.person === me && t.key !== 'kuehlschrank') mine.push(T(t.title) + (t.key.startsWith('bad-') && !t.cleaningWeek ? L(' (nur Klopapier)', ' (toilet paper only)') : ''));
     }
-    if (w.tasks.some((t) => t.key === 'kuehlschrank' && t.items.some((i) => i.person === me))) mine.push('Kühlschrankfach');
-    html += `<a class="card wide" href="#plan"><h3>Deine Woche</h3>
+    if (w.tasks.some((t) => t.key === 'kuehlschrank' && t.items.some((i) => i.person === me))) mine.push(L('Kühlschrankfach', 'Fridge shelf'));
+    html += `<a class="card wide" href="#plan"><h3>${L('Deine Woche', 'Your week')}</h3>
       ${me ? (mine.length ? `<div class="big">${mine.map(esc).join(', ')}</div>
-        ${total ? `<p>${done} von ${total} erledigt</p><div class="progress"><b style="width:${Math.round((done / total) * 100)}%"></b></div>` : ''}`
-        : `<div class="big">Frei diese Woche 🎉</div>`) : '<p>Tipp oben auf deinen Namen.</p>'}
+        ${total ? `<p>${L(`${done} von ${total} erledigt`, `${done} of ${total} done`)}</p><div class="progress"><b style="width:${Math.round((done / total) * 100)}%"></b></div>` : ''}`
+        : `<div class="big">${L('Frei diese Woche 🎉', 'Free this week 🎉')}</div>`) : `<p>${L('Tipp oben auf deinen Namen.', 'Tap your name above.')}</p>`}
       </a>`;
     const t = (k) => w.tasks.find((x) => x.key === k);
-    html += `<a class="card" href="#plan"><h3>Putzplan</h3>
-      <p>Wochendienst: <strong>${esc(t('woche')?.person || '–')}</strong></p>
-      <p>Bad vorne: ${esc(t('bad-vorne')?.person || '–')}</p><p>Bad hinten: ${esc(t('bad-hinten')?.person || '–')}</p>
-      <p class="muted">${w.cleaner ? `🧹 Putzkraft ${cleanerWhen(w)}${w.cleanerConfirmed ? ' ✓' : ''}` : w.ausfall ? '⚠️ Putzkraft fällt aus' : 'Ohne Putzkraft'}</p></a>`;
+    html += `<a class="card" href="#plan"><h3>${L('Putzplan', 'Cleaning')}</h3>
+      <p>${L('Wochendienst', 'Weekly duty')}: <strong>${esc(t('woche')?.person || '–')}</strong></p>
+      <p>${L('Bad vorne', 'Front bath')}: ${esc(t('bad-vorne')?.person || '–')}</p><p>${L('Bad hinten', 'Back bath')}: ${esc(t('bad-hinten')?.person || '–')}</p>
+      <p class="muted">${w.cleaner ? `🧹 ${L('Putzkraft', 'Cleaner')} ${cleanerWhen(w)}${w.cleanerConfirmed ? ' ✓' : ''}` : w.ausfall ? L('⚠️ Putzkraft fällt aus', '⚠️ Cleaner cancelled') : L('Ohne Putzkraft', 'No cleaner')}</p></a>`;
   }
   const sh = state.shop;
-  html += `<a class="card" href="#einkauf"><h3>Einkauf</h3>${sh
-    ? (sh.items.length ? `<div class="big">${sh.items.length}</div><p>${sh.items.slice(0, 3).map((i) => esc(i.name)).join(', ')}${sh.items.length > 3 ? ' …' : ''}</p>` : '<p>Alles da 🎉</p>')
+  html += `<a class="card" href="#einkauf"><h3>${L('Einkauf', 'Shopping')}</h3>${sh
+    ? (sh.items.length ? `<div class="big">${sh.items.length}</div><p>${sh.items.slice(0, 3).map((i) => esc(i.name)).join(', ')}${sh.items.length > 3 ? ' …' : ''}</p>` : `<p>${L('Alles da 🎉', 'All stocked 🎉')}</p>`)
     : '<p class="muted">…</p>'}</a>`;
   const m = state.money;
   if (m) {
     const eur = m.byCurrency.EUR;
     const v = me ? eur.balances[me] || 0 : null;
     const owe = me ? eur.transfers.filter((x) => x.from === me) : [];
-    html += `<a class="card" href="#kasse"><h3>Kasse</h3>${me
+    html += `<a class="card" href="#kasse"><h3>${L('Kasse', 'Money')}</h3>${me
       ? `<div class="big" style="color:${v > 0 ? 'var(--done)' : v < 0 ? 'var(--warn)' : 'inherit'}">${v > 0 ? '+' : ''}${money(v)}</div>
-        <p>${owe.length ? owe.map((x) => `an ${esc(x.to)}: ${money(x.amount)}`).join('<br>') : v > 0 ? 'Du bekommst Geld zurück' : 'Du bist quitt'}</p>`
+        <p>${owe.length ? owe.map((x) => `${L('an', 'to')} ${esc(x.to)}: ${money(x.amount)}`).join('<br>') : v > 0 ? L('Du bekommst Geld zurück', "You're owed money") : L('Du bist quitt', "You're square")}</p>`
       : ''}</a>`;
   } else {
-    html += '<a class="card" href="#kasse"><h3>Kasse</h3><p class="muted">…</p></a>';
+    html += `<a class="card" href="#kasse"><h3>${L('Kasse', 'Money')}</h3><p class="muted">…</p></a>`;
   }
   const today = state.today;
   const now = absentNow(today);
@@ -718,13 +836,14 @@ function renderHome() {
   const meet = (state.events || []).find((e) => e.type === 'meeting' && e.from >= today);
   const openPolls = (state.polls || []).filter((p) => p.status === 'open');
   const invites = (state.events || []).filter((e) => e.participants.some((p) => p.name === me && !p.ok));
-  html += `<a class="card" href="#kalender"><h3>Kalender</h3>
-    ${now.length ? `<p>${now.map((a) => `🏖️ <strong>${esc(a.person)}</strong> bis ${ddmm(a.to)}`).join('<br>')}</p>` : '<p>Alle da</p>'}
-    ${next.length ? `<p class="muted">${next.map((a) => `${esc(a.person)} weg ab ${ddmm(a.from)}`).join('<br>')}</p>` : ''}
-    ${meet ? `<p>🗣️ ${esc(meet.title || 'WG-Meeting')} ${ddmm(meet.from)} ${meet.time}${meet.topics?.length ? ` · ${meet.topics.length} Thema${meet.topics.length > 1 ? 'en' : ''}` : ''}</p>` : ''}
-    ${openPolls.length ? `<p>🗳️ ${openPolls.length} Abstimmung${openPolls.length > 1 ? 'en' : ''} offen</p>` : ''}
-    ${invites.length ? `<p><strong>📬 ${invites.length} Einladung${invites.length > 1 ? 'en' : ''} für dich</strong></p>` : ''}</a>`;
-  html += '<a class="card wide" href="#regeln"><h3>Hausregeln</h3><p>Mission Haussegen 📜 Alles zum WG-Seelenfrieden</p></a>';
+  const nTopics = meet?.topics?.length || 0;
+  html += `<a class="card" href="#kalender"><h3>${L('Kalender', 'Calendar')}</h3>
+    ${now.length ? `<p>${now.map((a) => `🏖️ <strong>${esc(a.person)}</strong> ${L('bis', 'until')} ${ddmm(a.to)}`).join('<br>')}</p>` : `<p>${L('Alle da', 'Everyone is home')}</p>`}
+    ${next.length ? `<p class="muted">${next.map((a) => L(`${esc(a.person)} weg ab ${ddmm(a.from)}`, `${esc(a.person)} away from ${ddmm(a.from)}`)).join('<br>')}</p>` : ''}
+    ${meet ? `<p>🗣️ ${esc(meet.title && meet.title !== 'WG-Meeting' ? meet.title : L('WG-Meeting', 'Flat meeting'))} ${ddmm(meet.from)} ${meet.time}${nTopics ? ` · ${nTopics} ${plural(nTopics, 'Thema', 'Themen', 'topic', 'topics')}` : ''}</p>` : ''}
+    ${openPolls.length ? `<p>🗳️ ${openPolls.length} ${plural(openPolls.length, 'Abstimmung offen', 'Abstimmungen offen', 'open poll', 'open polls')}</p>` : ''}
+    ${invites.length ? `<p><strong>📬 ${invites.length} ${plural(invites.length, 'Einladung für dich', 'Einladungen für dich', 'invitation for you', 'invitations for you')}</strong></p>` : ''}</a>`;
+  html += `<a class="card wide" href="#regeln"><h3>${L('Hausregeln', 'House rules')}</h3><p>${L('Mission Haussegen 📜 Alles zum WG-Seelenfrieden', 'Mission Haussegen 📜 Everything for peace in the flat')}</p></a>`;
   html += '</div>';
   el.innerHTML = html;
 
@@ -734,8 +853,9 @@ function renderHome() {
       const away = now.some((a) => a.person === x.name);
       const future = x.since > state.current;
       const leaving = x.until;
-      return `<div class="member"><span><strong>${esc(x.name)}</strong> <small>Zimmer ${x.side}</small></span>
-        <span>${away ? '<span class="tag away">im Urlaub</span> ' : ''}${future ? `<span class="tag">ab ${ddmm(x.since)}</span>` : ''}${leaving ? `<span class="tag away">zieht aus</span>` : ''}</span></div>`;
+      const side = x.side === 'hinten' ? L('hinten', 'back') : L('vorne', 'front');
+      return `<div class="member"><span><strong>${esc(x.name)}</strong> <small>${L(`Zimmer ${side}`, `${side} room`)}${x.lang === 'en' ? ' · 🇬🇧' : ''}</small></span>
+        <span>${away ? `<span class="tag away">${L('im Urlaub', 'on holiday')}</span> ` : ''}${future ? `<span class="tag">${L('ab', 'from')} ${ddmm(x.since)}</span>` : ''}${leaving ? `<span class="tag away">${L('zieht aus', 'moving out')}</span>` : ''}</span></div>`;
     }).join('');
   $('#leave-open').hidden = !me;
 }
@@ -750,6 +870,15 @@ $('#join-side').addEventListener('click', (e) => {
   state.joinSide = b.dataset.side;
   document.querySelectorAll('#join-side [data-side]').forEach((x) => x.setAttribute('aria-checked', x === b));
 });
+function markJoinLang() {
+  document.querySelectorAll('#join-lang [data-jlang]').forEach((x) => x.setAttribute('aria-checked', x.dataset.jlang === state.lang));
+}
+$('#join-lang').addEventListener('click', (e) => {
+  const b = e.target.closest('[data-jlang]');
+  if (!b) return;
+  setLang(b.dataset.jlang); // Formular gleich in der gewählten Sprache anzeigen
+  markJoinLang();
+});
 $('#join-cancel').onclick = () => {
   state.joining = false;
   if (location.hash === '#beitreten') history.replaceState(null, '', '#start');
@@ -758,9 +887,9 @@ $('#join-cancel').onclick = () => {
 };
 $('#join').addEventListener('submit', async (e) => {
   e.preventDefault();
-  if (!state.joinSide) { toast('Bitte vorne oder hinten wählen'); return; }
+  if (!state.joinSide) { toast(L('Bitte vorne oder hinten wählen', 'Please choose front or back')); return; }
   try {
-    const r = await api('members/join', { name: $('#join-name').value, side: state.joinSide });
+    const r = await api('members/join', { name: $('#join-name').value, side: state.joinSide, lang: state.lang });
     state.me = r.name;
     store.set('me', r.name);
     state.joining = false;
@@ -768,26 +897,27 @@ $('#join').addEventListener('submit', async (e) => {
     state.weeks.clear();
     await load();
     showTab();
-    toast(`Willkommen, ${r.name}! Ab ${ddmm(r.since)} bist du im Putzplan.`);
+    toast(L(`Willkommen, ${r.name}! Ab ${ddmm(r.since)} bist du im Putzplan.`, `Welcome, ${r.name}! You're on the cleaning rota from ${ddmm(r.since)}.`));
   } catch (err) { toast(err.message); }
 });
 $('#invite').onclick = async () => {
   const url = `${location.origin}/#beitreten`;
-  const text = 'Komm in unsere WG-Zentrale! Leg dir dort dein Profil an:';
+  const text = L('Komm in unsere WG-Zentrale! Leg dir dort dein Profil an:', 'Join our flat app "Zentrale"! Create your profile here:');
   try {
     if (navigator.share) { await navigator.share({ title: 'WG-Zentrale', text, url }); return; }
   } catch { return; }
-  try { await navigator.clipboard.writeText(`${text} ${url}`); toast('Einladungslink kopiert, schick ihn einfach weiter'); } catch { prompt('Diesen Link verschicken:', url); }
+  try { await navigator.clipboard.writeText(`${text} ${url}`); toast(L('Einladungslink kopiert, schick ihn einfach weiter', 'Invite link copied, just send it on')); } catch { prompt(L('Diesen Link verschicken:', 'Send this link:'), url); }
 };
 $('#leave-open').onclick = async () => {
   if (!state.money) { try { state.money = await api('money'); } catch { /* egal */ } }
   const eur = state.money?.byCurrency?.EUR;
   const v = eur ? eur.balances[state.me] || 0 : 0;
   const owe = eur ? eur.transfers.filter((x) => x.from === state.me) : [];
+  const oweList = owe.length ? ` (${owe.map((x) => `${esc(x.to)}: ${money(x.amount)}`).join(', ')})` : '';
   $('#leave-balance').innerHTML = v < 0
-    ? `<div class="banner"><p>⚠️ Laut WG-Kasse schuldest du noch <strong>${money(-v)}</strong>${owe.length ? ` (${owe.map((x) => `${esc(x.to)}: ${money(x.amount)}`).join(', ')})` : ''}. Bitte vorher ausgleichen.</p></div>`
-    : v > 0 ? `<div class="banner"><p>💶 Du bekommst laut WG-Kasse noch <strong>${money(v)}</strong> zurück. Sprecht das am besten vorher ab.</p></div>`
-      : '<div class="banner"><p>✅ Deine WG-Kasse ist ausgeglichen.</p></div>';
+    ? `<div class="banner"><p>${L(`⚠️ Laut WG-Kasse schuldest du noch <strong>${money(-v)}</strong>${oweList}. Bitte vorher ausgleichen.`, `⚠️ According to the flat money you still owe <strong>${money(-v)}</strong>${oweList}. Please settle up first.`)}</p></div>`
+    : v > 0 ? `<div class="banner"><p>${L(`💶 Du bekommst laut WG-Kasse noch <strong>${money(v)}</strong> zurück. Sprecht das am besten vorher ab.`, `💶 According to the flat money you're still owed <strong>${money(v)}</strong>. Best to sort it out before you go.`)}</p></div>`
+      : `<div class="banner"><p>${L('✅ Deine WG-Kasse ist ausgeglichen.', '✅ Your flat money is settled.')}</p></div>`;
   $('#leave-form').reset();
   $('#leave-date').value = state.today;
   const dlg = $('#leave-dialog');
@@ -799,8 +929,9 @@ $('#leave-open').onclick = async () => {
       await api('members/leave', { name, date: $('#leave-date').value });
       const sub = await currentSubscription().catch(() => null);
       if (sub) { await sub.unsubscribe().catch(() => {}); }
-      $('#bye-title').textContent = `Schade, dass du gehst, ${name}!`;
-      $('#bye-text').textContent = 'Wir werden dich wirklich vermissen: die Gespräche in der Küche, das gemeinsame Kochen und sogar deine Putzwochen. Danke für die schöne Zeit mit dir! Pass auf dich auf, komm uns besuchen, und für einen Kaffee oder eine Party bist du hier immer willkommen. 💛';
+      $('#bye-title').textContent = L(`Schade, dass du gehst, ${name}!`, `So sad to see you go, ${name}!`);
+      $('#bye-text').textContent = L('Wir werden dich wirklich vermissen: die Gespräche in der Küche, das gemeinsame Kochen und sogar deine Putzwochen. Danke für die schöne Zeit mit dir! Pass auf dich auf, komm uns besuchen, und für einen Kaffee oder eine Party bist du hier immer willkommen. 💛',
+        "We'll really miss you: the chats in the kitchen, cooking together and even your cleaning weeks. Thanks for the lovely time with you! Take care, come and visit, and you're always welcome here for a coffee or a party. 💛");
       $('#bye-dialog').showModal();
       state.me = null;
       store.set('me', '');
@@ -819,9 +950,14 @@ $('#leave-form').addEventListener('submit', (e) => {
 state.calMonth = null;
 state.evType = 'urlaub';
 state.evPeople = null;
-const MONTHS = ['Januar', 'Februar', 'März', 'April', 'Mai', 'Juni', 'Juli', 'August', 'September', 'Oktober', 'November', 'Dezember'];
+const MONTHS = {
+  de: ['Januar', 'Februar', 'März', 'April', 'Mai', 'Juni', 'Juli', 'August', 'September', 'Oktober', 'November', 'Dezember'],
+  en: ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'],
+};
 const TYPE_ICON = { urlaub: '🏖️', meeting: '🗣️', sonstiges: '📅' };
-const TYPE_LABEL = { urlaub: 'Urlaub', meeting: 'WG-Meeting', sonstiges: 'Termin' };
+const typeLabel = (t) => ({ urlaub: L('Urlaub', 'Holiday'), meeting: L('WG-Meeting', 'Flat meeting'), sonstiges: L('Termin', 'Event') }[t]);
+/** Titel eines Eintrags; der Standardtitel "WG-Meeting" wird übersetzt */
+const evTitle = (e) => (e.title && e.title !== 'WG-Meeting' ? e.title : typeLabel(e.type));
 const dowOf = (d) => (new Date(`${d}T12:00:00Z`).getUTCDay() + 6) % 7;
 
 function applyCal(data) {
@@ -834,11 +970,12 @@ function renderCal() {
   if (!state.today || !$('#cal-grid')) return;
   if (!state.calMonth) state.calMonth = state.today.slice(0, 7);
   const [y, mo] = state.calMonth.split('-').map(Number);
-  $('#cal-title').textContent = `${MONTHS[mo - 1]} ${y}`;
+  $('#cal-title').textContent = `${MONTHS[state.lang][mo - 1]} ${y}`;
   const first = `${state.calMonth}-01`;
   const start = addDays(first, -dowOf(first));
   const evs = state.events || [];
-  let html = ['Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So'].map((d) => `<div class="dow">${d}</div>`).join('');
+  const dows = state.lang === 'en' ? ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'] : ['Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So'];
+  let html = dows.map((d) => `<div class="dow">${d}</div>`).join('');
   for (let i = 0; i < 42; i++) {
     const d = addDays(start, i);
     if (i >= 35 && d.slice(0, 7) !== state.calMonth) break;
@@ -848,13 +985,13 @@ function renderCal() {
     for (const e of evs) {
       if (e.from > d || e.to < d) continue;
       if (e.type === 'urlaub') {
-        for (const p of e.participants) pills.push(`<span class="pill urlaub${p.ok ? '' : ' pending'}" title="${esc(p.name)}: Urlaub">${esc(p.name)}</span>`);
+        for (const p of e.participants) pills.push(`<span class="pill urlaub${p.ok ? '' : ' pending'}" title="${esc(p.name)}: ${typeLabel('urlaub')}">${esc(p.name)}</span>`);
       } else {
-        pills.push(`<span class="pill ${e.type}" title="${esc(e.title || TYPE_LABEL[e.type])}">${e.time ? `${e.time} ` : ''}${esc(e.title || TYPE_LABEL[e.type])}</span>`);
+        pills.push(`<span class="pill ${e.type}" title="${esc(evTitle(e))}">${e.time ? `${e.time} ` : ''}${esc(evTitle(e))}</span>`);
       }
     }
     html += `<div class="day${d.slice(0, 7) !== state.calMonth ? ' out' : ''}${d === state.today ? ' today' : ''}">
-      <span class="n">${+d.slice(8)}${cleaner ? '<span title="Putzkraft">🧹</span>' : ''}</span>${pills.join('')}</div>`;
+      <span class="n">${+d.slice(8)}${cleaner ? `<span title="${L('Putzkraft', 'Cleaner')}">🧹</span>` : ''}</span>${pills.join('')}</div>`;
   }
   $('#cal-grid').innerHTML = html;
   renderInbox();
@@ -867,10 +1004,11 @@ function renderInbox() {
   const pending = (state.events || []).filter((e) => e.participants.some((p) => p.name === me && !p.ok));
   const openPolls = (state.polls || []).filter((p) => p.status === 'open' && !(p.votes || {})[me]);
   if (!me || (!pending.length && !openPolls.length)) { $('#cal-inbox').innerHTML = ''; return; }
-  $('#cal-inbox').innerHTML = `<section class="card inbox"><h2>Für dich 📬</h2>
-    ${pending.map((e) => `<div class="row"><span><strong>${esc(e.by || 'Jemand')}</strong> hat dich beim Urlaub ${e.title ? `„${esc(e.title)}“ ` : ''}${fmtDay(e.from)} – ${fmtDay(e.to)} eingetragen.</span>
-      <span class="row" style="flex:none"><button class="small" data-respond="${esc(e.id)}" data-accept="1">Bin dabei</button><button class="ghost small" data-respond="${esc(e.id)}" data-accept="0">Nein</button></span></div>`).join('')}
-    ${openPolls.map((p) => `<div class="row"><span>🗳️ Stimm ab: <strong>${esc(p.title)}</strong>${p.by ? ` (von ${esc(p.by)})` : ''}</span><button type="button" class="link small" data-goto-poll="${esc(p.id)}">Zur Abstimmung</button></div>`).join('')}
+  $('#cal-inbox').innerHTML = `<section class="card inbox"><h2>${L('Für dich 📬', 'For you 📬')}</h2>
+    ${pending.map((e) => `<div class="row"><span>${L(`<strong>${esc(e.by || 'Jemand')}</strong> hat dich beim Urlaub ${e.title ? `„${esc(e.title)}“ ` : ''}${fmtDay(e.from)} – ${fmtDay(e.to)} eingetragen.`,
+      `<strong>${esc(e.by || 'Someone')}</strong> added you to the holiday ${e.title ? `"${esc(e.title)}" ` : ''}${fmtDay(e.from)} – ${fmtDay(e.to)}.`)}</span>
+      <span class="row" style="flex:none"><button class="small" data-respond="${esc(e.id)}" data-accept="1">${L('Bin dabei', "I'm in")}</button><button class="ghost small" data-respond="${esc(e.id)}" data-accept="0">${L('Nein', 'No')}</button></span></div>`).join('')}
+    ${openPolls.map((p) => `<div class="row"><span>🗳️ ${L('Stimm ab', 'Vote')}: <strong>${esc(evTitle({ ...p, type: 'meeting' }))}</strong>${p.by ? ` (${L('von', 'from')} ${esc(p.by)})` : ''}</span><button type="button" class="link small" data-goto-poll="${esc(p.id)}">${L('Zur Abstimmung', 'Go to poll')}</button></div>`).join('')}
   </section>`;
 }
 
@@ -883,25 +1021,26 @@ function pollScore(poll, optId) {
 }
 function renderPolls() {
   const open = (state.polls || []).filter((p) => p.status === 'open');
+  const voteLabel = { yes: L('Passt', 'Works'), maybe: L('Vielleicht', 'Maybe'), no: L('Passt nicht', "Doesn't work") };
   $('#polls').innerHTML = open.map((poll) => {
     const mine = (poll.votes || {})[state.me] || {};
     const voters = Object.keys(poll.votes || {});
     const missing = state.people.filter((p) => !voters.includes(p));
     const best = Math.max(...poll.options.map((o) => pollScore(poll, o.id).score));
     return `<section class="card poll" id="poll-${esc(poll.id)}">
-      <h2>🗳️ ${esc(poll.title)}</h2>
-      <p class="muted small" style="margin:0 0 6px">Angefragt von ${esc(poll.by || '?')} · abgestimmt: ${voters.length}/${state.people.length}${missing.length ? ` · fehlt noch: ${missing.map(esc).join(', ')}` : ''}</p>
+      <h2>🗳️ ${esc(evTitle({ ...poll, type: 'meeting' }))}</h2>
+      <p class="muted small" style="margin:0 0 6px">${L('Angefragt von', 'Requested by')} ${esc(poll.by || '?')} · ${L('abgestimmt', 'voted')}: ${voters.length}/${state.people.length}${missing.length ? ` · ${L('fehlt noch', 'still missing')}: ${missing.map(esc).join(', ')}` : ''}</p>
       ${poll.options.map((o) => {
         const sc = pollScore(poll, o.id);
         const who = (v) => voters.filter((n) => poll.votes[n][o.id] === v).map(esc).join(', ');
         return `<div class="opt${sc.score === best && best > 0 ? ' best' : ''}">
-          <span class="when"><strong>${fmtDay(o.date)}</strong>, ${o.time} Uhr</span>
-          <span class="votes">${state.me ? ['yes', 'maybe', 'no'].map((v) => `<button type="button" class="${v}" aria-pressed="${mine[o.id] === v}" data-vote="${esc(poll.id)}" data-opt="${esc(o.id)}" data-val="${v}" aria-label="${{ yes: 'Passt', maybe: 'Vielleicht', no: 'Passt nicht' }[v]}">${{ yes: '✅', maybe: '🤔', no: '❌' }[v]}</button>`).join('') : ''}</span>
+          <span class="when"><strong>${fmtDay(o.date)}</strong>, ${clock(o.time)}</span>
+          <span class="votes">${state.me ? ['yes', 'maybe', 'no'].map((v) => `<button type="button" class="${v}" aria-pressed="${mine[o.id] === v}" data-vote="${esc(poll.id)}" data-opt="${esc(o.id)}" data-val="${v}" aria-label="${voteLabel[v]}">${{ yes: '✅', maybe: '🤔', no: '❌' }[v]}</button>`).join('') : ''}</span>
           <span class="tally">✅ ${sc.yes}${sc.yes ? ` (${who('yes')})` : ''} · 🤔 ${sc.maybe}${sc.maybe ? ` (${who('maybe')})` : ''} · ❌ ${sc.no}${sc.no ? ` (${who('no')})` : ''}
-            · <button type="button" class="link small" data-close="${esc(poll.id)}" data-opt="${esc(o.id)}">Diesen Termin festlegen</button></span>
+            · <button type="button" class="link small" data-close="${esc(poll.id)}" data-opt="${esc(o.id)}">${L('Diesen Termin festlegen', 'Pick this date')}</button></span>
         </div>`;
       }).join('')}
-      <div class="row end" style="margin-top:6px"><button type="button" class="link small" data-poll-del="${esc(poll.id)}">Anfrage löschen</button></div>
+      <div class="row end" style="margin-top:6px"><button type="button" class="link small" data-poll-del="${esc(poll.id)}">${L('Anfrage löschen', 'Delete request')}</button></div>
     </section>`;
   }).join('');
 }
@@ -911,19 +1050,19 @@ function renderEvList() {
   $('#ev-list').innerHTML = up.length
     ? up.map((e) => {
       const ppl = e.participants.length === state.people.length && e.type !== 'urlaub'
-        ? 'alle'
-        : e.participants.map((p) => `${esc(p.name)}${p.ok ? '' : ' (wartet auf Zusage)'}`).join(', ');
-      return `<div class="ev"><div>${TYPE_ICON[e.type]} <strong>${esc(e.title || TYPE_LABEL[e.type])}</strong>
-        <small>${fmtDay(e.from)}${e.to !== e.from ? ` – ${fmtDay(e.to)}` : ''}${e.time ? `, ${e.time} Uhr` : ''} · ${ppl}${e.note ? ` · ${esc(e.note)}` : ''}</small></div>
-        <div class="ev-actions">${e.type === 'meeting' ? `<button class="link small" data-notes="${esc(e.id)}">📝 Themen & Protokoll${e.topics?.length ? ` (${e.topics.length})` : ''}</button>` : ''}
-        <button class="link small" data-ev-del="${esc(e.id)}">löschen</button></div></div>`;
+        ? L('alle', 'everyone')
+        : e.participants.map((p) => `${esc(p.name)}${p.ok ? '' : L(' (wartet auf Zusage)', ' (waiting to confirm)')}`).join(', ');
+      return `<div class="ev"><div>${TYPE_ICON[e.type]} <strong>${esc(evTitle(e))}</strong>
+        <small>${fmtDay(e.from)}${e.to !== e.from ? ` – ${fmtDay(e.to)}` : ''}${e.time ? `, ${clock(e.time)}` : ''} · ${ppl}${e.note ? ` · ${esc(e.note)}` : ''}</small></div>
+        <div class="ev-actions">${e.type === 'meeting' ? `<button class="link small" data-notes="${esc(e.id)}">📝 ${L('Themen & Protokoll', 'Topics & minutes')}${e.topics?.length ? ` (${e.topics.length})` : ''}</button>` : ''}
+        <button class="link small" data-ev-del="${esc(e.id)}">${L('löschen', 'delete')}</button></div></div>`;
     }).join('')
-    : '<p class="empty">Nichts eingetragen.</p>';
+    : `<p class="empty">${L('Nichts eingetragen.', 'Nothing planned.')}</p>`;
   const past = (state.events || []).filter((e) => e.type === 'meeting' && e.to < state.today).sort((a, b) => (a.from < b.from ? 1 : -1));
   $('#past-meetings').innerHTML = past.length
-    ? `<h3>Vergangene WG-Meetings</h3>${past.map((e) => `<div class="ev"><div>🗣️ <strong>${esc(e.title || 'WG-Meeting')}</strong>
-        <small>${fmtDay(e.from)}${e.minutes?.text ? ' · Protokoll vorhanden' : ' · noch kein Protokoll'}</small></div>
-        <button class="link small" data-notes="${esc(e.id)}">📝 ${e.minutes?.text ? 'Protokoll lesen' : 'Protokoll schreiben'}</button></div>`).join('')}`
+    ? `<h3>${L('Vergangene WG-Meetings', 'Past flat meetings')}</h3>${past.map((e) => `<div class="ev"><div>🗣️ <strong>${esc(evTitle(e))}</strong>
+        <small>${fmtDay(e.from)}${e.minutes?.text ? L(' · Protokoll vorhanden', ' · minutes available') : L(' · noch kein Protokoll', ' · no minutes yet')}</small></div>
+        <button class="link small" data-notes="${esc(e.id)}">📝 ${e.minutes?.text ? L('Protokoll lesen', 'Read minutes') : L('Protokoll schreiben', 'Write minutes')}</button></div>`).join('')}`
     : '';
 }
 
@@ -932,18 +1071,20 @@ function openNotes(id) {
   const dlg = $('#notes-dialog');
   const draw = () => {
     const e = (state.events || []).find((x) => x.id === id);
-    if (!e) { dlg.close(); return; }
-    $('#notes-title').textContent = `🗣️ ${e.title || 'WG-Meeting'}`;
-    $('#notes-when').textContent = `${fmtDay(e.from)}${e.time ? `, ${e.time} Uhr` : ''}`;
+    if (!e) { dlg.close(); return null; }
+    $('#notes-title').textContent = `🗣️ ${evTitle(e)}`;
+    $('#notes-when').textContent = `${fmtDay(e.from)}${e.time ? `, ${clock(e.time)}` : ''}`;
     $('#notes-topics').innerHTML = (e.topics || []).length
       ? e.topics.map((t) => `<li><span>${esc(t.text)}${t.by ? ` <small class="muted">(${esc(t.by)})</small>` : ''}</span>
-          <button type="button" class="link small" data-topic-del="${esc(t.id)}" aria-label="Thema entfernen">✕</button></li>`).join('')
-      : '<li class="muted">Noch keine Themen.</li>';
+          <button type="button" class="link small" data-topic-del="${esc(t.id)}" aria-label="${L('Thema entfernen', 'Remove topic')}">✕</button></li>`).join('')
+      : `<li class="muted">${L('Noch keine Themen.', 'No topics yet.')}</li>`;
     const m = e.minutes;
-    $('#notes-meta').textContent = m?.text ? `Zuletzt gespeichert${m.by ? ` von ${m.by}` : ''} am ${new Date(m.at).toLocaleString('de-DE', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}` : '';
+    const when = m?.at ? new Date(m.at).toLocaleString(locale(), { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : '';
+    $('#notes-meta').textContent = m?.text ? L(`Zuletzt gespeichert${m.by ? ` von ${m.by}` : ''} am ${when}`, `Last saved${m.by ? ` by ${m.by}` : ''} on ${when}`) : '';
     return e;
   };
   const e = draw();
+  if (!e) return;
   $('#notes-minutes').value = e.minutes?.text || '';
   const addTopic = async () => {
     const text = $('#notes-topic').value.trim();
@@ -967,7 +1108,7 @@ function openNotes(id) {
     try {
       applyCal(await api('events/notes/minutes', { id, text: $('#notes-minutes').value, by: state.me }));
       draw(); renderEvList();
-      toast('Protokoll gespeichert');
+      toast(L('Protokoll gespeichert', 'Minutes saved'));
     } catch (err) { toast(err.message); }
   };
   dlg.showModal();
@@ -975,15 +1116,20 @@ function openNotes(id) {
 
 // Eintrag-Formular
 function renderEvForm() {
+  if (!state.people.length) return;
   const t = state.evType;
   document.querySelectorAll('#ev-type [data-type]').forEach((b) => b.setAttribute('aria-checked', b.dataset.type === t));
   $('#ev-time-wrap').hidden = t !== 'meeting';
   $('#ev-to-wrap').hidden = t === 'meeting';
-  $('#ev-from-label').textContent = t === 'meeting' ? 'Datum' : 'Von';
-  $('#ev-title').placeholder = { urlaub: 'z.B. Heimaturlaub, Skifahren', meeting: 'WG-Meeting', sonstiges: 'z.B. Hausbesichtigung, Party' }[t];
+  $('#ev-from-label').textContent = t === 'meeting' ? L('Datum', 'Date') : L('Von', 'From');
+  $('#ev-title').placeholder = {
+    urlaub: L('z.B. Heimaturlaub, Skifahren', 'e.g. visiting family, skiing'),
+    meeting: L('WG-Meeting', 'Flat meeting'),
+    sonstiges: L('z.B. Hausbesichtigung, Party', 'e.g. flat viewing, party'),
+  }[t];
   if (!state.evPeople) state.evPeople = new Set(t === 'meeting' ? state.people : [state.me].filter(Boolean));
   $('#ev-people').innerHTML = state.people.map((p) => `<button type="button" class="chip" aria-pressed="${state.evPeople.has(p)}" data-evp="${esc(p)}">${esc(p)}</button>`).join('');
-  $('#ev-people-hint').textContent = t === 'urlaub' ? 'Andere, die du hinzufügst, müssen selbst bestätigen, dass sie dabei sind.' : '';
+  $('#ev-people-hint').textContent = t === 'urlaub' ? L('Andere, die du hinzufügst, müssen selbst bestätigen, dass sie dabei sind.', 'Anyone else you add has to confirm themselves that they are in.') : '';
 }
 $('#ev-open').onclick = () => {
   $('#ev-form').hidden = false; $('#poll-form').hidden = true;
@@ -1010,7 +1156,7 @@ $('#ev-people').addEventListener('click', (e) => {
 $('#ev-from').addEventListener('change', () => { if (!$('#ev-to').value || $('#ev-to').value < $('#ev-from').value) $('#ev-to').value = $('#ev-from').value; });
 $('#ev-form').addEventListener('submit', async (e) => {
   e.preventDefault();
-  if (!state.evPeople.size) { toast('Bitte mindestens eine Person auswählen'); return; }
+  if (!state.evPeople.size) { toast(L('Bitte mindestens eine Person auswählen', 'Please choose at least one person')); return; }
   try {
     const data = await api('events/add', {
       type: state.evType, title: $('#ev-title').value, from: $('#ev-from').value, to: $('#ev-to').value || $('#ev-from').value,
@@ -1020,14 +1166,14 @@ $('#ev-form').addEventListener('submit', async (e) => {
     $('#ev-form').hidden = true;
     state.weeks.clear();
     await load();
-    toast(state.evType === 'urlaub' && state.evPeople.size > 1 ? 'Eingetragen, die anderen müssen noch zustimmen' : 'Eingetragen');
+    toast(state.evType === 'urlaub' && state.evPeople.size > 1 ? L('Eingetragen, die anderen müssen noch zustimmen', 'Added, the others still have to confirm') : L('Eingetragen', 'Added'));
   } catch (err) { toast(err.message); }
 });
 
 // Meeting-Anfrage
 function pollOptRow(date = '', time = '19:00') {
   return `<div class="poll-opt-row"><input type="date" value="${date}" required><input type="time" value="${time}" required>
-    <button type="button" class="ghost" data-opt-del aria-label="Entfernen">✕</button></div>`;
+    <button type="button" class="ghost" data-opt-del aria-label="${L('Entfernen', 'Remove')}">✕</button></div>`;
 }
 $('#poll-open').onclick = () => {
   $('#poll-form').hidden = false; $('#ev-form').hidden = true;
@@ -1048,7 +1194,7 @@ $('#poll-form').addEventListener('submit', async (e) => {
     applyCal(await api('polls/add', { title: $('#poll-title').value, options, by: state.me }));
     $('#poll-form').hidden = true;
     renderCal(); renderHome();
-    toast('Anfrage verschickt, alle können jetzt abstimmen');
+    toast(L('Anfrage verschickt, alle können jetzt abstimmen', 'Request sent, everyone can vote now'));
   } catch (err) { toast(err.message); }
 });
 
@@ -1070,15 +1216,15 @@ $('#tab-cal').addEventListener('click', async (e) => {
     if (close) {
       const poll = state.polls.find((p) => p.id === close.dataset.close);
       const o = poll.options.find((x) => x.id === close.dataset.opt);
-      if (!confirm(`WG-Meeting auf ${fmtDay(o.date)}, ${o.time} Uhr festlegen? Alle bekommen eine Nachricht.`)) return;
+      if (!confirm(L(`WG-Meeting auf ${fmtDay(o.date)}, ${o.time} Uhr festlegen? Alle bekommen eine Nachricht.`, `Set the flat meeting for ${fmtDay(o.date)}, ${o.time}? Everyone gets a notification.`))) return;
       applyCal(await api('polls/close', { id: poll.id, optionId: o.id, by: state.me }));
       renderCal(); renderHome();
-      toast('Termin steht 🎉');
+      toast(L('Termin steht 🎉', 'Date is set 🎉'));
       return;
     }
     const pdel = t.closest('[data-poll-del]');
     if (pdel) {
-      if (!confirm('Anfrage löschen?')) return;
+      if (!confirm(L('Anfrage löschen?', 'Delete this request?'))) return;
       applyCal(await api('polls/delete', { id: pdel.dataset.pollDel }));
       renderCal(); renderHome();
       return;
@@ -1088,14 +1234,14 @@ $('#tab-cal').addEventListener('click', async (e) => {
       applyCal(await api('events/respond', { id: resp.dataset.respond, name: state.me, accept: resp.dataset.accept === '1' }));
       state.weeks.clear();
       await load();
-      toast(resp.dataset.accept === '1' ? 'Bestätigt, schönen Urlaub! 🏖️' : 'Abgelehnt');
+      toast(resp.dataset.accept === '1' ? L('Bestätigt, schönen Urlaub! 🏖️', 'Confirmed, have a great holiday! 🏖️') : L('Abgelehnt', 'Declined'));
       return;
     }
     const notes = t.closest('[data-notes]');
     if (notes) { openNotes(notes.dataset.notes); return; }
     const del = t.closest('[data-ev-del]');
     if (del) {
-      if (!confirm('Eintrag löschen?')) return;
+      if (!confirm(L('Eintrag löschen?', 'Delete this entry?'))) return;
       applyCal(await api('events/delete', { id: del.dataset.evDel }));
       state.weeks.clear();
       await load();
@@ -1124,10 +1270,12 @@ $('#cal-next').onclick = () => moveCal(1);
 
 // ---------------- Start ----------------
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js');
+setLang(state.lang, { rerender: false });
+markJoinLang();
 showTab();
 if (currentTab() !== 'shop') api('shop').then((d) => { state.shop = d; renderShop(); }).catch(() => {});
 load().catch((e) => {
-  $('#week').innerHTML = `<div class="card"><p>Der Plan konnte nicht geladen werden (${esc(e.message)}). Bitte später nochmal versuchen.</p></div>`;
+  $('#week').innerHTML = `<div class="card"><p>${L(`Der Plan konnte nicht geladen werden (${esc(e.message)}). Bitte später nochmal versuchen.`, `The rota could not be loaded (${esc(e.message)}). Please try again later.`)}</p></div>`;
 });
 document.addEventListener('visibilitychange', () => {
   if (document.visibilityState !== 'visible') return;
