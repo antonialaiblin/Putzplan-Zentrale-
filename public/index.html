@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Putzplan-Zentrale</title>
+  <meta name="description" content="Wer ist diese Woche dran? Putzplan der WG mit Abhaken und Erinnerungen.">
+  <meta name="theme-color" content="#2f6f5e">
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="icon" href="/icons/icon-192.png">
+  <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="Putzplan">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <header class="top">
+    <div class="brand">
+      <span class="logo" aria-hidden="true">🧽</span>
+      <div>
+        <h1>Putzplan-Zentrale</h1>
+        <p class="sub" id="who-line">Mission Haussegen</p>
+      </div>
+    </div>
+    <button class="ghost small" id="change-me" hidden>Wechseln</button>
+  </header>
+
+  <main>
+    <!-- Wer bist du? -->
+    <section id="pick-me" class="card" hidden>
+      <h2>Wer bist du?</h2>
+      <p class="muted">Damit ich dir deine Aufgaben zeigen und dich erinnern kann.</p>
+      <div class="people" id="people-buttons"></div>
+    </section>
+
+    <!-- Erinnerungen -->
+    <section id="notify" class="card notify" hidden>
+      <div id="notify-body"></div>
+    </section>
+
+    <!-- Wochen-Navigation -->
+    <nav class="weeknav" aria-label="Woche wählen">
+      <button class="ghost icon" id="prev" aria-label="Vorherige Woche">‹</button>
+      <div class="weeklabel">
+        <strong id="week-title">…</strong>
+        <span id="week-range" class="muted"></span>
+      </div>
+      <button class="ghost icon" id="next" aria-label="Nächste Woche">›</button>
+    </nav>
+
+    <div id="week" aria-live="polite"></div>
+
+    <section class="card">
+      <h2>Die nächsten Wochen</h2>
+      <div class="table-wrap">
+        <table class="upcoming">
+          <thead><tr><th>Woche</th><th>Putzkr.</th><th>Dienst</th><th>Bad vorne</th><th>Bad hinten</th></tr></thead>
+          <tbody id="upcoming"></tbody>
+        </table>
+      </div>
+      <p class="muted small">Bäder werden in der Woche ohne Putzkraft geputzt. Die Bad-Person ist beide Wochen fürs Klopapier zuständig. Wochen mit Putzkraft sind grau.</p>
+    </section>
+  </main>
+
+  <dialog id="swap-dialog">
+    <form method="dialog">
+      <h2 id="swap-title">Tauschen</h2>
+      <p class="muted" id="swap-text"></p>
+      <div class="people" id="swap-people"></div>
+      <div class="row end">
+        <button value="cancel" class="ghost">Abbrechen</button>
+      </div>
+    </form>
+  </dialog>
+
+  <div id="toast" role="status" hidden></div>
+
+  <script type="module" src="/app.js"></script>
+</body>
+</html>

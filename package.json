@@ -1,0 +1,14 @@
+{
+  "name": "putzplan-zentrale",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "test": "node --test 'test/*.test.js'"
+  },
+  "devDependencies": {
+    "http_ece": "1.2.1",
+    "wrangler": "4.150.0"
+  }
+}
