@@ -205,8 +205,38 @@ async function load() {
   if (!state.view || !state.weeks.has(state.view)) state.view = state.current;
   syncLang();
   render();
+  birthdayMode();
   maybeAskProfile();
 }
+/** Am eigenen Geburtstag: Konfetti beim Öffnen und überall Geschenke 🎁 */
+function isMyBirthday() {
+  const m = memberOf(state.me);
+  return !!(m?.birthday && state.today && m.birthday.slice(5) === state.today.slice(5));
+}
+let bdayConfettiAt = 0;
+function birthdayMode() {
+  const on = isMyBirthday();
+  document.body.classList.toggle('bday', on);
+  let layer = $('#gift-layer');
+  if (on && !layer) {
+    layer = document.createElement('div');
+    layer.id = 'gift-layer';
+    layer.setAttribute('aria-hidden', 'true');
+    const spots = [[6, 8], [88, 12], [20, 30], [75, 38], [10, 55], [92, 60], [40, 70], [65, 84], [15, 90], [50, 18], [82, 92], [30, 48]];
+    layer.innerHTML = spots.map(([x, y], i) => `<span style="left:${x}%;top:${y}%;animation-delay:${(i % 5) * 0.7}s">🎁</span>`).join('');
+    document.body.append(layer);
+  } else if (!on && layer) layer.remove();
+  const ban = $('#bday-banner');
+  if (ban) {
+    ban.hidden = !on;
+    if (on) ban.innerHTML = `🎂 ${esc(L(`Alles Gute zum Geburtstag, ${state.me}!`, `Happy birthday, ${state.me}!`, `Grattis på födelsedagen, ${state.me}!`))} 🎁<br><span class="small">${esc(L('Deine Zentrale wünscht dir einen wunderschönen Tag 🎉', 'Your Zentrale wishes you a wonderful day 🎉', 'Din Zentrale önskar dig en underbar dag 🎉'))}</span>`;
+  }
+  if (on && Date.now() - bdayConfettiAt > 10 * 60 * 1000) {
+    bdayConfettiAt = Date.now();
+    setTimeout(() => confetti(260), 500);
+  }
+}
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && state.me) birthdayMode(); });
 /** Wer noch keinen Geburtstag/kein Geschlecht eingetragen hat, wird einmal pro Besuch gefragt */
 function maybeAskProfile() {
   const me = memberOf(state.me);
@@ -262,7 +292,7 @@ function renderMe() {
   $('#admin-box').hidden = !state.isAdmin;
   // Ohne Auswahl ist nur „Wer bist du?“ (bzw. Beitreten) zu sehen
   document.body.classList.toggle('no-me', !state.me);
-  $('#who-line').textContent = state.me ? L(`Hallo ${state.me} 👋`, `Hi ${state.me} 👋`, `Hej ${state.me} 👋`) : 'Mission Haussegen';
+  $('#who-line').textContent = state.me ? (isMyBirthday() ? L(`Alles Gute, ${state.me} 🎁`, `Happy birthday, ${state.me} 🎁`, `Grattis, ${state.me} 🎁`) : L(`Hallo ${state.me} 👋`, `Hi ${state.me} 👋`, `Hej ${state.me} 👋`)) : 'Mission Haussegen';
   $('#people-buttons').innerHTML = state.people.map((p) => (memberOf(p)?.claimed
     ? `<button type="button" disabled class="taken">${avatar(p, 'sm')}${esc(p)} <span class="lock" title="${L('vergeben', 'taken', 'upptagen')}">🔒</span></button>`
     : `<button type="button" data-me="${esc(p)}">${avatar(p, 'sm')}${esc(p)}</button>`)).join('');
@@ -571,7 +601,7 @@ function rankingHtml() {
   return `<ol class="ranking">${rows.map((r, i) => {
     if (r.n !== last) { place = i + 1; last = r.n; }
     const medal = r.n ? ['🥇', '🥈', '🥉'][place - 1] || `${place}.` : '–';
-    return `<li class="${r.p === state.me ? 'me' : ''}"><span class="rk">${medal}</span>${avatar(r.p, 'sm')}<span class="nm">${esc(r.p)}</span><span class="bar"><b style="width:${Math.round((r.n / max) * 100)}%"></b></span><span class="ct">${r.n}</span></li>`;
+    return `<li class="${r.p === state.me ? 'me' : ''}"><span class="rk">${medal}</span>${avatar(r.p, 'sm')}<span class="nm">${esc(r.p)} ${streakChip(r.p)}</span><span class="bar"><b style="width:${Math.round((r.n / max) * 100)}%"></b></span><span class="ct">${r.n}</span></li>`;
   }).join('')}</ol><p class="muted small" style="margin:6px 0 0">${L('Gezählt wird jede abgehakte Aufgabe.', 'Every ticked-off task counts.', 'Varje avbockad uppgift räknas.')}</p>`;
 }
 document.addEventListener('click', (e) => {
@@ -580,12 +610,20 @@ document.addEventListener('click', (e) => {
   state.rankMode = b.dataset.rank;
   renderHome();
 });
+function streakOf(p) { return state.gami?.streaks?.[p] || { streak: 0, best: 0, current: false }; }
+function streakChip(p) { const s = streakOf(p).streak; return `<span class="strk${s ? '' : ' zero'}" title="${L('Streak', 'Streak', 'Streak')}">🔥${s}</span>`; }
 function streakLine() {
-  const g = state.gami;
-  if (!g) return '';
+  const me = state.me;
+  if (!state.gami || !me) return '';
+  const g = streakOf(me);
   return g.streak
-    ? `🔥 ${L(`WG-Streak: <strong>${g.streak} ${g.streak === 1 ? 'Woche' : 'Wochen'}</strong> alles erledigt`, `Flat streak: <strong>${g.streak} ${g.streak === 1 ? 'week' : 'weeks'}</strong> all done`, `Kollektivets streak: <strong>${g.streak} ${g.streak === 1 ? 'vecka' : 'veckor'}</strong> allt klart`)}${g.best > g.streak ? ` <span class="muted small">(${L('Rekord', 'record', 'rekord')}: ${g.best})</span>` : ''}`
-    : `🔥 ${L('Startet einen WG-Streak: Diese Woche alles erledigen!', 'Start a flat streak: get everything done this week!', 'Starta en streak: gör allt den här veckan!')}`;
+    ? `🔥 ${L(`Dein Streak: <strong>${g.streak} ${g.streak === 1 ? 'Woche' : 'Wochen'}</strong> alles erledigt`, `Your streak: <strong>${g.streak} ${g.streak === 1 ? 'week' : 'weeks'}</strong> all done`, `Din streak: <strong>${g.streak} ${g.streak === 1 ? 'vecka' : 'veckor'}</strong> allt klart`)}${g.best > g.streak ? ` <span class="muted small">(${L('Rekord', 'record', 'rekord')}: ${g.best})</span>` : ''}`
+    : `🔥 ${L('Starte deinen Streak: Erledige diese Woche alle deine Aufgaben!', 'Start your streak: finish all your tasks this week!', 'Starta din streak: gör alla dina uppgifter den här veckan!')}`;
+}
+function streaksHtml() {
+  if (!state.gami?.streaks) return '';
+  const rows = state.people.map((p) => ({ p, s: streakOf(p).streak })).sort((a, b) => b.s - a.s || a.p.localeCompare(b.p));
+  return `<div class="streaks">${rows.map((r) => `<span class="st-row${r.p === state.me ? ' me' : ''}">${avatar(r.p, 'sm')}<span>${esc(r.p)}</span>${streakChip(r.p)}</span>`).join('')}</div>`;
 }
 function checkNewBadges() {
   if (!state.me || !state.gami) return;
@@ -884,9 +922,10 @@ document.addEventListener('change', async (e) => {
     if (done) {
       const t = w.tasks.find((x) => key.startsWith(`${x.key}:`));
       const taskDone = t && t.items.every((it) => w.checks[`${t.key}:${it.id}`]);
-      if (state.gami?.current && !before?.current && w.monday === state.current) {
+      const myNow = streakOf(state.me);
+      if (myNow.current && !before?.streaks?.[state.me]?.current && w.monday === state.current) {
         confetti(220);
-        toast(L(`Die ganze WG hat diese Woche alles erledigt! 🔥 Streak: ${state.gami.streak}`, `The whole flat got everything done this week! 🔥 Streak: ${state.gami.streak}`, `Hela kollektivet har gjort allt den här veckan! 🔥 Streak: ${state.gami.streak}`));
+        toast(L(`Alle deine Aufgaben diese Woche erledigt! 🔥 Dein Streak: ${myNow.streak}`, `All your tasks done this week! 🔥 Your streak: ${myNow.streak}`, `Alla dina uppgifter klara den här veckan! 🔥 Din streak: ${myNow.streak}`));
       } else if (taskDone) {
         confetti(110);
         toast(cheer());
@@ -1442,7 +1481,7 @@ const WIDGETS = {
   birthdays: { de: 'Nächste Geburtstage', en: 'Next birthdays', sv: 'Nästa födelsedagar', size: 's' },
   holiday: { de: 'Nächster Feiertag', en: 'Next holiday', sv: 'Nästa helgdag', size: 's' },
   shoplist: { de: 'Einkaufsliste', en: 'Shopping list', sv: 'Inköpslista', size: 'w' },
-  badges: { de: 'Abzeichen & WG-Streak', en: 'Badges & streak', sv: 'Märken & streak', size: 'w' },
+  badges: { de: 'Abzeichen & Streak', en: 'Badges & streak', sv: 'Märken & streak', size: 'w' },
   ranking: { de: 'WG-Ranking', en: 'Flat ranking', sv: 'Kollektivets ranking', size: 'w' },
 };
 const SHORTCUTS = {
@@ -1609,7 +1648,7 @@ function renderHome() {
       ${me ? (mine.length ? `<div class="big">${mine.map(esc).join(', ')}</div>
         ${total ? `<p>${L(`${done} von ${total} erledigt`, `${done} of ${total} done`, `${done} av ${total} klart`)}</p><div class="progress"><b style="width:${Math.round((done / total) * 100)}%"></b></div>` : ''}`
         : `<div class="big">${L('Frei diese Woche 🎉', 'Free this week 🎉', `Ledig den här veckan 🎉`)}</div>`) : `<p>${L('Tipp oben auf deinen Namen.', 'Tap your name above.', `Tryck på ditt namn ovan.`)}</p>`}
-      ${state.gami ? `<p class="streak-line">${streakLine()}</p>` : ''}</a>`;
+      ${state.gami ? `<p class="streak-line">${streakLine()}</p>${streaksHtml()}` : ''}</a>`;
     const t = (k) => w.tasks.find((x) => x.key === k);
     tiles.plan = `<a class="card __CLS__" href="#plan"><h3>${L('Putzplan', 'Cleaning', `Städning`)}</h3>
       <p>${L('Wochendienst', 'Weekly duty', `Veckotjänst`)}: <strong>${esc(t('woche')?.person || '–')}</strong></p>

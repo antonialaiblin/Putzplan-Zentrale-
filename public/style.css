@@ -532,3 +532,20 @@ body.not-home:not(.no-me) main { padding-top: calc(16px + env(safe-area-inset-to
 .rank-seg { width: 150px; }
 .rank-seg button { padding: 4px 8px; font-size: 13px; }
 .secret-line { width: 100%; margin: 8px 0 0; }
+
+/* Persönlicher Streak */
+.strk { display: inline-block; font-size: 12px; font-weight: 700; padding: 1px 6px; border-radius: 999px; background: rgba(255, 120, 40, .15); color: #e0601a; white-space: nowrap; }
+.strk.zero { opacity: .45; }
+.streaks { display: flex; flex-wrap: wrap; gap: 6px 12px; margin-top: 8px; }
+.st-row { display: inline-flex; align-items: center; gap: 5px; font-size: 13px; }
+.st-row.me span:not(.strk) { font-weight: 700; }
+/* Geburtstag 🎁 */
+.bday-banner { margin: 0 0 12px; padding: 14px 16px; border-radius: 16px; text-align: center; font-weight: 700; font-size: 17px; color: #fff; background: linear-gradient(135deg, #8e44ad, #e84393); box-shadow: 0 6px 18px rgba(142, 68, 173, .3); }
+.bday-banner .small { font-weight: 500; font-size: 13px; opacity: .95; }
+#gift-layer { position: fixed; inset: 0; pointer-events: none; z-index: 0; overflow: hidden; }
+#gift-layer span { position: absolute; font-size: 26px; opacity: .22; animation: giftbob 3.5s ease-in-out infinite; }
+@keyframes giftbob { 50% { transform: translateY(-8px) rotate(8deg); } }
+@media (prefers-reduced-motion: reduce) { #gift-layer span { animation: none; } }
+body.bday main { position: relative; z-index: 1; }
+body.bday .card h3::before { content: '🎁 '; }
+body.bday .tabbar a span::after { content: '🎁'; font-size: 11px; position: absolute; margin: -4px 0 0 -2px; }

@@ -305,7 +305,19 @@ export class Putzplan extends DurableObject {
       else if (target.startsWith('note:')) { const n = notes.find((x) => x.id === target.slice(5)); if (n?.by) owners = [n.by]; }
       for (const o of owners) if (per[o]) per[o].likes += Object.values(r).flat().filter((x) => x !== o).length;
     }
-    return { streak, best, current: curDone, stats: per };
+    // Persönlicher Streak: Wochen in Folge, in denen man alle eigenen Aufgaben erledigt hat.
+    // Wochen ohne eigene Aufgabe (frei/weg) unterbrechen nicht. Die laufende Woche zählt, sobald sie fertig ist.
+    const streaks = {};
+    for (const p of PEOPLE) {
+      const ownDone = (w) => { const own = keysOf(w).filter((x) => x.owner === p); return own.length ? own.every((x) => w.checks[x.k]) : null; };
+      let s = 0; let b2 = 0; let r = 0;
+      for (let i = weeks.length - 2; i >= 0; i--) { const d = ownDone(weeks[i]); if (d === null) continue; if (d) s++; else break; }
+      const curOwn = cur ? ownDone(cur) : null;
+      if (curOwn) s++;
+      for (const w of weeks) { const d = ownDone(w); if (d === null) continue; if (d) b2 = Math.max(b2, ++r); else if (w.monday !== current) r = 0; }
+      streaks[p] = { streak: s, best: b2, current: !!curOwn };
+    }
+    return { streak, best, current: curDone, stats: per, streaks };
   }
   async reactions() {
     return (await this.ctx.storage.get('reactions')) || {};
@@ -1364,9 +1376,9 @@ export class Putzplan extends DurableObject {
         for (const p of names) {
           if (p === m.name) {
             done.push([p, await this.pushToPerson(p, (l) => (l === 'en'
-              ? { title: '🎂 Happy birthday!', body: `Happy birthday, ${p}! The whole flat wishes you a wonderful day 🎉` }
-              : l === 'sv' ? { title: '🎂 Grattis på födelsedagen!', body: `Grattis på födelsedagen, ${p}! Hela kollektivet önskar dig en underbar dag 🎉` }
-              : { title: '🎂 Alles Gute!', body: `Alles Liebe zum Geburtstag, ${p}! Die ganze WG wünscht dir einen wunderschönen Tag 🎉` }))]);
+              ? { title: '🎁 Happy birthday!', body: `All the best, ${p}! Happy birthday from your Zentrale 🎂🎉` }
+              : l === 'sv' ? { title: '🎁 Grattis på födelsedagen!', body: `Allt gott, ${p}! Grattis på födelsedagen från din Zentrale 🎂🎉` }
+              : { title: '🎁 Alles Gute!', body: `Alles Gute zum Geburtstag, ${p}! Deine Zentrale wünscht dir einen wunderschönen Tag 🎂🎉` }))]);
           } else {
             done.push([p, await this.pushToPerson(p, (l) => (l === 'en'
               ? { title: `🎂 ${m.name}'s birthday`, body: `Today is ${m.name}'s birthday! Don't forget to wish ${pron[1]} a happy birthday 🎉` }
