@@ -541,6 +541,16 @@ export class Putzplan extends DurableObject {
       const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
       return new Response(bytes, { headers: { 'content-type': head.slice(5, head.indexOf(';')), 'cache-control': 'public, max-age=31536000, immutable' } });
     }
+    // Persönliche Übersicht (Kacheln)
+    if (path === '/members/home' && request.method === 'POST') {
+      const members = await this.members();
+      if (!members.some((m) => m.name === body.name)) return json({ error: 'Mitglied nicht gefunden.' }, 404);
+      const layout = (Array.isArray(body.layout) ? body.layout : []).slice(0, 30)
+        .filter((x) => x && typeof x.id === 'string' && /^(sc:)?[a-z]{2,20}$/.test(x.id))
+        .map((x) => ({ id: x.id, size: x.size === 'w' ? 'w' : 's' }));
+      await this.ctx.storage.put('members', members.map((m) => (m.name === body.name ? { ...m, home: layout } : m)));
+      return json({ ok: true, members: await this.members() });
+    }
     if (path === '/members/lang' && request.method === 'POST') {
       const members = await this.members();
       if (!members.some((m) => m.name === body.name)) return json({ error: 'Mitglied nicht gefunden.' }, 404);

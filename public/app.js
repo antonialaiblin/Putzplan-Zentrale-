@@ -375,6 +375,33 @@ document.addEventListener('click', async (e) => {
     setTimeout(() => { $('#settings').open = true; $('#settings').scrollIntoView({ behavior: 'smooth' }); }, 50);
     return;
   }
+  const sc = e.target.closest('[data-shortcut]');
+  if (sc && !state.editHome) { runShortcut(sc.dataset.shortcut); return; }
+  if (state.editHome && e.target.closest('.tile-edit') && !e.target.closest('.tile-tools')) { e.preventDefault(); return; }
+  if (e.target.closest('[data-home-edit]')) {
+    if (!state.me) { toast(L('Wähle zuerst oben aus, wer du bist.', 'First choose who you are at the top.')); return; }
+    state.editHome = true; state.homeDraft = null; renderHome(); return;
+  }
+  if (e.target.closest('[data-home-done]')) { state.editHome = false; state.homeDraft = null; renderHome(); toast(L('Gespeichert', 'Saved')); return; }
+  if (e.target.closest('[data-home-add]')) { openHomeAdd(); return; }
+  if (e.target.closest('[data-home-reset]')) {
+    if (confirm(L('Übersicht auf den Standard zurücksetzen?', 'Reset the overview to the default?'))) saveHome(DEFAULT_HOME.map((x) => ({ ...x })));
+    return;
+  }
+  const tm = e.target.closest('[data-tile-move]');
+  const ts = e.target.closest('[data-tile-size]');
+  const td = e.target.closest('[data-tile-del]');
+  if (tm || ts || td) {
+    const layout = homeLayout().map((x) => ({ ...x }));
+    if (tm) {
+      const i = +tm.dataset.tileMove; const j = i + +tm.dataset.dir;
+      if (j >= 0 && j < layout.length) [layout[i], layout[j]] = [layout[j], layout[i]];
+    } else if (ts) {
+      const x = layout[+ts.dataset.tileSize]; x.size = x.size === 'w' ? 's' : 'w';
+    } else layout.splice(+td.dataset.tileDel, 1);
+    saveHome(layout);
+    return;
+  }
   const ans = e.target.closest('[data-swap-answer]');
   const canc = e.target.closest('[data-swap-cancel]');
   if (ans || canc) {
@@ -964,12 +991,123 @@ $('#tab-money').addEventListener('click', async (e) => {
 function absentNow(day) { return (state.absences || []).filter((a) => a.from <= day && a.to >= day); }
 const plural = (n, de1, deN, en1, enN) => (n === 1 ? L(de1, en1) : L(deN, enN));
 
+// ---------- Übersicht: Kacheln pro Person ----------
+const WIDGETS = {
+  week: { de: 'Deine Woche', en: 'Your week', size: 'w' },
+  plan: { de: 'Putzplan', en: 'Cleaning', size: 's' },
+  shop: { de: 'Einkauf', en: 'Shopping', size: 's' },
+  money: { de: 'Kasse', en: 'Money', size: 's' },
+  cal: { de: 'Kalender', en: 'Calendar', size: 's' },
+  meetings: { de: 'Letzte WG-Meetings', en: 'Recent flat meetings', size: 'w' },
+  rules: { de: 'Hausregeln', en: 'House rules', size: 'w' },
+  duties: { de: 'Meine nächsten Dienste', en: 'My next duties', size: 's' },
+  cleaner: { de: 'Putzkraft', en: 'Cleaner', size: 's' },
+  birthdays: { de: 'Nächste Geburtstage', en: 'Next birthdays', size: 's' },
+  holiday: { de: 'Nächster Feiertag', en: 'Next holiday', size: 's' },
+  shoplist: { de: 'Einkaufsliste', en: 'Shopping list', size: 'w' },
+};
+const SHORTCUTS = {
+  shop: { icon: '🛒', de: 'Einkauf eintragen', en: 'Add to shopping' },
+  expense: { icon: '💶', de: 'Ausgabe eintragen', en: 'Add expense' },
+  event: { icon: '📅', de: 'Kalendereintrag', en: 'Calendar entry' },
+  survey: { icon: '🗳️', de: 'Umfrage starten', en: 'Start a poll' },
+  cleaner: { icon: '🧹', de: 'Putzkraft-Termin', en: 'Cleaner date' },
+  swap: { icon: '🔁', de: 'Dienst tauschen', en: 'Swap duty' },
+  icscal: { icon: '📲', de: 'Handy-Kalender', en: 'Phone calendar' },
+  invite: { icon: '➕', de: 'Mitglied einladen', en: 'Invite member' },
+};
+const DEFAULT_HOME = ['week', 'plan', 'shop', 'money', 'cal', 'meetings', 'rules'].map((id) => ({ id, size: WIDGETS[id].size }));
+const widgetName = (id) => (id.startsWith('sc:') ? L(SHORTCUTS[id.slice(3)]?.de || id, SHORTCUTS[id.slice(3)]?.en || id) : L(WIDGETS[id]?.de || id, WIDGETS[id]?.en || id));
+function homeLayout() {
+  if (state.homeDraft) return state.homeDraft;
+  const saved = memberOf(state.me)?.home;
+  const ok = Array.isArray(saved) ? saved.filter((x) => WIDGETS[x.id] || (x.id.startsWith('sc:') && SHORTCUTS[x.id.slice(3)])) : null;
+  return ok && ok.length ? ok : DEFAULT_HOME;
+}
+async function saveHome(layout) {
+  state.homeDraft = layout;
+  renderHome();
+  try {
+    const r = await api('members/home', { name: state.me, layout });
+    state.members = r.members;
+  } catch (err) { toast(err.message); }
+}
+
+/** Zusätzliche Kacheln, die man sich hinzufügen kann */
+function extraTiles(w) {
+  const me = state.me;
+  const out = {};
+  const today = state.today;
+  // Meine nächsten Dienste
+  if (me) {
+    const list = [...state.weeks.values()].filter((x) => x.monday >= state.current).sort((a, b) => (a.monday < b.monday ? -1 : 1))
+      .flatMap((x) => x.tasks.filter((t) => t.person === me && t.key !== 'kuehlschrank' && (t.key === 'woche' || !x.cleaner)).map((t) => `${ddmm(x.monday)} ${esc(T(t.title))}`)).slice(0, 4);
+    out.duties = `<a class="card __CLS__" href="#plan"><h3>${L('Meine nächsten Dienste', 'My next duties')}</h3>${list.length ? `<p>${list.join('<br>')}</p>` : `<p class="muted">${L('Nichts geplant', 'Nothing planned')}</p>`}</a>`;
+  }
+  // Putzkraft: nächster Termin
+  const nextCleaner = [...state.weeks.values()].filter((x) => x.cleaner && x.cleanerDay >= today).sort((a, b) => (a.cleanerDay < b.cleanerDay ? -1 : 1))[0];
+  out.cleaner = `<a class="card __CLS__" href="#plan"><h3>${L('Putzkraft', 'Cleaner')}</h3>${nextCleaner
+    ? `<div class="big">🧹 ${cleanerWhen(nextCleaner)}</div><p class="muted">${nextCleaner.cleanerConfirmed ? L('bestätigt ✓', 'confirmed ✓') : L('laut Plan', 'as planned')}</p>`
+    : `<p class="muted">${L('Kein Termin geplant', 'No visit planned')}</p>`}</a>`;
+  // Geburtstage
+  const bdays = (state.members || []).filter((m) => m.birthday && state.people.includes(m.name)).map((m) => {
+    let d = `${today.slice(0, 4)}${m.birthday.slice(4)}`;
+    if (d < today) d = `${+today.slice(0, 4) + 1}${m.birthday.slice(4)}`;
+    return { name: m.name, d };
+  }).sort((a, b) => (a.d < b.d ? -1 : 1)).slice(0, 3);
+  out.birthdays = `<a class="card __CLS__" href="#kalender"><h3>${L('Nächste Geburtstage', 'Next birthdays')}</h3>${bdays.length
+    ? `<p>${bdays.map((b) => `🎂 ${esc(b.name)} · ${ddmm(b.d)}${b.d === today ? L(' (heute!)', ' (today!)') : ''}`).join('<br>')}</p>` : `<p class="muted">${L('Noch keine Geburtstage eingetragen', 'No birthdays yet')}</p>`}</a>`;
+  // Nächster Feiertag
+  const y = +today.slice(0, 4);
+  const hol = [...berlinHolidays(y), ...berlinHolidays(y + 1)].find((h) => h.date >= today && (h.legal || h.short));
+  if (hol) out.holiday = `<a class="card __CLS__" href="#kalender"><h3>${L('Nächster Feiertag', 'Next holiday')}</h3><div class="big">${hol.legal ? '🔴' : '⚪'} ${esc(L(hol.de, hol.en))}</div><p>${fmtDay(hol.date)}</p><p class="muted">${holidayInfo(hol, state.lang)}</p></a>`;
+  // Einkaufsliste komplett
+  const sh = state.shop;
+  out.shoplist = `<a class="card __CLS__" href="#einkauf"><h3>${L('Einkaufsliste', 'Shopping list')}</h3>${sh
+    ? (sh.items.length ? `<ul>${sh.items.slice(0, 12).map((i) => `<li>${esc(i.name)}</li>`).join('')}</ul>${sh.items.length > 12 ? `<p class="muted">+ ${sh.items.length - 12}</p>` : ''}` : `<p>${L('Alles da 🎉', 'All stocked 🎉')}</p>`)
+    : '<p class="muted">…</p>'}</a>`;
+  return out;
+}
+
+function openHomeAdd() {
+  const layout = homeLayout();
+  const have = new Set(layout.map((x) => x.id));
+  const ws = Object.keys(WIDGETS).filter((id) => !have.has(id));
+  const scs = Object.keys(SHORTCUTS).filter((id) => !have.has(`sc:${id}`));
+  $('#swap-title').textContent = L('Kachel hinzufügen', 'Add a tile');
+  $('#swap-text').textContent = L('Was soll in deine Übersicht? Es landet ganz unten, mit den Pfeilen kannst du es verschieben.', 'What should go into your overview? It is added at the bottom; use the arrows to move it.');
+  $('#swap-people').innerHTML = `${ws.length ? `<h3 class="add-h">${L('Kacheln', 'Tiles')}</h3>${ws.map((id) => `<button type="button" class="ghost" data-add-tile="${id}">${esc(widgetName(id))}</button>`).join('')}` : ''}
+    ${scs.length ? `<h3 class="add-h">${L('Kurzbefehle', 'Shortcuts')}</h3>${scs.map((id) => `<button type="button" class="ghost" data-add-tile="sc:${id}">${SHORTCUTS[id].icon} ${esc(widgetName(`sc:${id}`))}</button>`).join('')}` : ''}
+    ${!ws.length && !scs.length ? `<p class="muted">${L('Du hast schon alles in deiner Übersicht.', 'You already have everything in your overview.')}</p>` : ''}`;
+  const dlg = $('#swap-dialog');
+  $('#swap-people').onclick = (e) => {
+    const b = e.target.closest('[data-add-tile]');
+    if (!b) return;
+    const id = b.dataset.addTile;
+    dlg.close();
+    saveHome([...homeLayout(), { id, size: id.startsWith('sc:') ? 's' : WIDGETS[id].size }]);
+  };
+  dlg.showModal();
+}
+
+function runShortcut(id) {
+  const go = (hash, fn) => { location.hash = hash; if (fn) setTimeout(fn, 120); };
+  if (id === 'shop') go('#einkauf', () => $('#shop-name').focus());
+  else if (id === 'expense') go('#kasse', () => { $('#money-form').scrollIntoView({ behavior: 'smooth' }); $('#m-desc').focus(); });
+  else if (id === 'event') go('#kalender', () => { $('#ev-open').click(); $('#ev-form').scrollIntoView({ behavior: 'smooth' }); });
+  else if (id === 'survey') { $('#survey-open').click(); $('#surveys-card').scrollIntoView({ behavior: 'smooth' }); }
+  else if (id === 'cleaner') openCleaner();
+  else if (id === 'swap') { state.view = state.current; go('#plan', () => render()); }
+  else if (id === 'icscal') go('#kalender', () => $('#ics-open').click());
+  else if (id === 'invite') $('#invite').click();
+}
+
 function renderHome() {
   const el = $('#home');
   if (!el || !state.current) return;
   const w = state.weeks.get(state.current);
   const me = state.me;
-  let html = '<div class="dash">';
+  const tiles = {};
   if (w) {
     const mine = [];
     let done = 0;
@@ -984,19 +1122,19 @@ function renderHome() {
       if (t.person === me && t.key !== 'kuehlschrank') mine.push(T(t.title) + (t.key.startsWith('bad-') && !t.cleaningWeek ? L(' (nur Klopapier)', ' (toilet paper only)') : ''));
     }
     if (w.tasks.some((t) => t.key === 'kuehlschrank' && t.items.some((i) => i.person === me))) mine.push(L('Kühlschrankfach', 'Fridge shelf'));
-    html += `<a class="card wide" href="#plan"><h3>${L('Deine Woche', 'Your week')}</h3>
+    tiles.week = `<a class="card __CLS__" href="#plan"><h3>${L('Deine Woche', 'Your week')}</h3>
       ${me ? (mine.length ? `<div class="big">${mine.map(esc).join(', ')}</div>
         ${total ? `<p>${L(`${done} von ${total} erledigt`, `${done} of ${total} done`)}</p><div class="progress"><b style="width:${Math.round((done / total) * 100)}%"></b></div>` : ''}`
         : `<div class="big">${L('Frei diese Woche 🎉', 'Free this week 🎉')}</div>`) : `<p>${L('Tipp oben auf deinen Namen.', 'Tap your name above.')}</p>`}
       </a>`;
     const t = (k) => w.tasks.find((x) => x.key === k);
-    html += `<a class="card" href="#plan"><h3>${L('Putzplan', 'Cleaning')}</h3>
+    tiles.plan = `<a class="card __CLS__" href="#plan"><h3>${L('Putzplan', 'Cleaning')}</h3>
       <p>${L('Wochendienst', 'Weekly duty')}: <strong>${esc(t('woche')?.person || '–')}</strong></p>
       <p>${L('Bad vorne', 'Front bath')}: ${esc(t('bad-vorne')?.person || '–')}</p><p>${L('Bad hinten', 'Back bath')}: ${esc(t('bad-hinten')?.person || '–')}</p>
       <p class="muted">${w.cleaner ? `🧹 ${L('Putzkraft', 'Cleaner')} ${cleanerWhen(w)}${w.cleanerConfirmed ? ' ✓' : ''}` : w.ausfall ? L('⚠️ Putzkraft fällt aus', '⚠️ Cleaner cancelled') : L('Ohne Putzkraft', 'No cleaner')}</p></a>`;
   }
   const sh = state.shop;
-  html += `<a class="card" href="#einkauf"><h3>${L('Einkauf', 'Shopping')}</h3>${sh
+  tiles.shop = `<a class="card __CLS__" href="#einkauf"><h3>${L('Einkauf', 'Shopping')}</h3>${sh
     ? (sh.items.length ? `<div class="big">${sh.items.length}</div><p>${sh.items.slice(0, 3).map((i) => esc(i.name)).join(', ')}${sh.items.length > 3 ? ' …' : ''}</p>` : `<p>${L('Alles da 🎉', 'All stocked 🎉')}</p>`)
     : '<p class="muted">…</p>'}</a>`;
   const m = state.money;
@@ -1004,12 +1142,12 @@ function renderHome() {
     const eur = m.byCurrency.EUR;
     const v = me ? eur.balances[me] || 0 : null;
     const owe = me ? eur.transfers.filter((x) => x.from === me) : [];
-    html += `<a class="card" href="#kasse"><h3>${L('Kasse', 'Money')}</h3>${me
+    tiles.money = `<a class="card __CLS__" href="#kasse"><h3>${L('Kasse', 'Money')}</h3>${me
       ? `<div class="big" style="color:${v > 0 ? 'var(--done)' : v < 0 ? 'var(--warn)' : 'inherit'}">${v > 0 ? '+' : ''}${money(v)}</div>
         <p>${owe.length ? owe.map((x) => `${L('an', 'to')} ${esc(x.to)}: ${money(x.amount)}`).join('<br>') : v > 0 ? L('Du bekommst Geld zurück', "You're owed money") : L('Du bist quitt', "You're square")}</p>`
       : ''}</a>`;
   } else {
-    html += `<a class="card" href="#kasse"><h3>${L('Kasse', 'Money')}</h3><p class="muted">…</p></a>`;
+    tiles.money = `<a class="card __CLS__" href="#kasse"><h3>${L('Kasse', 'Money')}</h3><p class="muted">…</p></a>`;
   }
   const today = state.today;
   const now = absentNow(today);
@@ -1018,7 +1156,7 @@ function renderHome() {
   const openPolls = (state.polls || []).filter((p) => p.status === 'open');
   const invites = (state.events || []).filter((e) => e.participants.some((p) => p.name === me && !p.ok));
   const nTopics = meet?.topics?.length || 0;
-  html += `<a class="card" href="#kalender"><h3>${L('Kalender', 'Calendar')}</h3>
+  tiles.cal = `<a class="card __CLS__" href="#kalender"><h3>${L('Kalender', 'Calendar')}</h3>
     ${now.length ? `<p>${now.map((a) => `🏖️ <strong>${esc(a.person)}</strong> ${L('bis', 'until')} ${ddmm(a.to)}`).join('<br>')}</p>` : `<p>${L('Alle da', 'Everyone is home')}</p>`}
     ${next.length ? `<p class="muted">${next.map((a) => L(`${esc(a.person)} weg ab ${ddmm(a.from)}`, `${esc(a.person)} away from ${ddmm(a.from)}`)).join('<br>')}</p>` : ''}
     ${meet ? `<p>🗣️ ${esc(meet.title && meet.title !== 'WG-Meeting' ? meet.title : L('WG-Meeting', 'Flat meeting'))} ${ddmm(meet.from)} ${meet.time}${nTopics ? ` · ${nTopics} ${plural(nTopics, 'Thema', 'Themen', 'topic', 'topics')}` : ''}</p>` : ''}
@@ -1027,7 +1165,7 @@ function renderHome() {
   // Letzte WG-Meetings mit Protokoll
   const pastMeetings = (state.events || []).filter((e) => e.type === 'meeting' && e.to < today).sort((a, b) => (a.from < b.from ? 1 : -1)).slice(0, 3);
   if (pastMeetings.length) {
-    html += `<div class="card wide meetings-card"><h3>${L('Letzte WG-Meetings', 'Recent flat meetings')}</h3>
+    tiles.meetings = `<div class="card __CLS__ meetings-card"><h3>${L('Letzte WG-Meetings', 'Recent flat meetings')}</h3>
       ${pastMeetings.map((e) => {
         const txt = e.minutes?.text?.trim();
         const short = txt ? (txt.length > 140 ? `${txt.slice(0, 140)}…` : txt) : '';
@@ -1036,10 +1174,38 @@ function renderHome() {
           <span class="muted small">${short ? esc(short) : L('Noch kein Protokoll, tippen zum Schreiben', 'No minutes yet, tap to write')}</span></button>`;
       }).join('')}</div>`;
   } else {
-    html += `<a class="card wide" href="#kalender"><h3>${L('Letzte WG-Meetings', 'Recent flat meetings')}</h3><p class="muted">${L('Noch keine vergangenen WG-Meetings. Die Protokolle erscheinen dann hier.', 'No past flat meetings yet. Their minutes will show up here.')}</p></a>`;
+    tiles.meetings = `<a class="card __CLS__" href="#kalender"><h3>${L('Letzte WG-Meetings', 'Recent flat meetings')}</h3><p class="muted">${L('Noch keine vergangenen WG-Meetings. Die Protokolle erscheinen dann hier.', 'No past flat meetings yet. Their minutes will show up here.')}</p></a>`;
   }
-  html += `<a class="card wide" href="#regeln"><h3>${L('Hausregeln', 'House rules')}</h3><p>${L('Mission Haussegen 📜 Alles zum WG-Seelenfrieden', 'Mission Haussegen 📜 Everything for peace in the flat')}</p></a>`;
+  tiles.rules = `<a class="card __CLS__" href="#regeln"><h3>${L('Hausregeln', 'House rules')}</h3><p>${L('Mission Haussegen 📜 Alles zum WG-Seelenfrieden', 'Mission Haussegen 📜 Everything for peace in the flat')}</p></a>`;
+  Object.assign(tiles, extraTiles(w));
+  const layout = homeLayout();
+  const editing = state.editHome;
+  let html = `<div class="dash${editing ? ' editing' : ''}">`;
+  layout.forEach((x, i) => {
+    let t = tiles[x.id];
+    if (x.id.startsWith('sc:')) {
+      const sc = SHORTCUTS[x.id.slice(3)];
+      if (!sc) return;
+      t = `<button type="button" class="card __CLS__ shortcut" data-shortcut="${x.id.slice(3)}"><span class="sc-icon">${sc.icon}</span><span>${L(sc.de, sc.en)}</span></button>`;
+    }
+    if (!t) {
+      if (!editing) return;
+      t = `<div class="card __CLS__"><h3>${esc(widgetName(x.id))}</h3><p class="muted">${L('Gerade nichts anzuzeigen', 'Nothing to show right now')}</p></div>`;
+    }
+    t = t.replace('__CLS__', `tile${x.size === 'w' ? ' wide' : ''}`);
+    if (editing) {
+      t = `<div class="tile-edit${x.size === 'w' ? ' wide' : ''}">${t}<div class="tile-tools">
+        <button type="button" data-tile-move="${i}" data-dir="-1" aria-label="${L('Nach vorne', 'Move up')}" ${i === 0 ? 'disabled' : ''}>↑</button>
+        <button type="button" data-tile-move="${i}" data-dir="1" aria-label="${L('Nach hinten', 'Move down')}" ${i === layout.length - 1 ? 'disabled' : ''}>↓</button>
+        <button type="button" data-tile-size="${i}" aria-label="${x.size === 'w' ? L('Kleiner machen', 'Make smaller') : L('Größer machen', 'Make bigger')}" title="${x.size === 'w' ? L('Kleiner machen', 'Make smaller') : L('Größer machen', 'Make bigger')}">${x.size === 'w' ? '⇲ ' + L('klein', 'small') : '⇱ ' + L('groß', 'big')}</button>
+        <button type="button" data-tile-del="${i}" aria-label="${L('Entfernen', 'Remove')}">✕</button></div></div>`;
+    }
+    html += t;
+  });
   html += '</div>';
+  html += editing
+    ? `<div class="row dash-edit-bar"><button type="button" class="ghost" data-home-add>${L('+ Kachel oder Kurzbefehl', '+ Tile or shortcut')}</button><button type="button" class="ghost" data-home-reset>${L('Zurücksetzen', 'Reset')}</button><button type="button" data-home-done>${L('Fertig', 'Done')}</button></div>`
+    : `<div class="dash-edit-link"><button type="button" class="link small" data-home-edit>✏️ ${L('Übersicht anpassen', 'Customise overview')}</button></div>`;
   el.innerHTML = html;
 
   $('#members-list').innerHTML = (state.members || [])

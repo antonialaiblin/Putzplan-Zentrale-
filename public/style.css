@@ -404,3 +404,21 @@ label.check-row span { flex: 1; }
 .task .actions { display: flex; align-items: center; justify-content: flex-end; gap: 10px; }
 .inbox .swap-req .row { justify-content: flex-start; gap: 8px; }
 .swap-req:last-child { border-bottom: 0; }
+
+/* Übersicht anpassen */
+.dash .tile { height: 100%; box-sizing: border-box; }
+.dash .shortcut { display: flex; flex-direction: column; align-items: flex-start; justify-content: center; gap: 6px; width: 100%; text-align: left; font: inherit; font-weight: 600; color: var(--accent); background: var(--card, #fff); border: 1px solid var(--line); border-radius: 14px; padding: 14px; cursor: pointer; min-height: 72px; }
+.dash .shortcut.wide { flex-direction: row; align-items: center; }
+.dash .shortcut .sc-icon { font-size: 24px; }
+.dash-edit-link { text-align: center; margin: -4px 0 12px; }
+.dash.editing .tile-edit { position: relative; display: flex; flex-direction: column; gap: 6px; border: 2px dashed var(--accent); border-radius: 16px; padding: 4px; }
+.dash.editing .tile-edit.wide { grid-column: 1 / -1; }
+.dash.editing .tile-edit > .card { pointer-events: none; opacity: .85; }
+.tile-tools { display: flex; gap: 4px; flex-wrap: nowrap; }
+.tile-tools button { flex: 1 1 auto; padding: 6px 4px; white-space: nowrap; font-size: 13px; background: var(--bg); color: var(--accent); border: 1px solid var(--line); min-width: 36px; }
+.tile-tools button:disabled { opacity: .35; }
+.dash-edit-bar { justify-content: center; flex-wrap: wrap; gap: 8px; margin: 0 0 14px; }
+.add-h { margin: 10px 0 6px; font-size: 13px; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; width: 100%; }
+#swap-people [data-add-tile] { margin: 0 6px 6px 0; }
+.dash > * { min-width: 0; }
+.tile-tools button { min-width: 0; }
