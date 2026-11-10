@@ -250,8 +250,10 @@ export class Putzplan extends DurableObject {
     const bdays = Object.fromEntries((await this.members()).map((m) => [m.name, m.birthday || '']));
     const doersOf = {};
     const bump = (p, k) => { per[p].sp[k] = (per[p].sp[k] || 0) + 1; };
-    const per = Object.fromEntries(PEOPLE.map((p) => [p, { tasks: 0, baths: 0, rescue: stats[p]?.rescue || 0, punctual: 0, bought: stats[p]?.bought || 0, fridge: 0, items: 0, itemsMonth: 0, likes: 0, sp: {} }]));
+    const per = Object.fromEntries(PEOPLE.map((p) => [p, { tasks: 0, baths: 0, rescue: stats[p]?.rescue || 0, punctual: 0, bought: stats[p]?.bought || 0, fridge: 0, items: 0, itemsMonth: 0, likes: 0, sent: 0, paidCount: 0, days: 0, notes: stats[p]?.notes || 0, swaps: stats[p]?.swaps || 0, sp: {} }]));
+    let weekDone = {};
     for (const w of weeks) {
+      weekDone = {};
       const deadline = Date.parse(`${addDays(w.monday, 4)}T17:00:00Z`);
       for (const t of w.tasks) {
         if (!t.items.length) continue;
@@ -277,10 +279,21 @@ export class Putzplan extends DurableObject {
             if (z.dow === 6 && z.hour >= 21) bump(c.by, 'lastminute');
             if (md === '10-31') bump(c.by, 'halloween');
             if (md === '02-14') bump(c.by, 'valentine');
+            if (z.hour === 0) bump(c.by, 'midnight');
+            if (z.dow >= 5) bump(c.by, 'weekend');
+            if (md === '12-06') bump(c.by, 'nikolaus');
+            if (md === '02-29') bump(c.by, 'leap');
+            if (md === '06-21') bump(c.by, 'solstice');
+            if (md === '04-01') bump(c.by, 'april');
+            if (hol && /^Oster/.test(hol.de || '')) bump(c.by, 'easter');
+            // Vollmond (mittlere Mondphase, Bezugs-Neumond 06.01.2000 18:14 UTC)
+            const age = ((((c.at - 947182440000) / 864e5) % 29.530588) + 29.530588) % 29.530588;
+            if (Math.abs(age - 14.77) < 1) bump(c.by, 'fullmoon');
           }
           if (c?.by && per[c.by] && t.key === 'kuehlschrank' && it.person === c.by) per[c.by].fridge++;
         }
         doersOf[`${w.monday}:${t.key}`] = [...doers];
+        if (all && t.key !== 'kuehlschrank') for (const p of doers) (weekDone[p] = weekDone[p] || new Set()).add(t.key);
         // Blitzputz: ganzer Wochendienst schon am Montag erledigt
         if (all && t.key === 'woche' && t.items.every((it) => berlinNow(new Date(w.checks[`${t.key}:${it.id}`].at)).day === w.monday)) for (const p of doers) bump(p, 'blitz');
         if (t.key === 'kuehlschrank') continue;
@@ -290,6 +303,8 @@ export class Putzplan extends DurableObject {
           if (t.person && t.person !== p) per[p].rescue++;
         }
       }
+      // Doppelschicht: zwei ganze Dienste in einer Woche
+      for (const [p, ks] of Object.entries(weekDone)) if (ks.size >= 2) bump(p, 'double');
       if (w.monday === current && !curDone) continue;
       for (const p of PEOPLE) {
         const own = keysOf(w).filter((x) => x.owner === p);
@@ -304,7 +319,12 @@ export class Putzplan extends DurableObject {
       if (target.startsWith('task:')) owners = doersOf[target.slice(5)] || [];
       else if (target.startsWith('note:')) { const n = notes.find((x) => x.id === target.slice(5)); if (n?.by) owners = [n.by]; }
       for (const o of owners) if (per[o]) per[o].likes += Object.values(r).flat().filter((x) => x !== o).length;
+      for (const who of Object.values(r).flat()) if (per[who]) per[who].sent++;
     }
+    // Kasse: Ausgaben ausgelegt
+    for (const e of (await this.ctx.storage.list({ prefix: 'exp:' })).values()) if (e.kind !== 'settle' && !e.net && per[e.paidBy]) per[e.paidBy].paidCount++;
+    // Treue Seele: Tage in der WG
+    for (const m of await this.members()) if (per[m.name] && m.since) per[m.name].days = Math.max(0, Math.round((Date.parse(berlinNow().day) - Date.parse(m.since)) / 864e5));
     // Persönlicher Streak: Wochen in Folge, in denen man alle eigenen Aufgaben erledigt hat.
     // Wochen ohne eigene Aufgabe (frei/weg) unterbrechen nicht. Die laufende Woche zählt, sobald sie fertig ist.
     const streaks = {};
@@ -316,6 +336,7 @@ export class Putzplan extends DurableObject {
       if (curOwn) s++;
       for (const w of weeks) { const d = ownDone(w); if (d === null) continue; if (d) b2 = Math.max(b2, ++r); else if (w.monday !== current) r = 0; }
       streaks[p] = { streak: s, best: b2, current: !!curOwn };
+      if (per[p]) per[p].streakBest = b2;
     }
     return { streak, best, current: curDone, stats: per, streaks };
   }
@@ -797,6 +818,7 @@ export class Putzplan extends DurableObject {
             await this.ctx.storage.put(`ov:${monday}`, ov);
           };
           await apply(r.monday, r.task, r.to, t.planned);
+          await this.bump(r.to, 'swaps');
           if (!r.back) await this.bump(r.to, 'rescue');
           if (r.back) {
             const bt = await taskOf(r.back.monday, r.back.task);
@@ -1374,6 +1396,7 @@ export class Putzplan extends DurableObject {
         const by = PEOPLE.includes(body.by) ? body.by : null;
         const id = rid();
         if (photo) await this.ctx.storage.put(`boardphoto:${id}`, photo);
+        if (by) await this.bump(by, 'notes');
         list.unshift({ id, text, color, by, at: Date.now(), tilt: Math.round((Math.random() * 6 - 3) * 10) / 10, ...(expires ? { expires } : {}), ...(photo ? { photo: true } : {}) });
         // Abgelaufene und zu alte Zettel samt Fotos wegräumen
         const all = (await this.ctx.storage.get('board')) || [];
