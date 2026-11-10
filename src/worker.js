@@ -1,6 +1,7 @@
 import { DurableObject } from 'cloudflare:workers';
 import { computeWeek, simulate, mondayOf, addDays, berlinNow, INITIAL_MEMBERS, CYCLE_START } from './plan.js';
 import { weeklyMessages, fridayMessages, ausfallMessages, cleanerAskMessage, cleanerVisitMessages, meetingPrepMessages, dayLabel } from './messages.js';
+import { buildIcs, ICS_KINDS } from './ics.js';
 import { generateVapidKeys, vapidPublicRaw, sendPush } from './webpush.js';
 import { balancesByCurrency, peopleIn, parseSplitwise, computeParts, parseAmount, parseEuro, CURRENCIES, SHOP_CATEGORIES } from './money.js';
 
@@ -204,6 +205,20 @@ export class Putzplan extends DurableObject {
     const validMonday = (m) => typeof m === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(m) && mondayOf(m) === m;
     const isDay = (d) => typeof d === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(d);
     const isTime = (t) => typeof t === 'string' && /^\d{2}:\d{2}$/.test(t);
+
+    // Kalender-Abo für Apple/Google Kalender
+    if (path === '/calendar.ics' && request.method === 'GET') {
+      const person = PEOPLE.includes(url.searchParams.get('p')) ? url.searchParams.get('p') : null;
+      const lang = url.searchParams.get('lang') === 'en' ? 'en' : 'de';
+      const current = mondayOf(berlinNow().day);
+      const weeks = await this.weeks([...Array(30)].map((_, i) => addDays(current, (i - 4) * 7)));
+      const events = (await this.events()).filter((e) => e.to >= addDays(current, -120));
+      const stamp = new Date().toISOString().replace(/[-:]/g, '').replace(/\.\d+/, '');
+      const inc = url.searchParams.get('inc');
+      const kinds = inc ? inc.split(',').filter((k) => ICS_KINDS.includes(k)) : ICS_KINDS;
+      const ics = buildIcs({ events, members: await this.members(), people: PEOPLE, weeks, person, lang, origin: url.origin, stamp, kinds });
+      return new Response(ics, { headers: { 'content-type': 'text/calendar; charset=utf-8', 'cache-control': 'no-cache', 'content-disposition': 'inline; filename="zentrale.ics"' } });
+    }
 
     if (path === '/weeks' && request.method === 'GET') {
       const current = mondayOf(berlinNow().day);

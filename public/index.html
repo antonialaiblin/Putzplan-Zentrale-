@@ -122,6 +122,7 @@
         <button type="button" id="ev-open">+ Eintrag</button>
         <button type="button" class="ghost" id="poll-open">🗳️ WG-Meeting anfragen</button>
         <button type="button" class="ghost" id="cleaner-open">🧹 Putzkraft</button>
+        <button type="button" class="ghost" id="ics-open">📲 Handy-Kalender</button>
       </div>
       <form class="card" id="ev-form" hidden>
         <h2>Neuer Eintrag</h2>
@@ -390,6 +391,33 @@
         <button value="cancel" class="ghost" formnovalidate>Abbrechen</button>
         <button value="ok">Speichern</button>
       </div>
+    </form>
+  </dialog>
+
+  <dialog id="ics-dialog">
+    <form method="dialog">
+      <h2>Mit Handy-Kalender verbinden 📲</h2>
+      <p class="muted small">Du abonnierst den WG-Kalender: Meetings, Termine, Urlaube, Putzkraft und Geburtstage erscheinen dann automatisch in deinem Kalender und bleiben aktuell. Eintragen und ändern macht ihr weiter hier in der App.</p>
+      <p class="small" style="margin:10px 0 2px"><strong>Was soll in deinen Kalender?</strong></p>
+      <div id="ics-kinds">
+        <label class="check-row"><input type="checkbox" value="putzkraft" checked> <span>🧹 Putzkraft</span></label>
+        <label class="check-row" id="ics-mine-row"><input type="checkbox" value="dienste" checked> <span>🧽 Meine Putzdienste</span></label>
+        <label class="check-row"><input type="checkbox" value="meeting" checked> <span>🗣️ WG-Meetings</span></label>
+        <label class="check-row"><input type="checkbox" value="urlaub" checked> <span>🏖️ Urlaube</span></label>
+        <label class="check-row"><input type="checkbox" value="sonstiges" checked> <span>📅 Sonstige Termine</span></label>
+        <label class="check-row"><input type="checkbox" value="geburtstage" checked> <span>🎂 Geburtstage</span></label>
+      </div>
+      <p class="muted small">Wenn du später etwas anderes auswählen willst: altes Abo im Handy-Kalender löschen und neu verbinden.</p>
+      <div class="ics-buttons">
+        <a class="button" id="ics-apple" href="#">Apple Kalender (iPhone, Mac)</a>
+        <a class="button ghost" id="ics-google" href="#" target="_blank" rel="noopener">Google Kalender</a>
+        <button type="button" class="link" id="ics-copy">Link kopieren</button>
+      </div>
+      <details class="explain"><summary>So geht's</summary>
+        <p class="small"><strong>iPhone:</strong> Auf „Apple Kalender“ tippen und „Abonnieren“ bestätigen. Falls nichts passiert: Link kopieren, dann Einstellungen › Kalender › Accounts › Account hinzufügen › Andere › Kalenderabo hinzufügen und Link einfügen.</p>
+        <p class="small"><strong>Google / Android:</strong> „Google Kalender“ öffnet die Google-Kalender-Webseite, dort „Hinzufügen“ bestätigen. Danach erscheint der Kalender auch in der App auf dem Handy. Google aktualisiert Abos leider nur ungefähr alle paar Stunden bis einmal am Tag.</p>
+      </details>
+      <div class="row end"><button value="cancel" class="ghost">Schließen</button></div>
     </form>
   </dialog>
 

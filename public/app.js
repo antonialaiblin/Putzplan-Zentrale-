@@ -1430,6 +1430,26 @@ function renderEvForm() {
   $('#ev-people-hint').textContent = t === 'urlaub' ? L('Andere, die du hinzufügst, müssen selbst bestätigen, dass sie dabei sind.', 'Anyone else you add has to confirm themselves that they are in.') : '';
 }
 $('#cleaner-open').onclick = () => openCleaner();
+$('#ics-open').onclick = () => {
+  const update = () => {
+    const q = new URLSearchParams();
+    const kinds = [...document.querySelectorAll('#ics-kinds input')].filter((c) => c.checked && !c.closest('label').hidden).map((c) => c.value);
+    if (state.me && kinds.includes('dienste')) q.set('p', state.me);
+    if (kinds.length < document.querySelectorAll('#ics-kinds input').length - (state.me ? 0 : 1)) q.set('inc', kinds.join(','));
+    if (state.lang === 'en') q.set('lang', 'en');
+    const https = `${location.origin}/api/calendar.ics${q.toString() ? `?${q}` : ''}`;
+    const webcal = https.replace(/^https?:/, 'webcal:');
+    $('#ics-apple').href = webcal;
+    $('#ics-google').href = `https://calendar.google.com/calendar/r?cid=${encodeURIComponent(webcal)}`;
+    $('#ics-copy').onclick = async () => {
+      try { await navigator.clipboard.writeText(https); toast(L('Link kopiert', 'Link copied')); } catch { prompt(L('Link kopieren:', 'Copy link:'), https); }
+    };
+  };
+  $('#ics-mine-row').hidden = !state.me;
+  for (const c of document.querySelectorAll('#ics-kinds input')) c.onchange = update;
+  update();
+  $('#ics-dialog').showModal();
+};
 $('#ev-open').onclick = () => {
   $('#ev-form').hidden = false; $('#poll-form').hidden = true;
   state.evType = 'urlaub'; state.evPeople = null;
