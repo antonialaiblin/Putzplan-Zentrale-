@@ -2187,6 +2187,7 @@ function renderCal() {
   if (!state.calMonth) state.calMonth = state.today.slice(0, 7);
   const [y, mo] = state.calMonth.split('-').map(Number);
   $('#cal-title').textContent = `${MONTHS[state.lang][mo - 1]} ${y}`;
+  renderMonthStrip();
   const first = `${state.calMonth}-01`;
   const start = addDays(first, -dowOf(first));
   const evs = state.events || [];
@@ -2504,7 +2505,31 @@ async function ensureCalWeeks() {
     for (const w of data.weeks) state.weeks.set(w.monday, w);
   } catch { /* Anzeige ohne Putzkraft-Tage */ }
 }
+/** Monatsleiste über dem Raster: zum Wischen nach links/rechts */
+function renderMonthStrip() {
+  const strip = $('#cal-months');
+  if (!strip) return;
+  const [ty, tm] = (state.today || new Date().toISOString().slice(0, 10)).split('-').map(Number);
+  const months = [];
+  for (let i = -12; i <= 18; i++) months.push(new Date(Date.UTC(ty, tm - 1 + i, 1)).toISOString().slice(0, 7));
+  const thisMonth = `${ty}-${String(tm).padStart(2, '0')}`;
+  strip.innerHTML = months.map((m) => {
+    const [y, mo] = m.split('-').map(Number);
+    const short = MONTHS[state.lang][mo - 1].slice(0, 3);
+    return `<button type="button" data-cal-month="${m}" class="${m === state.calMonth ? 'on' : ''}${m === thisMonth ? ' now' : ''}">${short}${mo === 1 || y !== ty ? `<small>${y}</small>` : ''}</button>`;
+  }).join('');
+  const on = strip.querySelector('.on');
+  if (on) strip.scrollLeft = on.offsetLeft - strip.clientWidth / 2 + on.offsetWidth / 2;
+}
+$('#cal-months').addEventListener('click', (e) => {
+  const b = e.target.closest('[data-cal-month]');
+  if (!b) return;
+  const [y, mo] = state.calMonth.split('-').map(Number);
+  const [ny, nm] = b.dataset.calMonth.split('-').map(Number);
+  moveCal((ny - y) * 12 + (nm - mo));
+});
 async function moveCal(n) {
+  if (!n) return;
   const [y, mo] = state.calMonth.split('-').map(Number);
   state.calMonth = new Date(Date.UTC(y, mo - 1 + n, 1)).toISOString().slice(0, 7);
   renderCal();
@@ -2512,6 +2537,17 @@ async function moveCal(n) {
   renderCal();
 }
 $('#cal-prev').onclick = () => moveCal(-1);
+// Wie Google Kalender: nach links/rechts wischen = Monat wechseln, „Hochwischen“ zeigt den Rest
+$('#cal-more').onclick = () => document.querySelector('#tab-cal .cal-info').scrollIntoView({ behavior: 'smooth', block: 'start' });
+{
+  let sx = 0; let sy = 0;
+  const g = $('#cal-grid');
+  g.addEventListener('touchstart', (e) => { sx = e.touches[0].clientX; sy = e.touches[0].clientY; }, { passive: true });
+  g.addEventListener('touchend', (e) => {
+    const dx = e.changedTouches[0].clientX - sx; const dy = e.changedTouches[0].clientY - sy;
+    if (Math.abs(dx) > 60 && Math.abs(dx) > Math.abs(dy) * 1.5) moveCal(dx < 0 ? 1 : -1);
+  }, { passive: true });
+}
 $('#cal-next').onclick = () => moveCal(1);
 
 // ---------------- Start ----------------
