@@ -17,6 +17,7 @@ export const SCHEDULE = {
 };
 
 const fmtD = (d, lang = 'de') => dayLabel(d, lang);
+const GUEST_MODE = true; // Gastansicht an/aus (Antonia sagt Bescheid, wann sie wieder raus soll)
 const FEEDBACK_START = '2026-11-24'; // App-Umfrage: zwei Wochen nach dem Start, eine Woche lang
 /** Nächster Termin einer wiederkehrenden Ausgabe */
 const REPEATS = { week: [0, 7], '2week': [0, 14], month: [1, 0], '2month': [2, 0], quarter: [3, 0], year: [12, 0] };
@@ -498,10 +499,13 @@ export class Putzplan extends DurableObject {
     const sess = /^[0-9a-f]{48}$/.test(token) ? await this.ctx.storage.get(`sess:${token}`) : null;
     const accounts = async () => [...(await this.ctx.storage.list({ prefix: 'acct:' })).values()];
     const acctKey = (u) => `acct:${u.toLowerCase()}`;
-    let acct = sess?.user ? await this.ctx.storage.get(acctKey(sess.user)) : null;
+    // Gastansicht: eigene Kopie der Daten, man ist automatisch die Admin-Person, aber ohne Admin-Rechte
+    const sandbox = await this.ctx.storage.get('guestSandbox');
+    let acct = sandbox ? { username: 'Gast', person: sandbox.person } : sess?.user ? await this.ctx.storage.get(acctKey(sess.user)) : null;
     let me = acct?.person && PEOPLE.includes(acct.person) ? acct.person : null;
     const admin = (await this.ctx.storage.get('admin')) || 'Toni';
-    const isAdmin = !!me && me === admin;
+    const isAdmin = !sandbox && !!me && me === admin;
+    if (sandbox && path.startsWith('/auth/') && path !== '/auth/people') return json({ error: 'In der Gastansicht geht das nicht.' }, 403);
     // Alle (außer der Person selbst) bekommen eine Push, wenn sich in der Kasse etwas tut
     const notifyMoney = async (action, e, by) => {
       const fmt = (l) => new Intl.NumberFormat(l === 'en' ? 'en-GB' : l === 'sv' ? 'sv-SE' : 'de-DE', { style: 'currency', currency: e.currency || 'EUR' }).format(e.amount / 100);
@@ -560,7 +564,7 @@ export class Putzplan extends DurableObject {
       const taken = await claimed();
       const members = (await this.members()).filter((m) => PEOPLE.includes(m.name));
       return json({
-        people: PEOPLE, admin,
+        people: PEOPLE, admin, guestMode: GUEST_MODE, guest: !!sandbox,
         members: members.map((m) => ({ name: m.name, photo: m.photo, gender: m.gender, lang: m.lang, claimed: taken.has(m.name) })),
         account: acct ? { username: acct.username, person: me, pending: acct.pending ? { type: acct.pending.type, person: acct.pending.person || acct.pending.name } : null } : null,
         pendingCount: isAdmin ? (await accounts()).filter((a) => a.pending || a.forgot).length : 0,
@@ -1564,6 +1568,24 @@ export class Putzplan extends DurableObject {
   }
   backupStub() { return this.env.PUTZPLAN.get(this.env.PUTZPLAN.idFromName('backup')); }
 
+  // ---------- Gastansicht ----------
+  /** Läuft im Gast-Objekt: beim ersten Mal eine Kopie der echten Daten holen (ohne Accounts, Sitzungen, Push-Abos) */
+  async guestInit() {
+    if (await this.ctx.storage.get('guestSandbox')) return true;
+    const main = this.env.PUTZPLAN.get(this.env.PUTZPLAN.idFromName('wg'));
+    const data = await main.dumpAll();
+    const skip = (k) => /^(sess:|sub:|acct:|auth:|sent:|reacted:)/.test(k) || ['pushprefs', 'vapid', 'actlog'].includes(k);
+    const entries = Object.entries(data).filter(([k]) => !skip(k));
+    for (let i = 0; i < entries.length; i += 100) await this.ctx.storage.put(Object.fromEntries(entries.slice(i, i + 100)));
+    await this.ctx.storage.put('guestSandbox', { person: data.admin || 'Toni', at: Date.now() });
+    await this.ctx.storage.setAlarm(Date.now() + 24 * 3600e3);
+    return true;
+  }
+  /** Gast-Kopien räumen sich nach einem Tag selbst weg */
+  async alarm() {
+    if (await this.ctx.storage.get('guestSandbox')) await this.ctx.storage.deleteAll();
+  }
+
   // ---------- App-Umfrage ----------
   async feedback() {
     return (await this.ctx.storage.get('feedback')) || { start: FEEDBACK_START, end: addDays(FEEDBACK_START, 7), answers: {} };
@@ -1704,7 +1726,16 @@ const stub = (env) => env.PUTZPLAN.get(env.PUTZPLAN.idFromName('wg'));
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
-    if (url.pathname.startsWith('/api/')) return stub(env).fetch(request);
+    if (url.pathname.startsWith('/api/')) {
+      // Gastansicht: Anfragen gehen an eine eigene Kopie, die echten Daten bleiben unberührt
+      const g = request.headers.get('x-guest') || /(?:^|;\s*)guest=(g[0-9a-f]{32})/.exec(request.headers.get('cookie') || '')?.[1];
+      if (GUEST_MODE && g && /^g[0-9a-f]{32}$/.test(g)) {
+        const gs = env.PUTZPLAN.get(env.PUTZPLAN.idFromName(`guest:${g}`));
+        await gs.guestInit();
+        return gs.fetch(request);
+      }
+      return stub(env).fetch(request);
+    }
     return env.ASSETS.fetch(request);
   },
   async scheduled(event, env, ctx) {

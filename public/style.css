@@ -580,3 +580,10 @@ body.bday .tabbar a span::after { content: '🎁'; font-size: 11px; position: ab
 .edit-big { width: 100%; padding: 14px 16px; border-radius: 16px; border: 2px dashed var(--accent); background: var(--accent-soft); color: var(--accent); font-weight: 700; font-size: 15px; cursor: pointer; }
 
 .note.polaroid p { text-align: center; font-family: 'Segoe Print', 'Bradley Hand', 'Comic Sans MS', cursive; font-size: 15px; margin: 2px 2px 4px; color: #333; }
+
+/* Gastansicht */
+.guest-try { display: block; margin: 18px auto 0; font-size: 15px; }
+.guest-banner { position: sticky; top: 0; z-index: 20; display: block; padding: calc(8px + env(safe-area-inset-top)) 16px 8px; background: #f5b301; color: #2b2100; font-size: 13px; font-weight: 600; text-align: center; }
+.guest-banner .link { color: #2b2100; text-decoration: underline; font-weight: 700; }
+body.guest #pw-change, body.guest #hint-change, body.guest #notify, body.guest #leave-open, body.guest #admin-box { display: none !important; }
+body.guest .set-row:has(#pw-change), body.guest .set-row:has(#hint-change) { display: none; }

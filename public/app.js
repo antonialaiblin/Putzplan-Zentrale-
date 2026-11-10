@@ -130,6 +130,7 @@ function syncLang() {
 
 async function api(path, body) {
   const headers = { 'x-session': store.get('token') || '' };
+  if (store.get('guest')) headers['x-guest'] = store.get('guest');
   const res = await fetch(`/api/${path}`, body
     ? { method: 'POST', headers: { ...headers, 'content-type': 'application/json' }, body: JSON.stringify(body) }
     : { headers });
@@ -172,12 +173,35 @@ async function loadLogin() {
   state.admin = d.admin;
   state.account = d.account;
   state.me = null;
+  $('#guest-try').hidden = !d.guestMode;
   renderMe();
 }
+// ---------- Gastansicht ----------
+function startGuest() {
+  const t = `g${[...crypto.getRandomValues(new Uint8Array(16))].map((b) => b.toString(16).padStart(2, '0')).join('')}`;
+  store.set('guest', t);
+  document.cookie = `guest=${t}; path=/; max-age=86400; samesite=lax`;
+  location.hash = '#start';
+  location.reload();
+}
+function endGuest() {
+  store.set('guest', '');
+  try { localStorage.removeItem('guest'); } catch { /* egal */ }
+  document.cookie = 'guest=; path=/; max-age=0';
+  location.reload();
+}
+document.addEventListener('click', (e) => {
+  if (e.target.closest('#guest-try')) startGuest();
+  if (e.target.closest('#guest-end')) endGuest();
+});
 async function load() {
-  if (!store.get('token')) { state.account = null; await loadLogin(); return; }
+  if (!store.get('token') && !store.get('guest')) { state.account = null; await loadLogin(); return; }
   // Account prüfen: ist er schon mit einer Person verbunden?
   const who = await api('auth/people');
+  if (store.get('guest') && !who.guest) { endGuest(); return; } // Gastansicht wurde abgeschaltet
+  state.guest = !!who.guest;
+  document.body.classList.toggle('guest', state.guest);
+  $('#guest-banner').hidden = !state.guest;
   state.admin = who.admin;
   state.account = who.account;
   state.pendingCount = who.pendingCount || 0;
