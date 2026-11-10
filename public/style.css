@@ -549,3 +549,18 @@ body.not-home:not(.no-me) main { padding-top: calc(16px + env(safe-area-inset-to
 body.bday main { position: relative; z-index: 1; }
 body.bday .card h3::before { content: '🎁 '; }
 body.bday .tabbar a span::after { content: '🎁'; font-size: 11px; position: absolute; margin: -4px 0 0 -2px; }
+
+/* WG-Report */
+.report-btn { display: inline-flex; align-items: center; gap: 6px; margin: 4px 0 10px; padding: 8px 14px; border-radius: 999px; border: 0; background: var(--accent-soft); color: var(--accent); font-weight: 700; font-size: 14px; cursor: pointer; }
+.report-range { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0 12px; }
+.report-range button { flex: 1 1 auto; padding: 7px 10px; border-radius: 999px; border: 1px solid var(--line); background: transparent; color: inherit; font-size: 13px; cursor: pointer; }
+.report-range button.on { background: var(--accent); color: #fff; border-color: var(--accent); }
+.rp-sum { margin: 0 0 12px; }
+.rp-hl { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 8px; margin-bottom: 14px; }
+.rp-card { display: flex; flex-direction: column; gap: 2px; padding: 10px 12px; border-radius: 14px; background: var(--accent-soft); }
+.rp-i { font-size: 22px; }
+.rp-sec { margin: 14px 0; }
+.rp-sec h3 { margin: 0 0 6px; font-size: 15px; }
+.rp-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.rp-table th { text-align: left; font-weight: 600; opacity: .7; padding: 4px; }
+.rp-table td { padding: 6px 4px; border-top: 1px solid var(--line); vertical-align: top; }

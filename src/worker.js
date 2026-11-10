@@ -322,6 +322,107 @@ export class Putzplan extends DurableObject {
   async reactions() {
     return (await this.ctx.storage.get('reactions')) || {};
   }
+  /** Kleines Protokoll für den Report (Erinnerungen, Einkäufe) */
+  async logAct(type, by, extra = {}) {
+    const list = (await this.ctx.storage.get('actlog')) || [];
+    list.push({ type, by, at: Date.now(), ...extra });
+    await this.ctx.storage.put('actlog', list.slice(-3000));
+  }
+  /** WG-Report ab einem Datum: wer macht wann was wie oft und wie pünktlich */
+  async report(from) {
+    const today = berlinNow().day;
+    const current = mondayOf(today);
+    const first = from && from > CYCLE_START ? mondayOf(from) : CYCLE_START;
+    const fromMs = Date.parse(`${from && from > CYCLE_START ? from : CYCLE_START}T00:00:00Z`) - 2 * 3600e3;
+    const mondays = [];
+    for (let m = first; m <= current && mondays.length < 400; m = addDays(m, 7)) mondays.push(m);
+    const weeks = mondays.length ? await this.weeks(mondays) : [];
+    const PEOPLE = await this.names();
+    const per = Object.fromEntries(PEOPLE.map((p) => [p, {
+      items: 0, tasks: 0, what: {}, dows: [0, 0, 0, 0, 0, 0, 0], hours: [], own: 0, onTime: 0, late: 0, leftOpen: 0,
+      fridayReminded: 0, reminded: 0, reminds: 0, rescue: 0, swapsGiven: 0, swapsTaken: 0,
+      reactSent: 0, reactGot: 0, bought: 0, paid: 0,
+    }]));
+    let wgItems = 0; let fullWeeks = 0; let pastWeeks = 0;
+    const doersOf = {};
+    for (const w of weeks) {
+      const deadline = Date.parse(`${addDays(w.monday, 4)}T17:00:00Z`);
+      const over = Date.now() > deadline;
+      const done = Date.now() > Date.parse(`${addDays(w.monday, 7)}T00:00:00Z`);
+      let allDone = true; let any = false;
+      for (const t of w.tasks) {
+        if (t.planned && t.person && t.planned !== t.person) {
+          if (per[t.planned]) per[t.planned].swapsGiven++;
+          if (per[t.person]) per[t.person].swapsTaken++;
+        }
+        const doers = new Set();
+        let full = t.items.length > 0;
+        for (const it of t.items) {
+          any = true;
+          const k = `${t.key}:${it.id}`;
+          const c = w.checks[k];
+          const owner = it.person || t.person;
+          if (!c) { full = false; allDone = false; }
+          if (c?.by && per[c.by]) {
+            const P = per[c.by];
+            P.items++; wgItems++;
+            doers.add(c.by);
+            P.what[t.title] = (P.what[t.title] || 0) + 1;
+            const z = berlinNow(new Date(c.at));
+            P.dows[z.dow]++;
+            P.hours.push(z.hour);
+            if (owner && owner !== c.by) P.rescue++;
+          }
+          if (owner && per[owner] && (over || c) && !(c?.by && c.by !== owner)) {
+            per[owner].own++;
+            if (c && c.at <= deadline) per[owner].onTime++;
+            else if (c) per[owner].late++;
+            else if (done) per[owner].leftOpen++;
+          }
+        }
+        if (full && t.key !== 'kuehlschrank') for (const p of doers) per[p].tasks++;
+        doersOf[`${w.monday}:${t.key}`] = [...doers];
+      }
+      // Freitags-Erinnerung: eigene Aufgaben waren Freitag 18 Uhr noch offen
+      if (over) {
+        for (const p of PEOPLE) {
+          const own = w.tasks.flatMap((t) => t.items.filter((it) => (it.person || t.person) === p).map((it) => w.checks[`${t.key}:${it.id}`]));
+          if (own.some((c) => !c || c.at > deadline)) per[p].fridayReminded++;
+        }
+      }
+      if (done) { pastWeeks++; if (any && allDone) fullWeeks++; }
+    }
+    // Reaktionen: verschickt und bekommen
+    const reacts = await this.reactions();
+    const notes = (await this.ctx.storage.get('board')) || [];
+    for (const [target, r] of Object.entries(reacts)) {
+      let owners = []; let inRange = false;
+      if (target.startsWith('task:')) { const key = target.slice(5); inRange = key.slice(0, 10) >= first; owners = doersOf[key] || []; }
+      else if (target.startsWith('note:')) { const n = notes.find((x) => x.id === target.slice(5)); inRange = !!n && (n.at || 0) >= fromMs; if (n?.by) owners = [n.by]; }
+      if (!inRange) continue;
+      for (const who of Object.values(r).flat()) {
+        if (per[who]) per[who].reactSent++;
+        for (const o of owners) if (per[o] && o !== who) per[o].reactGot++;
+      }
+    }
+    // Erinnern-Knopf und Einkäufe
+    for (const a of (await this.ctx.storage.get('actlog')) || []) {
+      if (a.at < fromMs) continue;
+      if (a.type === 'remind') { if (per[a.by]) per[a.by].reminds++; if (per[a.to]) per[a.to].reminded++; }
+      if (a.type === 'bought' && per[a.by]) per[a.by].bought++;
+    }
+    // Kasse: wer hat wie viel ausgelegt (nur Euro, ohne Rückzahlungen)
+    for (const e of (await this.ctx.storage.list({ prefix: 'exp:' })).values()) {
+      if (e.kind === 'settle' || (e.currency && e.currency !== 'EUR') || (e.at || 0) < fromMs || e.net) continue;
+      if (per[e.paidBy]) per[e.paidBy].paid += Number(e.amount) || 0;
+    }
+    for (const P of Object.values(per)) {
+      P.paid = Math.round(P.paid * 100) / 100;
+      P.avgHour = P.hours.length ? Math.round((P.hours.reduce((a, b) => a + b, 0) / P.hours.length) * 10) / 10 : null;
+      delete P.hours;
+    }
+    return { from: first, to: today, weeks: weeks.length, pastWeeks, fullWeeks, wgItems, people: PEOPLE, per };
+  }
   async board() {
     const today = berlinNow().day;
     return ((await this.ctx.storage.get('board')) || []).filter((n) => !n.expires || n.expires >= today);
@@ -566,6 +667,10 @@ export class Putzplan extends DurableObject {
       return new Response(ics, { headers: { 'content-type': 'text/calendar; charset=utf-8', 'cache-control': 'no-cache', 'content-disposition': 'inline; filename="zentrale.ics"' } });
     }
 
+    if (path === '/report' && request.method === 'GET') {
+      const f = url.searchParams.get('from');
+      return json(await this.report(/^\d{4}-\d{2}-\d{2}$/.test(f || '') ? f : null));
+    }
     if (path === '/weeks' && request.method === 'GET') {
       const current = mondayOf(berlinNow().day);
       const from = validMonday(url.searchParams.get('from')) ? url.searchParams.get('from') : addDays(current, -7);
@@ -1178,6 +1283,7 @@ export class Putzplan extends DurableObject {
       if (item) {
         await this.ctx.storage.delete(key);
         await this.bump(body.by, 'bought');
+        if (PEOPLE.includes(body.by)) await this.logAct('bought', body.by);
         // Optional direkt als Ausgabe in die WG-Kasse
         const amount = parseEuro(body.price);
         if (amount && PEOPLE.includes(body.by)) {
@@ -1242,6 +1348,7 @@ export class Putzplan extends DurableObject {
       const last = await this.ctx.storage.get(flag);
       if (last && Date.now() - last < 6 * 3600e3) return json({ error: 'Es wurde gerade erst erinnert. Bitte später nochmal.' }, 429);
       await this.ctx.storage.put(flag, Date.now());
+      await this.logAct('remind', by, { to: t.person, task, monday });
       await this.pushToPerson(t.person, (l) => {
         const L = pick(l);
         return {

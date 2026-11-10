@@ -71,7 +71,7 @@ export const INITIAL_MEMBERS = [
   { name: 'Mo', side: 'vorne' },
 ].map((m) => ({ ...m, since: CYCLE_START, until: null }));
 const INITIAL_QUEUES = {
-  woche: ['Simon', 'Leo', 'Toni', 'Johanna', 'Mo'],
+  woche: ['Mo', 'Leo', 'Toni', 'Johanna', 'Simon'],
   vorne: ['Mo', 'Simon', 'Leo'],
   hinten: ['Toni', 'Johanna'],
 };

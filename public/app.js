@@ -1697,6 +1697,7 @@ function renderHome() {
   const pastMeetings = (state.events || []).filter((e) => e.type === 'meeting' && e.to < today).sort((a, b) => (a.from < b.from ? 1 : -1)).slice(0, 3);
   if (pastMeetings.length) {
     tiles.meetings = `<div class="card __CLS__ meetings-card"><h3>${L('Letzte WG-Meetings', 'Recent flat meetings', `Senaste husmötena`)}</h3>
+      <button type="button" class="report-btn" data-report>📊 ${L('Report ansehen', 'View report', 'Visa rapport')}</button>
       ${pastMeetings.map((e) => {
         const txt = e.minutes?.text?.trim();
         const short = txt ? (txt.length > 140 ? `${txt.slice(0, 140)}…` : txt) : '';
@@ -1705,7 +1706,8 @@ function renderHome() {
           <span class="muted small">${short ? esc(short) : L('Noch kein Protokoll, tippen zum Schreiben', 'No minutes yet, tap to write', `Inget protokoll än, tryck för att skriva`)}</span></button>`;
       }).join('')}</div>`;
   } else {
-    tiles.meetings = `<a class="card __CLS__" href="#kalender"><h3>${L('Letzte WG-Meetings', 'Recent flat meetings', `Senaste husmötena`)}</h3><p class="muted">${L('Noch keine vergangenen WG-Meetings. Die Protokolle erscheinen dann hier.', 'No past flat meetings yet. Their minutes will show up here.', `Inga tidigare husmöten än. Protokollen visas sedan här.`)}</p></a>`;
+    tiles.meetings = `<div class="card __CLS__ meetings-card"><h3>${L('Letzte WG-Meetings', 'Recent flat meetings', `Senaste husmötena`)}</h3><p class="muted">${L('Noch keine vergangenen WG-Meetings. Die Protokolle erscheinen dann hier.', 'No past flat meetings yet. Their minutes will show up here.', `Inga tidigare husmöten än. Protokollen visas sedan här.`)}</p>
+      <button type="button" class="report-btn" data-report>📊 ${L('Report ansehen', 'View report', 'Visa rapport')}</button></div>`;
   }
   tiles.rules = `<a class="card __CLS__" href="#regeln"><h3>${L('Hausregeln', 'House rules', `Husregler`)}</h3><p>${L('Mission Haussegen 📜 Alles zum WG-Seelenfrieden', 'Mission Haussegen 📜 Everything for peace in the flat', `Mission Haussegen 📜 Allt för husfriden`)}</p></a>`;
   Object.assign(tiles, extraTiles(w));
@@ -2125,7 +2127,7 @@ function renderEvList() {
         : e.participants.map((p) => `${esc(p.name)}${p.ok ? '' : L(' (wartet auf Zusage)', ' (waiting to confirm)', ` (väntar på bekräftelse)`)}`).join(', ');
       return `<div class="ev"><div>${TYPE_ICON[e.type]} <strong>${esc(evTitle(e))}</strong>
         <small>${fmtDay(e.from)}${e.to !== e.from ? ` – ${fmtDay(e.to)}` : ''}${e.time ? `, ${clock(e.time)}` : ''} · ${ppl}${e.note ? ` · ${esc(e.note)}` : ''}</small></div>
-        <div class="ev-actions">${e.type === 'meeting' ? `<button class="link small" data-notes="${esc(e.id)}">📝 ${L('Themen & Protokoll', 'Topics & minutes', `Ämnen & protokoll`)}${e.topics?.length ? ` (${e.topics.length})` : ''}</button>` : ''}
+        <div class="ev-actions">${e.type === 'meeting' ? `<button class="link small" data-notes="${esc(e.id)}">📝 ${L('Themen & Protokoll', 'Topics & minutes', `Ämnen & protokoll`)}${e.topics?.length ? ` (${e.topics.length})` : ''}</button><button class="link small" data-report>📊 ${L('Report', 'Report', 'Rapport')}</button>` : ''}
         <button class="link small" data-ev-del="${esc(e.id)}">${L('löschen', 'delete', `ta bort`)}</button></div></div>`;
     }).join('')
     : `<p class="empty">${L('Nichts eingetragen.', 'Nothing planned.', `Inget planerat.`)}</p>`;
@@ -2395,4 +2397,88 @@ document.addEventListener('visibilitychange', () => {
   if (!store.get('token')) return;
   if (currentTab() === 'shop') loadShop();
   if (currentTab() === 'money') loadMoney();
+});
+
+// ---------- WG-Report fürs WG-Meeting ----------
+const DOW_NAMES = () => [L('Montag', 'Monday', 'måndag'), L('Dienstag', 'Tuesday', 'tisdag'), L('Mittwoch', 'Wednesday', 'onsdag'), L('Donnerstag', 'Thursday', 'torsdag'), L('Freitag', 'Friday', 'fredag'), L('Samstag', 'Saturday', 'lördag'), L('Sonntag', 'Sunday', 'söndag')];
+function dayPart(h) {
+  if (h == null) return '–';
+  if (h < 5 || h >= 22) return L('nachts', 'at night', 'på natten');
+  if (h < 11) return L('morgens', 'in the morning', 'på morgonen');
+  if (h < 14) return L('mittags', 'around noon', 'mitt på dagen');
+  if (h < 18) return L('nachmittags', 'in the afternoon', 'på eftermiddagen');
+  return L('abends', 'in the evening', 'på kvällen');
+}
+let reportRange = '30';
+async function openReport() {
+  const dlg = $('#report-dialog');
+  if (!dlg.open) dlg.showModal();
+  await drawReport();
+}
+async function drawReport() {
+  $('#report-range').querySelectorAll('[data-range]').forEach((b) => b.classList.toggle('on', b.dataset.range === reportRange));
+  const body = $('#report-body');
+  body.innerHTML = `<p class="muted">${L('Lädt …', 'Loading …', 'Laddar …')}</p>`;
+  const from = reportRange === 'all' ? '' : addDaysLocal(state.today, -Number(reportRange));
+  let r;
+  try { r = await api(`report${from ? `?from=${from}` : ''}`); } catch (err) { body.innerHTML = `<p class="muted">${esc(err.message)}</p>`; return; }
+  const ppl = r.people.filter((p) => r.per[p]);
+  const P = r.per;
+  const pct = (p) => (P[p].own ? Math.round((P[p].onTime / P[p].own) * 100) : null);
+  const remindN = (p) => P[p].fridayReminded + P[p].reminded;
+  const best = (fn, low = false) => {
+    const vals = ppl.map((p) => ({ p, v: fn(p) })).filter((x) => x.v != null && (low || x.v > 0));
+    if (!vals.length) return null;
+    const top = low ? Math.min(...vals.map((x) => x.v)) : Math.max(...vals.map((x) => x.v));
+    return { names: vals.filter((x) => x.v === top).map((x) => x.p), v: top };
+  };
+  const hl = [
+    ['🏆', L('Am fleißigsten', 'Hardest working', 'Flitigast'), best((p) => P[p].items), (v) => `${v} ${plural(v, 'Aufgabe', 'Aufgaben', 'task', 'tasks', 'uppgift', 'uppgifter')}`],
+    ['⏰', L('Am pünktlichsten', 'Most punctual', 'Mest punktlig'), best(pct), (v) => `${v} %`],
+    ['🔔', L('Musste am öftesten erinnert werden', 'Needed the most reminders', 'Behövde flest påminnelser'), best(remindN), (v) => `${v}×`],
+    ['🦸', L('Springt am meisten ein', 'Steps in the most', 'Hoppar in mest'), best((p) => P[p].rescue + P[p].swapsTaken), (v) => `${v}×`],
+    ['💬', L('Verschickt die meisten Reaktionen', 'Sends the most reactions', 'Skickar flest reaktioner'), best((p) => P[p].reactSent), (v) => `${v}`],
+    ['💖', L('Bekommt die meisten Reaktionen', 'Gets the most reactions', 'Får flest reaktioner'), best((p) => P[p].reactGot), (v) => `${v}`],
+    ['🐦', L('Früher Vogel', 'Early bird', 'Morgonpigg'), best((p) => P[p].avgHour, true), (v) => L(`meist gegen ${Math.round(v)} Uhr`, `usually around ${Math.round(v)}:00`, `oftast runt ${Math.round(v)}`)],
+    ['🦉', L('Nachteule', 'Night owl', 'Nattuggla'), best((p) => P[p].avgHour), (v) => L(`meist gegen ${Math.round(v)} Uhr`, `usually around ${Math.round(v)}:00`, `oftast runt ${Math.round(v)}`)],
+    ['🛒', L('Kauft am meisten ein', 'Shops the most', 'Handlar mest'), best((p) => P[p].bought), (v) => `${v}×`],
+    ['💶', L('Hat am meisten ausgelegt', 'Paid the most', 'Har lagt ut mest'), best((p) => P[p].paid), (v) => money(v)],
+  ].filter((h) => h[2]);
+  // Früher Vogel / Nachteule nur, wenn es mehrere zum Vergleichen gibt und es nicht dieselbe Person ist
+  const withHour = ppl.filter((p) => P[p].avgHour != null).length;
+  for (const i of ['🐦', '🦉']) { const h = hl.find((x) => x[0] === i); if (h && withHour < 2) hl.splice(hl.indexOf(h), 1); }
+  const eb = hl.find((x) => x[0] === '🐦'); const no = hl.find((x) => x[0] === '🦉');
+  if (eb && no && eb[2].v === no[2].v) hl.splice(hl.indexOf(no), 1);
+  const bars = (title, fn, fmt = (v) => v, note = '') => {
+    const rows = ppl.map((p) => ({ p, v: fn(p) })).sort((a, b) => (b.v ?? -1) - (a.v ?? -1));
+    if (!rows.some((x) => x.v)) return '';
+    const max = Math.max(1, ...rows.map((x) => x.v || 0));
+    return `<div class="rp-sec"><h3>${title}</h3>${note ? `<p class="muted small">${note}</p>` : ''}<ol class="ranking">${rows.map((x) => `<li class="${x.p === state.me ? 'me' : ''}">${avatar(x.p, 'sm')}<span class="nm">${esc(x.p)}</span><span class="bar"><b style="width:${Math.round(((x.v || 0) / max) * 100)}%"></b></span><span class="ct">${x.v == null ? '–' : fmt(x.v, x.p)}</span></li>`).join('')}</ol></div>`;
+  };
+  const DN = DOW_NAMES();
+  const favDay = (p) => { const d = P[p].dows; const m = Math.max(...d); return m ? DN[d.indexOf(m)] : '–'; };
+  const topWhat = (p) => Object.entries(P[p].what).sort((a, b) => b[1] - a[1]).slice(0, 3).map(([t, n]) => `${esc(T(t))} ${n}×`).join(', ') || '–';
+  body.innerHTML = `<p class="rp-sum">${L(`<strong>${fmtDay(r.from)} bis ${fmtDay(r.to)}</strong> · ${r.wgItems} Aufgaben erledigt${r.pastWeeks ? ` · ${r.fullWeeks} von ${r.pastWeeks} Wochen komplett` : ''}`, `<strong>${fmtDay(r.from)} to ${fmtDay(r.to)}</strong> · ${r.wgItems} tasks done${r.pastWeeks ? ` · ${r.fullWeeks} of ${r.pastWeeks} weeks complete` : ''}`, `<strong>${fmtDay(r.from)} till ${fmtDay(r.to)}</strong> · ${r.wgItems} uppgifter klara${r.pastWeeks ? ` · ${r.fullWeeks} av ${r.pastWeeks} veckor klara` : ''}`)}</p>
+    ${hl.length ? `<div class="rp-hl">${hl.map(([i, t, b, f]) => `<div class="rp-card"><span class="rp-i">${i}</span><span class="muted small">${t}</span><strong>${b.names.map(esc).join(' & ')}</strong><span class="small">${f(b.v)}</span></div>`).join('')}</div>` : `<p class="muted">${L('In diesem Zeitraum ist noch nichts passiert.', 'Nothing happened in this period yet.', 'Inget har hänt under den här perioden än.')}</p>`}
+    ${bars(L('✅ Erledigte Aufgaben', '✅ Tasks done', '✅ Klara uppgifter'), (p) => P[p].items)}
+    ${bars(L('⏰ Pünktlichkeit', '⏰ Punctuality', '⏰ Punktlighet'), pct, (v, p) => `${v} %`, L('Anteil der eigenen Aufgaben, die bis Freitag 18 Uhr erledigt waren', 'Share of own tasks done by Friday 6 pm', 'Andel egna uppgifter klara till fredag kl. 18'))}
+    ${bars(L('🔔 Erinnerungen nötig', '🔔 Reminders needed', '🔔 Påminnelser som behövdes'), remindN, (v, p) => `${v}×`, L('Freitags-Erinnerung (noch offen um 18 Uhr) plus Erinnern-Knopf von anderen', 'Friday reminder (still open at 6 pm) plus reminder button from others', 'Fredagspåminnelse (öppet kl. 18) plus påminnelseknappen'))}
+    ${bars(L('🐢 Liegen geblieben', '🐢 Left undone', '🐢 Blev inte gjort'), (p) => P[p].leftOpen, (v) => `${v}`, L('Eigene Aufgaben, die die ganze Woche nicht erledigt wurden', 'Own tasks not done all week', 'Egna uppgifter som inte blev gjorda hela veckan'))}
+    ${bars(L('🦸 Eingesprungen', '🦸 Stepped in', '🦸 Hoppat in'), (p) => P[p].rescue + P[p].swapsTaken, (v) => `${v}×`, L('Aufgaben von anderen erledigt oder Dienst übernommen', 'Did others\' tasks or took over a duty', 'Gjort andras uppgifter eller tagit över en tjänst'))}
+    ${bars(L('🔁 Dienst abgegeben', '🔁 Duty handed off', '🔁 Lämnat bort tjänst'), (p) => P[p].swapsGiven, (v) => `${v}×`)}
+    ${bars(L('📣 Hat andere erinnert', '📣 Reminded others', '📣 Påmint andra'), (p) => P[p].reminds, (v) => `${v}×`)}
+    ${bars(L('💬 Reaktionen verschickt', '💬 Reactions sent', '💬 Skickade reaktioner'), (p) => P[p].reactSent)}
+    ${bars(L('💖 Reaktionen bekommen', '💖 Reactions received', '💖 Fått reaktioner'), (p) => P[p].reactGot)}
+    ${bars(L('🛒 Eingekauft', '🛒 Shopping done', '🛒 Handlat'), (p) => P[p].bought, (v) => `${v}×`)}
+    ${bars(L('💶 In der Kasse ausgelegt', '💶 Paid in the kitty', '💶 Utlagt i kassan'), (p) => P[p].paid, (v) => money(v))}
+    <div class="rp-sec"><h3>${L('📅 Wann und was', '📅 When and what', '📅 När och vad')}</h3>
+      <table class="rp-table"><tr><th></th><th>${L('Meist am', 'Mostly on', 'Oftast på')}</th><th>${L('Tageszeit', 'Time of day', 'Tid')}</th><th>${L('Am häufigsten', 'Most often', 'Oftast')}</th></tr>
+      ${ppl.map((p) => `<tr><td><strong>${esc(p)}</strong></td><td>${favDay(p)}</td><td>${dayPart(P[p].avgHour)}</td><td class="small">${topWhat(p)}</td></tr>`).join('')}</table></div>`;
+}
+function addDaysLocal(day, n) { const d = new Date(`${day}T12:00:00Z`); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10); }
+document.addEventListener('click', (e) => {
+  const b = e.target.closest('[data-report]');
+  if (b) { e.preventDefault(); openReport(); return; }
+  const r = e.target.closest('#report-range [data-range]');
+  if (r) { reportRange = r.dataset.range; drawReport(); }
 });
