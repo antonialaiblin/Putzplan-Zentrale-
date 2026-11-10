@@ -218,7 +218,6 @@ function renderMe() {
   const quick = $('#lang-quick');
   quick.hidden = !!state.me;
   quick.textContent = { de: '🇬🇧 English', en: '🇸🇪 Svenska', sv: '🇩🇪 Deutsch' }[state.lang];
-  $('#set-me').innerHTML = state.me ? `${avatar(state.me)} ${L(`Du bist <strong>${esc(state.me)}</strong>`, `You are <strong>${esc(state.me)}</strong>`, `Du är <strong>${esc(state.me)}</strong>`)}` : '';
   document.querySelectorAll('#set-lang [data-lang]').forEach((b) => b.setAttribute('aria-checked', b.dataset.lang === state.lang));
   $('#settings').hidden = !state.me;
 }
