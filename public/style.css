@@ -591,3 +591,4 @@ body.bday .tabbar a span::after { content: '🎁'; font-size: 11px; position: ab
 body.guest #pw-change, body.guest #hint-change, body.guest #notify, body.guest #leave-open, body.guest #admin-box { display: none !important; }
 body.guest .set-row:has(#pw-change), body.guest .set-row:has(#hint-change) { display: none; }
 body.guest #logout { display: none !important; }
+.set-translate { display: flex; gap: 8px; align-items: flex-start; margin: 10px 0 0; font-size: 14px; }

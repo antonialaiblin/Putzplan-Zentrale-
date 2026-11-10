@@ -26,6 +26,38 @@ const state = {
 const L = (de, en, sv) => (state.lang === 'en' ? en : state.lang === 'sv' ? sv ?? en : de);
 /** Texte vom Server (Aufgaben, Kategorien, Fehlermeldungen) übersetzen */
 const T = (s) => tr(s, state.lang);
+// ---------- Beiträge übersetzen (Pinnwand, Umfragen, Einkauf, Kasse, Kalender) ----------
+const trCache = new Map();
+try { for (const [k, v] of Object.entries(JSON.parse(localStorage.getItem('trcache') || '{}'))) trCache.set(k, v); } catch { /* egal */ }
+const trQueue = new Set();
+let trTimer = null;
+/** Text eines Beitrags in der eigenen Sprache (wenn Übersetzen an ist); eigene Beiträge bleiben, wie sie sind */
+function tx(s, by) {
+  if (!s) return s;
+  const t = T(s);
+  if (t !== s) return t;
+  if (state.pushPrefs?.translate === false || (by && by === state.me) || !state.me) return s;
+  const k = `${state.lang}|${s}`;
+  if (trCache.has(k)) return trCache.get(k);
+  trQueue.add(s);
+  clearTimeout(trTimer);
+  trTimer = setTimeout(flushTr, 250);
+  return s;
+}
+async function flushTr() {
+  const lang = state.lang;
+  const texts = [...trQueue].slice(0, 40);
+  texts.forEach((t) => trQueue.delete(t));
+  if (!texts.length) return;
+  let changed = false;
+  try {
+    const r = await api('translate', { texts, to: lang });
+    for (const t of texts) { const v = r.tr?.[t] ?? t; trCache.set(`${lang}|${t}`, v); if (v !== t) changed = true; }
+    try { localStorage.setItem('trcache', JSON.stringify(Object.fromEntries([...trCache].slice(-600)))); } catch { /* egal */ }
+  } catch { for (const t of texts) trCache.set(`${lang}|${t}`, t); }
+  if (changed) { try { renderHome(); renderShop(); renderMoney(); renderSurveys(); renderCal(); } catch { /* egal */ } }
+  if (trQueue.size) flushTr();
+}
 const locale = () => ({ en: 'en-GB', sv: 'sv-SE' }[state.lang] || 'de-DE');
 const MON_EN = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const MON_SV = ['jan', 'feb', 'mar', 'apr', 'maj', 'jun', 'jul', 'aug', 'sep', 'okt', 'nov', 'dec'];
@@ -1202,7 +1234,7 @@ function renderShop() {
     if (!items.length) return '';
     return `<section class="card shop-cat"><h2>${c.icon} ${esc(T(c.label))} <span class="muted small">${items.length}</span></h2>
       ${items.map((i) => `<div class="shop-item"><button type="button" class="tick" data-bought="${esc(i.id)}" aria-label="${L('Gekauft', 'Bought', 'Köpt')}: ${esc(i.name)}"></button>
-        <div class="name" data-bought="${esc(i.id)}">${esc(i.name)}<small>${i.by ? `${esc(i.by)}, ` : ''}${ago(i.at)}</small></div></div>`).join('')}
+        <div class="name" data-bought="${esc(i.id)}">${esc(tx(i.name, i.by))}<small>${i.by ? `${esc(i.by)}, ` : ''}${ago(i.at)}</small></div></div>`).join('')}
     </section>`;
   }).join('');
 }
@@ -1362,7 +1394,7 @@ function renderMoney() {
       const split = !e.net && e.parts && !settleRow
         ? `<details><summary>${L('Aufteilung', 'Split', `Fördelning`)}</summary><p>${Object.entries(e.parts).map(([p, v]) => `${esc(p)}: ${money(v, cur)}`).join(' · ')}</p></details>`
         : '';
-      return `<div class="exp${settleRow ? ' settle' : ''}"><div class="d">${e.recurring ? '🔁 ' : ''}${esc(T(e.desc))}<small>${who} · ${e.recurring && e.date ? fmtDay(e.date) : ago(e.at)}</small>${split}</div>
+      return `<div class="exp${settleRow ? ' settle' : ''}"><div class="d">${e.recurring ? '🔁 ' : ''}${esc(tx(e.desc, e.by))}<small>${who} · ${e.recurring && e.date ? fmtDay(e.date) : ago(e.at)}</small>${split}</div>
         <div class="r"><strong>${money(e.amount, cur)}</strong>${!e.net && !settleRow ? `<button class="link small" data-edit-exp="${esc(e.id)}">${L('ändern', 'edit', 'ändra')}</button>` : ''}<button class="link small" data-del="${esc(e.id)}">${L('löschen', 'delete', `ta bort`)}</button></div></div>`;
     }).join('')
     : `<p class="empty">${L('Noch nichts eingetragen.', 'Nothing added yet.', `Inget tillagt än.`)}</p>`;
@@ -1622,7 +1654,7 @@ function extraTiles(w) {
   // Pinnwand
   const notes = state.board || [];
   out.board = `<div class="card __CLS__ board-card"><div class="board-head"><h3>📌 ${L('Pinnwand', 'Pinboard', 'Anslagstavla')}</h3>${state.editHome ? '' : `<button type="button" class="small" data-note-add>+ ${L('Zettel', 'Note', 'Lapp')}</button>`}</div>
-    <div class="cork">${notes.length ? notes.map((n) => `<div class="note ${n.photo ? 'polaroid' : n.color}" style="--tilt:${n.tilt || 0}deg"><span class="pin"></span>${n.photo ? `<a href="/api/board/photo/${esc(n.id)}" target="_blank" rel="noopener"><img src="/api/board/photo/${esc(n.id)}" alt="" loading="lazy"></a>` : ''}${n.text ? `<p>${esc(n.text).replace(/\n/g, '<br>')}</p>` : ''}
+    <div class="cork">${notes.length ? notes.map((n) => `<div class="note ${n.photo ? 'polaroid' : n.color}" style="--tilt:${n.tilt || 0}deg"><span class="pin"></span>${n.photo ? `<a href="/api/board/photo/${esc(n.id)}" target="_blank" rel="noopener"><img src="/api/board/photo/${esc(n.id)}" alt="" loading="lazy"></a>` : ''}${n.text ? `<p>${esc(tx(n.text, n.by)).replace(/\n/g, '<br>')}</p>` : ''}
       ${reactBar(`note:${n.id}`, n.by ? [n.by] : [])}${n.expires ? `<span class="note-exp">⏳ ${L('bis', 'until', 'till')} ${ddmm(n.expires)}</span>` : ''}<small>${n.by ? esc(n.by) : ''} · ${ago(n.at)}${state.editHome ? '' : ` <button type="button" class="note-del" data-note-del="${esc(n.id)}" aria-label="${L('Zettel abnehmen', 'Remove note', 'Ta ner lappen')}">✕</button>`}</small></div>`).join('')
     : `<p class="cork-empty">${L('Noch nichts angepinnt. Häng z.B. das WLAN-Passwort oder „Handwerker kommt Do“ auf.', 'Nothing pinned yet. Put up e.g. the Wi-Fi password or "plumber comes Thu".', 'Inget uppsatt än. Sätt t.ex. upp wifi-lösenordet eller "hantverkaren kommer tors".')}</p>`}</div></div>`;
   // Meine nächsten Dienste
@@ -1651,7 +1683,7 @@ function extraTiles(w) {
   // Einkaufsliste komplett
   const sh = state.shop;
   out.shoplist = `<a class="card __CLS__" href="#einkauf"><h3>${L('Einkaufsliste', 'Shopping list', `Inköpslista`)}</h3>${sh
-    ? (sh.items.length ? `<ul>${sh.items.slice(0, 12).map((i) => `<li>${esc(i.name)}</li>`).join('')}</ul>${sh.items.length > 12 ? `<p class="muted">+ ${sh.items.length - 12}</p>` : ''}` : `<p>${L('Alles da 🎉', 'All stocked 🎉', `Allt finns 🎉`)}</p>`)
+    ? (sh.items.length ? `<ul>${sh.items.slice(0, 12).map((i) => `<li>${esc(tx(i.name, i.by))}</li>`).join('')}</ul>${sh.items.length > 12 ? `<p class="muted">+ ${sh.items.length - 12}</p>` : ''}` : `<p>${L('Alles da 🎉', 'All stocked 🎉', `Allt finns 🎉`)}</p>`)
     : '<p class="muted">…</p>'}</a>`;
   return out;
 }
@@ -1784,7 +1816,7 @@ function renderHome() {
       <div class="seg two-seg rank-seg" role="radiogroup">${['month', 'all'].map((k) => `<button type="button" role="radio" data-rank="${k}" aria-checked="${(state.rankMode || 'month') === k}">${k === 'month' ? L('Monat', 'Month', 'Månad') : L('Gesamt', 'All time', 'Totalt')}</button>`).join('')}</div></div>${rankingHtml()}</div>`;
   const sh = state.shop;
   tiles.shop = `<a class="card __CLS__" href="#einkauf"><h3>${L('Einkauf', 'Shopping', `Handla`)}</h3>${sh
-    ? (sh.items.length ? `<div class="big">${sh.items.length}</div><p>${sh.items.slice(0, 3).map((i) => esc(i.name)).join(', ')}${sh.items.length > 3 ? ' …' : ''}</p>` : `<p>${L('Alles da 🎉', 'All stocked 🎉', `Allt finns 🎉`)}</p>`)
+    ? (sh.items.length ? `<div class="big">${sh.items.length}</div><p>${sh.items.slice(0, 3).map((i) => esc(tx(i.name, i.by))).join(', ')}${sh.items.length > 3 ? ' …' : ''}</p>` : `<p>${L('Alles da 🎉', 'All stocked 🎉', `Allt finns 🎉`)}</p>`)
     : '<p class="muted">…</p>'}</a>`;
   const m = state.money;
   if (m) {
@@ -1817,7 +1849,7 @@ function renderHome() {
     tiles.meetings = `<div class="card __CLS__ meetings-card"><h3>${L('Letzte WG-Meetings', 'Recent flat meetings', `Senaste husmötena`)}</h3>
       <button type="button" class="report-btn" data-report>📊 ${L('Report ansehen', 'View report', 'Visa rapport')}</button>
       ${pastMeetings.map((e) => {
-        const txt = e.minutes?.text?.trim();
+        const txt = tx(e.minutes?.text?.trim(), e.minutes?.by);
         const short = txt ? (txt.length > 140 ? `${txt.slice(0, 140)}…` : txt) : '';
         return `<button type="button" class="meeting-row" data-notes="${esc(e.id)}">
           <span><strong>🗣️ ${esc(evTitle(e))}</strong> <small class="muted">${fmtDay(e.from)}</small></span>
@@ -1893,14 +1925,14 @@ function renderSurveys() {
     const missing = others.filter((p) => !voters.includes(p));
     const isOpen = s.status === 'open';
     return `<div class="survey${isOpen ? '' : ' closed'}">
-      <h3>${esc(s.question)}</h3>
+      <h3>${esc(tx(s.question, s.by))}</h3>
       <p class="muted small meta">${s.by ? `${L('von', 'from', `från`)} ${esc(s.by)} · ` : ''}${ago(s.at)} · ${missing.length ? `${L('fehlt noch', 'still missing', `saknas fortfarande`)}: ${missing.map(esc).join(', ')}` : L('alle haben abgestimmt ✓', 'everyone has answered ✓', `alla har svarat ✓`)}${isOpen ? '' : ` · ${L('beendet', 'closed', `avslutad`)}`}${s.multi ? ` · ${L('mehrere Antworten möglich', 'multiple answers', `flera svar`)}` : ''}${s.anon ? ` · 🕶️ ${L('anonym', 'anonymous', 'anonym')}` : ''}</p>
       ${s.options.map((o) => {
         const who = s.anon ? [] : voters.filter((n) => (s.votes[n] || []).includes(o.id));
         const n = s.counts ? s.counts[o.id] || 0 : who.length;
         const pct = voters.length ? Math.round((n / voters.length) * 100) : 0;
         return `<button type="button" class="s-opt" ${isOpen && state.me ? `data-svote="${esc(s.id)}" data-sopt="${esc(o.id)}"` : 'disabled'} aria-pressed="${mine.includes(o.id)}">
-          <span class="bar" style="width:${pct}%"></span><span class="t">${mine.includes(o.id) ? '✓ ' : ''}${esc(o.text)}</span>
+          <span class="bar" style="width:${pct}%"></span><span class="t">${mine.includes(o.id) ? '✓ ' : ''}${esc(tx(o.text, s.by))}</span>
           <span class="who">${n} ${who.length ? `· ${who.map(esc).join(', ')}` : ''}</span></button>`;
       }).join('')}
       ${s.by === state.me || !s.by ? `<div class="row end"><button type="button" class="link small" data-sclose="${esc(s.id)}">${isOpen ? L('Umfrage beenden', 'Close poll', `Avsluta omröstning`) : L('Wieder öffnen', 'Reopen', `Öppna igen`)}</button>
@@ -2141,7 +2173,7 @@ const MONTHS = {
 const TYPE_ICON = { urlaub: '🏖️', meeting: '🗣️', sonstiges: '📅' };
 const typeLabel = (t) => ({ urlaub: L('Urlaub', 'Holiday', `Semester`), meeting: L('WG-Meeting', 'Flat meeting', `Husmöte`), sonstiges: L('Termin', 'Event', `Händelse`) }[t]);
 /** Titel eines Eintrags; der Standardtitel "WG-Meeting" wird übersetzt */
-const evTitle = (e) => (e.title && e.title !== 'WG-Meeting' ? e.title : typeLabel(e.type));
+const evTitle = (e) => (e.title && e.title !== 'WG-Meeting' ? tx(e.title, e.by) : typeLabel(e.type));
 const dowOf = (d) => (new Date(`${d}T12:00:00Z`).getUTCDay() + 6) % 7;
 
 function applyCal(data) {
@@ -2246,7 +2278,7 @@ function renderEvList() {
         ? L('alle', 'everyone', `alla`)
         : e.participants.map((p) => `${esc(p.name)}${p.ok ? '' : L(' (wartet auf Zusage)', ' (waiting to confirm)', ` (väntar på bekräftelse)`)}`).join(', ');
       return `<div class="ev"><div>${TYPE_ICON[e.type]} <strong>${esc(evTitle(e))}</strong>
-        <small>${fmtDay(e.from)}${e.to !== e.from ? ` – ${fmtDay(e.to)}` : ''}${e.time ? `, ${clock(e.time)}` : ''} · ${ppl}${e.note ? ` · ${esc(e.note)}` : ''}</small></div>
+        <small>${fmtDay(e.from)}${e.to !== e.from ? ` – ${fmtDay(e.to)}` : ''}${e.time ? `, ${clock(e.time)}` : ''} · ${ppl}${e.note ? ` · ${esc(tx(e.note, e.by))}` : ''}</small></div>
         <div class="ev-actions">${e.type === 'meeting' ? `<button class="link small" data-notes="${esc(e.id)}">📝 ${L('Themen & Protokoll', 'Topics & minutes', `Ämnen & protokoll`)}${e.topics?.length ? ` (${e.topics.length})` : ''}</button><button class="link small" data-report>📊 ${L('Report', 'Report', 'Rapport')}</button>` : ''}
         <button class="link small" data-ev-del="${esc(e.id)}">${L('löschen', 'delete', `ta bort`)}</button></div></div>`;
     }).join('')
@@ -2268,7 +2300,7 @@ function openNotes(id) {
     $('#notes-title').textContent = `🗣️ ${evTitle(e)}`;
     $('#notes-when').textContent = `${fmtDay(e.from)}${e.time ? `, ${clock(e.time)}` : ''}`;
     $('#notes-topics').innerHTML = (e.topics || []).length
-      ? e.topics.map((t) => `<li><span>${esc(t.text)}${t.by ? ` <small class="muted">(${esc(t.by)})</small>` : ''}</span>
+      ? e.topics.map((t) => `<li><span>${esc(tx(t.text, t.by))}${t.by ? ` <small class="muted">(${esc(t.by)})</small>` : ''}</span>
           <button type="button" class="link small" data-topic-del="${esc(t.id)}" aria-label="${L('Thema entfernen', 'Remove topic', `Ta bort ämne`)}">✕</button></li>`).join('')
       : `<li class="muted">${L('Noch keine Themen.', 'No topics yet.', `Inga ämnen än.`)}</li>`;
     const m = e.minutes;
@@ -2615,16 +2647,22 @@ function PUSH_CATS() { return [
   ['people', L('🎂 Geburtstage & neue Mitbewohner:innen', '🎂 Birthdays & new flatmates', '🎂 Födelsedagar & nya i kollektivet')],
 ]; }
 function renderPushPrefs() {
+  if ($('#set-translate')) $('#set-translate').checked = state.pushPrefs?.translate !== false;
   const box = $('#push-prefs');
   if (!box) return;
   const p = state.pushPrefs || {};
   box.innerHTML = PUSH_CATS().map(([k, label]) => `<label class="check-row pp-row"><input type="checkbox" data-pp="${k}" ${p[k] === false ? '' : 'checked'}> <span>${label}</span></label>`).join('');
 }
 document.addEventListener('change', async (e) => {
-  const c = e.target.closest('[data-pp]');
+  const c = e.target.closest('[data-pp], #set-translate');
   if (!c) return;
   const prefs = Object.fromEntries([...document.querySelectorAll('[data-pp]')].map((i) => [i.dataset.pp, i.checked]));
-  try { state.pushPrefs = (await api('push/prefs', { prefs })).pushPrefs; toast(L('Gespeichert ✓', 'Saved ✓', 'Sparat ✓')); } catch (err) { toast(err.message); c.checked = !c.checked; }
+  prefs.translate = $('#set-translate').checked;
+  try {
+    state.pushPrefs = (await api('push/prefs', { prefs })).pushPrefs;
+    toast(L('Gespeichert ✓', 'Saved ✓', 'Sparat ✓'));
+    if (c.id === 'set-translate') { renderHome(); renderShop(); renderMoney(); renderSurveys(); renderCal(); }
+  } catch (err) { toast(err.message); c.checked = !c.checked; }
 });
 
 // ---------- Datensicherung (nur Admin) ----------

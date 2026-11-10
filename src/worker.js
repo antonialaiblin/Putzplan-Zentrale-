@@ -754,9 +754,15 @@ export class Putzplan extends DurableObject {
       }
       return json({ ok: true, feedback: await this.feedbackFor(me) });
     }
+    if (path === '/translate' && request.method === 'POST') {
+      if (!me) return json({ error: 'Bitte melde dich an.', auth: true }, 401);
+      const to = ['de', 'en', 'sv'].includes(body.to) ? body.to : 'de';
+      const texts = [...new Set((Array.isArray(body.texts) ? body.texts : []).filter((t) => typeof t === 'string' && t.trim() && t.length <= 2000))].slice(0, 40);
+      return json({ to, tr: await this.translate(texts, to) });
+    }
     if (path === '/push/prefs' && request.method === 'POST') {
       if (!me) return json({ error: 'Bitte melde dich an.', auth: true }, 401);
-      const CATS = ['plan', 'cleaner', 'swap', 'money', 'react', 'board', 'cal', 'people'];
+      const CATS = ['plan', 'cleaner', 'swap', 'money', 'react', 'board', 'cal', 'people', 'translate'];
       const all = (await this.ctx.storage.get('pushprefs')) || {};
       all[me] = Object.fromEntries(CATS.filter((c) => body.prefs?.[c] === false).map((c) => [c, false]));
       await this.ctx.storage.put('pushprefs', all);
@@ -1301,10 +1307,10 @@ export class Putzplan extends DurableObject {
         list.push(s);
         for (const p of PEOPLE) {
           if (p === by) continue;
-          await this.pushCat('board', p, (l) => (l === 'en'
-            ? { title: `🗳️ Poll${by ? ` from ${by}` : ''}`, body: `${question} Tap to answer.`, url: '/#start' }
-            : l === 'sv' ? { title: `🗳️ Omröstning${by ? ` från ${by}` : ''}`, body: `${question} Tryck för att svara.`, url: '/#start' }
-            : { title: `🗳️ Umfrage${by ? ` von ${by}` : ''}`, body: `${question} Tipp hier, um abzustimmen.`, url: '/#start' }));
+          await this.pushCat('board', p, async (l, who) => { const q = await this.trFor(question, l, who); return (l === 'en'
+            ? { title: `🗳️ Poll${by ? ` from ${by}` : ''}`, body: `${q} Tap to answer.`, url: '/#start' }
+            : l === 'sv' ? { title: `🗳️ Omröstning${by ? ` från ${by}` : ''}`, body: `${q} Tryck för att svara.`, url: '/#start' }
+            : { title: `🗳️ Umfrage${by ? ` von ${by}` : ''}`, body: `${q} Tipp hier, um abzustimmen.`, url: '/#start' }); });
         }
         return save();
       }
@@ -1492,7 +1498,7 @@ export class Putzplan extends DurableObject {
         list = list.slice(0, 40);
         for (const p of PEOPLE) {
           if (p === by) continue;
-          await this.pushCat('board', p, (l) => ({ title: pick(l)(`📌 Neuer Zettel an der Pinnwand${by ? ` von ${by}` : ''}`, `📌 New note on the board${by ? ` from ${by}` : ''}`, `📌 Ny lapp på anslagstavlan${by ? ` från ${by}` : ''}`), body: photo ? `📷 ${text || pick(l)('Foto', 'Photo', 'Foto')}` : text, url: '/#start' }));
+          await this.pushCat('board', p, async (l, who) => { const tt = await this.trFor(text, l, who); return { title: pick(l)(`📌 Neuer Zettel an der Pinnwand${by ? ` von ${by}` : ''}`, `📌 New note on the board${by ? ` from ${by}` : ''}`, `📌 Ny lapp på anslagstavlan${by ? ` från ${by}` : ''}`), body: photo ? `📷 ${tt || pick(l)('Foto', 'Photo', 'Foto')}` : tt, url: '/#start' }; });
         }
       } else if (path === '/board/delete') {
         list = list.filter((n) => n.id !== body.id);
@@ -1600,6 +1606,43 @@ export class Putzplan extends DurableObject {
     return { start: f.start, end: f.end, active: today >= f.start && today <= f.end, answered: !!(me && f.answers[me]) };
   }
 
+  // ---------- Übersetzen (Cloudflare Workers AI, kostenloses Kontingent) ----------
+  /** Übersetzt Texte in die Zielsprache; Ergebnisse werden gespeichert, damit jeder Text nur einmal übersetzt wird */
+  async translate(texts, to) {
+    const NAMES = { de: 'German', en: 'English', sv: 'Swedish' };
+    const out = {};
+    const keyOf = async (t) => `tr:${to}:${[...new Uint8Array(await crypto.subtle.digest('SHA-1', new TextEncoder().encode(t)))].map((b) => b.toString(16).padStart(2, '0')).join('')}`;
+    const keys = await Promise.all(texts.map(keyOf));
+    const cached = await this.ctx.storage.get(keys);
+    for (let i = 0; i < texts.length; i++) {
+      const t = texts[i];
+      if (cached.get(keys[i]) !== undefined) { out[t] = cached.get(keys[i]); continue; }
+      if (!this.env.AI) { out[t] = t; continue; }
+      try {
+        const r = await this.env.AI.run('@cf/meta/llama-3.1-8b-instruct-fast', {
+          messages: [
+            { role: 'system', content: `You translate short messages from a shared flat app into ${NAMES[to]}. Keep names, emojis, numbers, prices and line breaks. If the text is already ${NAMES[to]}, return it unchanged. Answer with the translation only, no quotes, no explanations.` },
+            { role: 'user', content: t },
+          ],
+          max_tokens: Math.min(1024, 40 + t.length * 2),
+          temperature: 0.1,
+        });
+        let res = String(r?.response || '').trim().replace(/^["„“']+|["“”']+$/g, '');
+        if (!res || res.length > t.length * 4 + 40) res = t;
+        out[t] = res;
+        await this.ctx.storage.put(keys[i], res);
+      } catch { out[t] = t; }
+    }
+    return out;
+  }
+  /** Für Pushes: Text in die Sprache der empfangenden Person übersetzen (wenn nicht abgeschaltet) */
+  async trFor(text, lang, person) {
+    if (!text) return text;
+    const prefs = (await this.ctx.storage.get('pushprefs')) || {};
+    if (prefs[person]?.translate === false) return text;
+    return (await this.translate([text], lang))[text] || text;
+  }
+
   /** Push nur, wenn die Person diesen Bereich nicht in den Einstellungen abgeschaltet hat */
   async pushCat(cat, person, message) {
     const prefs = (await this.ctx.storage.get('pushprefs')) || {};
@@ -1607,7 +1650,7 @@ export class Putzplan extends DurableObject {
     return this.pushToPerson(person, message);
   }
   async pushToPerson(person, message) {
-    if (typeof message === 'function') message = message((await this.langs())[person] || 'de');
+    if (typeof message === 'function') message = await message((await this.langs())[person] || 'de', person);
     let sent = 0;
     for (const [key, entry] of await this.subscriptions()) {
       if (entry.person !== person) continue;

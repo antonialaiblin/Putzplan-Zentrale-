@@ -18,3 +18,7 @@ new_sqlite_classes = ["Putzplan"]
 # ob Sonntag 19 Uhr oder Freitag 18 Uhr ist.
 [triggers]
 crons = ["0 * * * *"]
+
+# Übersetzen von Beiträgen (Workers AI, kostenloses Tageskontingent)
+[ai]
+binding = "AI"
