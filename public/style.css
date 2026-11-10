@@ -503,3 +503,8 @@ body.not-home:not(.no-me) main { padding-top: calc(16px + env(safe-area-inset-to
 .plan-streak { margin: 0 4px 12px; }
 #swap-people .add-h { width: 100%; }
 .lock { font-size: 12px; margin-left: 2px; }
+
+/* Passwort anzeigen */
+.pw-wrap { position: relative; display: block; }
+.pw-wrap input { width: 100%; padding-right: 48px; box-sizing: border-box; }
+.pw-eye { position: absolute; right: 4px; top: 50%; transform: translateY(-50%); background: none; border: 0; font-size: 20px; padding: 6px 8px; cursor: pointer; line-height: 1; }

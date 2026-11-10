@@ -2196,6 +2196,25 @@ $('#cal-prev').onclick = () => moveCal(-1);
 $('#cal-next').onclick = () => moveCal(1);
 
 // ---------------- Start ----------------
+// Passwortfelder: Auge zum Anzeigen/Verbergen
+document.querySelectorAll('input[type=password]').forEach((inp) => {
+  const wrap = document.createElement('span');
+  wrap.className = 'pw-wrap';
+  inp.replaceWith(wrap);
+  wrap.append(inp);
+  const b = document.createElement('button');
+  b.type = 'button';
+  b.className = 'pw-eye';
+  const set = (show) => {
+    inp.type = show ? 'text' : 'password';
+    b.textContent = show ? '🙈' : '👁️';
+    b.setAttribute('aria-label', show ? L('Passwort verbergen', 'Hide password', 'Dölj lösenord') : L('Passwort anzeigen', 'Show password', 'Visa lösenord'));
+  };
+  b.onclick = () => set(inp.type === 'password');
+  set(false);
+  wrap.append(b);
+  inp.closest('dialog')?.addEventListener('close', () => set(false));
+});
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js');
 setLang(state.lang, { rerender: false });
 markJoinLang();
