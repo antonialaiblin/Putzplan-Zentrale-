@@ -33,6 +33,13 @@ const pick = (lang) => (de, en, sv) => (lang === 'en' ? en : lang === 'sv' ? sv 
 const json = (data, status = 200) =>
   new Response(JSON.stringify(data), { status, headers: { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' } });
 
+/** Passwort-Hash (PBKDF2, mit Salz) */
+async function pwHash(password, salt) {
+  const key = await crypto.subtle.importKey('raw', new TextEncoder().encode(password), 'PBKDF2', false, ['deriveBits']);
+  const bits = await crypto.subtle.deriveBits({ name: 'PBKDF2', hash: 'SHA-256', salt: new TextEncoder().encode(salt), iterations: 100000 }, key, 256);
+  return btoa(String.fromCharCode(...new Uint8Array(bits)));
+}
+const newToken = () => [...crypto.getRandomValues(new Uint8Array(24))].map((b) => b.toString(16).padStart(2, '0')).join('');
 async function sha(s) {
   const h = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(s));
   return [...new Uint8Array(h)].slice(0, 16).map((b) => b.toString(16).padStart(2, '0')).join('');
@@ -144,6 +151,9 @@ export class Putzplan extends DurableObject {
     }
     for (const [k, i] of await st.list({ prefix: 'shop:' })) if (i.by === from) await st.put(k, { ...i, by: to });
     for (const [k, s] of await st.list({ prefix: 'sub:' })) if (s.person === from) await st.put(k, { ...s, person: to });
+    const auth = await st.get(`auth:${from}`);
+    if (auth) { await st.put(`auth:${to}`, auth); await st.delete(`auth:${from}`); }
+    for (const [k, s] of await st.list({ prefix: 'sess:' })) if (s.name === from) await st.put(k, { ...s, name: to });
     const evs = (await this.events()).map((e) => ({
       ...e, by: sw(e.by), participants: e.participants.map((p) => ({ ...p, name: sw(p.name) })),
       topics: e.topics && e.topics.map((t) => ({ ...t, by: sw(t.by) })), minutes: e.minutes && { ...e.minutes, by: sw(e.minutes.by) },
@@ -313,6 +323,78 @@ export class Putzplan extends DurableObject {
     const isTime = (t) => typeof t === 'string' && /^\d{2}:\d{2}$/.test(t);
     const rid = () => `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
 
+    // ---------- Anmeldung (Passwort pro Person) ----------
+    const token = request.headers.get('x-session') || '';
+    const sess = /^[0-9a-f]{48}$/.test(token) ? await this.ctx.storage.get(`sess:${token}`) : null;
+    let me = sess && PEOPLE.includes(sess.name) ? sess.name : null;
+    const startSession = async (name) => {
+      const t = newToken();
+      await this.ctx.storage.put(`sess:${t}`, { name, at: Date.now() });
+      return t;
+    };
+    const setPassword = async (name, password) => {
+      const salt = newToken();
+      await this.ctx.storage.put(`auth:${name}`, { salt, hash: await pwHash(password, salt), at: Date.now() });
+    };
+    const pwOk = (p) => typeof p === 'string' && p.length >= 4 && p.length <= 100;
+    const dropSessions = async (name, except) => {
+      for (const [k, s] of await this.ctx.storage.list({ prefix: 'sess:' })) if (s.name === name && k !== `sess:${except}`) await this.ctx.storage.delete(k);
+    };
+    if (path === '/auth/people' && request.method === 'GET') {
+      const members = (await this.members()).filter((m) => PEOPLE.includes(m.name));
+      const withPw = new Set();
+      for (const p of PEOPLE) if (await this.ctx.storage.get(`auth:${p}`)) withPw.add(p);
+      return json({ people: PEOPLE, members: members.map((m) => ({ name: m.name, photo: m.photo, gender: m.gender, lang: m.lang, hasPassword: withPw.has(m.name) })), me });
+    }
+    if (path === '/auth/login' && request.method === 'POST') {
+      const name = body.name;
+      if (!PEOPLE.includes(name)) return json({ error: 'Mitglied nicht gefunden.' }, 404);
+      const auth = await this.ctx.storage.get(`auth:${name}`);
+      if (!auth) {
+        // Erstes Mal: Passwort festlegen
+        if (!pwOk(body.password)) return json({ error: 'Das Passwort braucht mindestens 4 Zeichen.' }, 400);
+        await setPassword(name, body.password);
+        return json({ token: await startSession(name), name, created: true });
+      }
+      const failKey = `authfail:${name}`;
+      const fail = (await this.ctx.storage.get(failKey)) || { n: 0, at: 0 };
+      if (fail.n >= 5 && Date.now() - fail.at < 10 * 60e3) return json({ error: 'Zu viele falsche Versuche. Bitte in 10 Minuten nochmal.' }, 429);
+      if (typeof body.password !== 'string' || (await pwHash(body.password, auth.salt)) !== auth.hash) {
+        await this.ctx.storage.put(failKey, { n: (Date.now() - fail.at < 10 * 60e3 ? fail.n : 0) + 1, at: Date.now() });
+        return json({ error: 'Falsches Passwort.' }, 401);
+      }
+      await this.ctx.storage.delete(failKey);
+      return json({ token: await startSession(name), name });
+    }
+    // Alles andere nur mit Anmeldung (außer Kalender-Abo, Fotos, Beitreten)
+    const open = path === '/calendar.ics' || path.startsWith('/photo/') || path.startsWith('/board/photo/') || path === '/vapid' || path === '/members/join' || path === '/unsubscribe' || (path === '/_cron' && this.env.DEV_MODE);
+    if (!me && !open) return json({ error: 'Bitte melde dich an.', auth: true }, 401);
+    if (me) {
+      // Wer etwas tut, ist immer die angemeldete Person
+      for (const k of ['by', 'me', 'person']) if (k in body) body[k] = me;
+      if ('name' in body && !['/cleaner/contact', '/members/join', '/shop/add', '/shop/categories'].includes(path)) body.name = me;
+    }
+    if (path === '/auth/password' && request.method === 'POST') {
+      if (!pwOk(body.password)) return json({ error: 'Das Passwort braucht mindestens 4 Zeichen.' }, 400);
+      const auth = await this.ctx.storage.get(`auth:${me}`);
+      if (auth && (typeof body.old !== 'string' || (await pwHash(body.old, auth.salt)) !== auth.hash)) return json({ error: 'Das alte Passwort stimmt nicht.' }, 400);
+      await setPassword(me, body.password);
+      await dropSessions(me, token);
+      return json({ ok: true });
+    }
+    if (path === '/auth/reset' && request.method === 'POST') {
+      const who = body.who;
+      if (!PEOPLE.includes(who) || who === me) return json({ error: 'bad request' }, 400);
+      await this.ctx.storage.delete(`auth:${who}`);
+      await dropSessions(who);
+      await this.pushToPerson(who, (l) => ({
+        title: pick(l)('🔑 Passwort zurückgesetzt', '🔑 Password reset', '🔑 Lösenordet återställt'),
+        body: pick(l)(`${me} hat dein Passwort zurückgesetzt. Öffne die App und leg ein neues fest.`, `${me} reset your password. Open the app and set a new one.`, `${me} har återställt ditt lösenord. Öppna appen och välj ett nytt.`),
+        url: '/',
+      }));
+      return json({ ok: true });
+    }
+
     // Kalender-Abo für Apple/Google Kalender
     if (path === '/calendar.ics' && request.method === 'GET') {
       const person = PEOPLE.includes(url.searchParams.get('p')) ? url.searchParams.get('p') : null;
@@ -332,7 +414,7 @@ export class Putzplan extends DurableObject {
       const from = validMonday(url.searchParams.get('from')) ? url.searchParams.get('from') : addDays(current, -7);
       const count = Math.min(Math.max(Number(url.searchParams.get('count')) || 12, 1), 30);
       const weeks = await this.weeks([...Array(count)].map((_, i) => addDays(from, i * 7)));
-      return json({ people: PEOPLE, members: await this.members(), absences: await this.absences(), events: await this.events(), polls: await this.polls(), surveys: await this.surveysFor(url.searchParams.get('me')), swapRequests: await this.swapRequests(), board: await this.board(), reactions: await this.reactions(), gami: await this.gami(), cleanerContact: await this.cleanerContact(), current, today: berlinNow().day, weeks });
+      return json({ people: PEOPLE, members: await this.members(), absences: await this.absences(), events: await this.events(), polls: await this.polls(), surveys: await this.surveysFor(me), swapRequests: await this.swapRequests(), board: await this.board(), reactions: await this.reactions(), gami: await this.gami(), cleanerContact: await this.cleanerContact(), current, today: berlinNow().day, weeks });
     }
 
     if (path === '/check' && request.method === 'POST') {
@@ -636,6 +718,7 @@ export class Putzplan extends DurableObject {
       const name = typeof body.name === 'string' ? body.name.trim().replace(/\s+/g, ' ').slice(0, 20) : '';
       const side = body.side === 'hinten' ? 'hinten' : body.side === 'vorne' ? 'vorne' : null;
       if (!name || !side) return json({ error: 'Bitte Namen und Zimmer (vorne/hinten) angeben.' }, 400);
+      if (!pwOk(body.password)) return json({ error: 'Das Passwort braucht mindestens 4 Zeichen.' }, 400);
       const members = await this.members();
       if (members.some((m) => m.name.toLowerCase() === name.toLowerCase() && (!m.until || m.until > mondayOf(berlinNow().day)))) {
         return json({ error: `${name} gibt es schon. Nimm z.B. noch den ersten Buchstaben vom Nachnamen dazu.` }, 400);
@@ -656,7 +739,8 @@ export class Putzplan extends DurableObject {
           : l === 'sv' ? { title: '🎉 Ny i kollektivet', body: `${name} har flyttat in (rum ${side === 'vorne' ? 'fram' : 'bak'}) och är med i städschemat från ${fmtD(since, 'sv')}. Säg hej!`, url: '/#start' }
           : { title: `🎉 ${g === 'w' ? 'Neue Mitbewohnerin' : g === 'm' ? 'Neuer Mitbewohner' : 'Neu in der WG'}`, body: `${name} ist neu in der WG (Zimmer ${side}) und ab ${fmtD(since)} im Putzplan. Sag hallo!`, url: '/#start' }));
       }
-      return json({ ok: true, name, since, members: await this.members() });
+      await setPassword(name, body.password);
+      return json({ ok: true, name, since, members: await this.members(), token: await startSession(name) });
     }
     if (path === '/members/profile' && request.method === 'POST') {
       const members = await this.members();

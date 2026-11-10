@@ -69,6 +69,8 @@
           <button type="button" role="radio" aria-checked="false" data-jlang="sv">Svenska</button>
         </div>
       </fieldset>
+      <label class="field"><span>Passwort (mind. 4 Zeichen), damit nur du in deinen Account kommst</span><input type="password" id="join-pw" minlength="4" maxlength="100" required autocomplete="new-password"></label>
+      <label class="field"><span>Passwort wiederholen</span><input type="password" id="join-pw2" minlength="4" maxlength="100" required autocomplete="new-password"></label>
       <div class="row end"><button type="button" class="ghost" id="join-cancel">Abbrechen</button><button type="submit">Mitglied werden</button></div>
     </form>
 
@@ -77,6 +79,7 @@
       <details class="card settings" id="settings">
         <summary>⚙️ Einstellungen</summary>
         <div class="set-row"><span>Mein Profil</span><button type="button" class="ghost small" id="profile-open">Profil bearbeiten</button></div>
+        <div class="set-row"><span>Passwort</span><button type="button" class="ghost small" id="pw-change">Passwort ändern</button></div>
         <div class="set-row"><span>App-Sprache</span>
           <div class="seg three-seg" id="set-lang" role="radiogroup" aria-label="App-Sprache">
             <button type="button" role="radio" data-lang="de">Deutsch</button>
@@ -113,6 +116,7 @@
         <div class="row" style="margin-top:12px">
           <button type="button" id="invite">Mitglied einladen</button>
         </div>
+        <p class="small" style="margin:10px 0 0">Jemand hat das Passwort vergessen? <button type="button" class="link" id="pw-reset">Passwort von jemandem zurücksetzen</button></p>
       </section>
     </div>
 
@@ -406,6 +410,21 @@
     <a href="#kasse" data-tab="money"><span aria-hidden="true">💶</span>Kasse</a>
     <a href="#kalender" data-tab="cal"><span aria-hidden="true">📅</span>Kalender</a>
   </nav>
+
+  <dialog id="auth-dialog">
+    <form method="dialog" id="auth-form">
+      <h2 id="auth-title">Anmelden</h2>
+      <p class="muted small" id="auth-text"></p>
+      <input type="text" id="auth-user" autocomplete="username" hidden>
+      <label class="field"><span>Passwort</span><input type="password" id="auth-pw" maxlength="100" autocomplete="current-password"></label>
+      <label class="field" id="auth-pw2-row"><span>Passwort wiederholen</span><input type="password" id="auth-pw2" maxlength="100" autocomplete="new-password"></label>
+      <p class="small"><button type="button" class="link" id="auth-forgot">Passwort vergessen?</button></p>
+      <div class="row end">
+        <button value="cancel" class="ghost" formnovalidate>Abbrechen</button>
+        <button value="ok" id="auth-ok">Anmelden</button>
+      </div>
+    </form>
+  </dialog>
 
   <dialog id="swap-dialog">
     <form method="dialog">

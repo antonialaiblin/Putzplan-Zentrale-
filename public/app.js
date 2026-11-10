@@ -129,10 +129,16 @@ function syncLang() {
 }
 
 async function api(path, body) {
+  const headers = { 'x-session': store.get('token') || '' };
   const res = await fetch(`/api/${path}`, body
-    ? { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }
-    : undefined);
+    ? { method: 'POST', headers: { ...headers, 'content-type': 'application/json' }, body: JSON.stringify(body) }
+    : { headers });
   const data = await res.json().catch(() => ({}));
+  if (res.status === 401 && data.auth) {
+    // Abgemeldet (z.B. Passwort wurde zurückgesetzt): zurück zur Anmeldung
+    store.set('token', ''); store.set('me', ''); state.me = null;
+    loadLogin().catch(() => {});
+  }
   if (!res.ok) throw new Error(T(data.error) || L(`Fehler ${res.status}`, `Error ${res.status}`, `Fel ${res.status}`));
   return data;
 }
@@ -158,8 +164,17 @@ function avatar(name, cls = '') {
 const G = (name, w, m, d) => ({ w, m }[memberOf(name)?.gender] ?? d);
 
 // ---------------- Laden ----------------
+/** Noch nicht angemeldet: nur Namen zum Auswählen laden */
+async function loadLogin() {
+  const d = await api('auth/people');
+  state.people = d.people;
+  state.members = d.members;
+  state.me = null;
+  renderMe();
+}
 async function load() {
-  const data = await api(`weeks?count=12&me=${encodeURIComponent(state.me || '')}`);
+  if (!store.get('token')) { await loadLogin(); return; }
+  const data = await api('weeks?count=12');
   state.people = data.people;
   state.members = data.members;
   state.absences = data.absences;
@@ -215,7 +230,7 @@ function renderMe() {
   // Ohne Auswahl ist nur „Wer bist du?“ (bzw. Beitreten) zu sehen
   document.body.classList.toggle('no-me', !state.me);
   $('#who-line').textContent = state.me ? L(`Hallo ${state.me} 👋`, `Hi ${state.me} 👋`, `Hej ${state.me} 👋`) : 'Mission Haussegen';
-  $('#people-buttons').innerHTML = state.people.map((p) => `<button data-me="${esc(p)}">${avatar(p, 'sm')}${esc(p)}</button>`).join('');
+  $('#people-buttons').innerHTML = state.people.map((p) => `<button data-me="${esc(p)}">${avatar(p, 'sm')}${esc(p)}${memberOf(p)?.hasPassword ? ' <span class="lock" aria-hidden="true">🔒</span>' : ''}</button>`).join('');
   // Sprachknopf oben nur, solange noch niemand ausgewählt ist (sonst in den Einstellungen)
   const quick = $('#lang-quick');
   quick.hidden = !!state.me;
@@ -320,6 +335,59 @@ function renderUpcoming() {
   $('#upcoming').innerHTML = rows.join('');
 }
 
+// ---------------- Anmeldung ----------------
+/** Passwort eingeben (oder beim ersten Mal festlegen). Gibt {token, name, created} zurück oder null. */
+function openAuth(who) {
+  const m = memberOf(who);
+  const isNew = !m?.hasPassword;
+  const dlg = $('#auth-dialog');
+  $('#auth-title').textContent = isNew ? L(`Hallo ${who} 👋`, `Hi ${who} 👋`, `Hej ${who} 👋`) : L(`Anmelden als ${who}`, `Sign in as ${who}`, `Logga in som ${who}`);
+  $('#auth-text').textContent = isNew
+    ? L('Leg ein Passwort fest. Damit kommst nur du in deinen Account, auch auf anderen Geräten.', 'Choose a password. Only you can then get into your account, on other devices too.', 'Välj ett lösenord. Då kommer bara du in på ditt konto, även på andra enheter.')
+    : L('Gib dein Passwort ein.', 'Enter your password.', 'Ange ditt lösenord.');
+  $('#auth-pw').value = ''; $('#auth-pw2').value = '';
+  $('#auth-pw').autocomplete = isNew ? 'new-password' : 'current-password';
+  $('#auth-pw2-row').hidden = !isNew;
+  $('#auth-forgot').hidden = isNew;
+  $('#auth-ok').textContent = isNew ? L('Passwort festlegen', 'Set password', 'Välj lösenord') : L('Anmelden', 'Sign in', 'Logga in');
+  $('#auth-user').value = who;
+  return new Promise((resolve) => {
+    let result = null;
+    $('#auth-form').onsubmit = async (e) => {
+      if (e.submitter?.value !== 'ok') return;
+      e.preventDefault();
+      const pw = $('#auth-pw').value;
+      if (isNew && pw !== $('#auth-pw2').value) { toast(L('Die Passwörter sind nicht gleich.', "The passwords don't match.", 'Lösenorden matchar inte.')); return; }
+      try { result = await api('auth/login', { name: who, password: pw }); dlg.close(); } catch (err) { toast(err.message); }
+    };
+    dlg.addEventListener('close', () => resolve(result), { once: true });
+    dlg.showModal();
+    $('#auth-pw').focus();
+  });
+}
+$('#auth-forgot').onclick = () => alert(L('Bitte jemand anderen aus der WG, in der App unter ⚙️ Einstellungen › „Passwort von jemandem zurücksetzen“ dein Passwort zurückzusetzen. Danach kannst du ein neues festlegen.', 'Ask a flatmate to reset your password in the app under ⚙️ Settings › "Reset someone\'s password". Then you can set a new one.', 'Be någon i kollektivet att återställa ditt lösenord i appen under ⚙️ Inställningar › "Återställ någons lösenord". Sedan kan du välja ett nytt.'));
+$('#pw-change').onclick = async () => {
+  const old = prompt(L('Altes Passwort:', 'Current password:', 'Nuvarande lösenord:'));
+  if (old === null) return;
+  const pw = prompt(L('Neues Passwort (mind. 4 Zeichen):', 'New password (at least 4 characters):', 'Nytt lösenord (minst 4 tecken):'));
+  if (pw === null) return;
+  try { await api('auth/password', { old, password: pw }); toast(L('Passwort geändert 🔑', 'Password changed 🔑', 'Lösenordet är ändrat 🔑')); } catch (err) { toast(err.message); }
+};
+$('#pw-reset').onclick = () => {
+  $('#swap-title').textContent = L('Passwort zurücksetzen', 'Reset a password', 'Återställ lösenord');
+  $('#swap-text').textContent = L('Für wen? Die Person bekommt eine Nachricht und legt beim nächsten Öffnen ein neues Passwort fest.', 'For whom? They get a notification and set a new password the next time they open the app.', 'För vem? Personen får en notis och väljer ett nytt lösenord nästa gång appen öppnas.');
+  $('#swap-people').innerHTML = state.people.filter((p) => p !== state.me).map((p) => `<button type="button" data-pwreset="${esc(p)}">${avatar(p, 'sm')}${esc(p)}</button>`).join('');
+  const dlg = $('#swap-dialog');
+  $('#swap-people').onclick = async (e) => {
+    const b = e.target.closest('[data-pwreset]');
+    if (!b) return;
+    const who = b.dataset.pwreset;
+    if (!confirm(L(`Passwort von ${who} wirklich zurücksetzen? ${who} wird abgemeldet und bekommt eine Nachricht.`, `Really reset ${who}'s password? ${who} will be signed out and notified.`, `Vill du verkligen återställa ${who}s lösenord? ${who} loggas ut och får en notis.`))) return;
+    try { await api('auth/reset', { who }); dlg.close(); toast(L(`Passwort von ${who} ist zurückgesetzt`, `${who}'s password has been reset`, `${who}s lösenord är återställt`)); } catch (err) { toast(err.message); }
+  };
+  dlg.showModal();
+};
+
 // ---------------- Gamification ----------------
 function cheer() {
   const list = [
@@ -383,8 +451,8 @@ function streakLine() {
   const g = state.gami;
   if (!g) return '';
   return g.streak
-    ? `🔥 ${L(`WG-Serie: <strong>${g.streak} ${g.streak === 1 ? 'Woche' : 'Wochen'}</strong> alles erledigt`, `Flat streak: <strong>${g.streak} ${g.streak === 1 ? 'week' : 'weeks'}</strong> all done`, `Kollektivets svit: <strong>${g.streak} ${g.streak === 1 ? 'vecka' : 'veckor'}</strong> allt klart`)}${g.best > g.streak ? ` <span class="muted small">(${L('Rekord', 'record', 'rekord')}: ${g.best})</span>` : ''}`
-    : `🔥 ${L('Startet eine WG-Serie: Diese Woche alles erledigen!', 'Start a flat streak: get everything done this week!', 'Starta en svit: gör allt den här veckan!')}`;
+    ? `🔥 ${L(`WG-Streak: <strong>${g.streak} ${g.streak === 1 ? 'Woche' : 'Wochen'}</strong> alles erledigt`, `Flat streak: <strong>${g.streak} ${g.streak === 1 ? 'week' : 'weeks'}</strong> all done`, `Kollektivets streak: <strong>${g.streak} ${g.streak === 1 ? 'vecka' : 'veckor'}</strong> allt klart`)}${g.best > g.streak ? ` <span class="muted small">(${L('Rekord', 'record', 'rekord')}: ${g.best})</span>` : ''}`
+    : `🔥 ${L('Startet einen WG-Streak: Diese Woche alles erledigen!', 'Start a flat streak: get everything done this week!', 'Starta en streak: gör allt den här veckan!')}`;
 }
 function checkNewBadges() {
   if (!state.me || !state.gami) return;
@@ -538,13 +606,16 @@ document.addEventListener('click', async (e) => {
   const meBtn = e.target.closest('[data-me]');
   if (meBtn && meBtn.closest('#people-buttons')) {
     const who = meBtn.dataset.me;
-    if (!confirm(L(`Bist du ${who}? Das kannst du danach nicht mehr ändern.`, `Are you ${who}? You can't change this afterwards.`, `Är du ${who}? Det går inte att ändra efteråt.`))) return;
-    state.me = who;
+    const r = await openAuth(who);
+    if (!r) return;
+    store.set('token', r.token);
+    state.me = r.name;
     store.set('me', state.me);
-    syncLang();
-    render();
-    if (state.money) renderMoney();
-    renderShop();
+    state.weeks.clear();
+    await load();
+    showTab();
+    if (state.shop) renderShop(); else api('shop').then((d) => { state.shop = d; renderShop(); }).catch(() => {});
+    if (!r.created) { toast(L(`Hallo ${r.name} 👋`, `Hi ${r.name} 👋`, `Hej ${r.name} 👋`)); maybeAskProfile(); return; }
     // Erstes Mal: Profil einrichten (überspringbar), danach Einstellungen aufgeklappt zeigen
     state.askedProfile = true;
     openProfile(true);
@@ -686,7 +757,7 @@ document.addEventListener('change', async (e) => {
       const taskDone = t && t.items.every((it) => w.checks[`${t.key}:${it.id}`]);
       if (state.gami?.current && !before?.current && w.monday === state.current) {
         confetti(220);
-        toast(L(`Die ganze WG hat diese Woche alles erledigt! 🔥 Serie: ${state.gami.streak}`, `The whole flat got everything done this week! 🔥 Streak: ${state.gami.streak}`, `Hela kollektivet har gjort allt den här veckan! 🔥 Svit: ${state.gami.streak}`));
+        toast(L(`Die ganze WG hat diese Woche alles erledigt! 🔥 Streak: ${state.gami.streak}`, `The whole flat got everything done this week! 🔥 Streak: ${state.gami.streak}`, `Hela kollektivet har gjort allt den här veckan! 🔥 Streak: ${state.gami.streak}`));
       } else if (taskDone) {
         confetti(110);
         toast(cheer());
@@ -1242,7 +1313,7 @@ const WIDGETS = {
   birthdays: { de: 'Nächste Geburtstage', en: 'Next birthdays', sv: 'Nästa födelsedagar', size: 's' },
   holiday: { de: 'Nächster Feiertag', en: 'Next holiday', sv: 'Nästa helgdag', size: 's' },
   shoplist: { de: 'Einkaufsliste', en: 'Shopping list', sv: 'Inköpslista', size: 'w' },
-  badges: { de: 'Abzeichen & WG-Serie', en: 'Badges & streak', sv: 'Märken & svit', size: 'w' },
+  badges: { de: 'Abzeichen & WG-Streak', en: 'Badges & streak', sv: 'Märken & streak', size: 'w' },
 };
 const SHORTCUTS = {
   shop: { icon: '🛒', de: 'Einkauf eintragen', en: 'Add to shopping', sv: 'Lägg till inköp' },
@@ -1623,11 +1694,13 @@ $('#join').addEventListener('submit', async (e) => {
   e.preventDefault();
   if (!state.joinSide) { toast(L('Bitte vorne oder hinten wählen', 'Please choose front or back', `Välj fram eller bak`)); return; }
   if (!joinProfile.gender) { toast(L('Bitte dein Geschlecht angeben', 'Please choose your gender', `Välj ditt kön`)); return; }
+  if ($('#join-pw').value !== $('#join-pw2').value) { toast(L('Die Passwörter sind nicht gleich.', "The passwords don't match.", 'Lösenorden matchar inte.')); return; }
   try {
     const r = await api('members/join', {
       name: $('#join-name').value, side: state.joinSide, lang: state.lang,
-      birthday: $('#join-birthday').value, gender: joinProfile.gender, photo: joinProfile.photo || undefined,
+      birthday: $('#join-birthday').value, gender: joinProfile.gender, photo: joinProfile.photo || undefined, password: $('#join-pw').value,
     });
+    if (r.token) store.set('token', r.token);
     state.me = r.name;
     store.set('me', r.name);
     state.joining = false;
@@ -2127,7 +2200,7 @@ if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js');
 setLang(state.lang, { rerender: false });
 markJoinLang();
 showTab();
-if (currentTab() !== 'shop') api('shop').then((d) => { state.shop = d; renderShop(); }).catch(() => {});
+if (store.get('token') && currentTab() !== 'shop') api('shop').then((d) => { state.shop = d; renderShop(); }).catch(() => {});
 load().catch((e) => {
   $('#week').innerHTML = `<div class="card"><p>${L(`Der Plan konnte nicht geladen werden (${esc(e.message)}). Bitte später nochmal versuchen.`, `The rota could not be loaded (${esc(e.message)}). Please try again later.`, `Schemat kunde inte laddas (${esc(e.message)}). Försök igen senare.`)}</p></div>`;
 });
@@ -2135,6 +2208,7 @@ document.addEventListener('visibilitychange', () => {
   if (document.visibilityState !== 'visible') return;
   state.weeks.clear();
   load().catch(() => {});
+  if (!store.get('token')) return;
   if (currentTab() === 'shop') loadShop();
   if (currentTab() === 'money') loadMoney();
 });

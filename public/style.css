@@ -502,3 +502,4 @@ body.not-home:not(.no-me) main { padding-top: calc(16px + env(safe-area-inset-to
 .b-row strong { font-size: 15px; margin-right: 4px; }
 .plan-streak { margin: 0 4px 12px; }
 #swap-people .add-h { width: 100%; }
+.lock { font-size: 12px; margin-left: 2px; }
