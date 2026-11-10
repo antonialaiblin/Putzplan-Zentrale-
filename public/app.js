@@ -721,7 +721,7 @@ function renderHome() {
   html += `<a class="card" href="#kalender"><h3>Kalender</h3>
     ${now.length ? `<p>${now.map((a) => `🏖️ <strong>${esc(a.person)}</strong> bis ${ddmm(a.to)}`).join('<br>')}</p>` : '<p>Alle da</p>'}
     ${next.length ? `<p class="muted">${next.map((a) => `${esc(a.person)} weg ab ${ddmm(a.from)}`).join('<br>')}</p>` : ''}
-    ${meet ? `<p>🗣️ ${esc(meet.title || 'WG-Meeting')} ${ddmm(meet.from)} ${meet.time}</p>` : ''}
+    ${meet ? `<p>🗣️ ${esc(meet.title || 'WG-Meeting')} ${ddmm(meet.from)} ${meet.time}${meet.topics?.length ? ` · ${meet.topics.length} Thema${meet.topics.length > 1 ? 'en' : ''}` : ''}</p>` : ''}
     ${openPolls.length ? `<p>🗳️ ${openPolls.length} Abstimmung${openPolls.length > 1 ? 'en' : ''} offen</p>` : ''}
     ${invites.length ? `<p><strong>📬 ${invites.length} Einladung${invites.length > 1 ? 'en' : ''} für dich</strong></p>` : ''}</a>`;
   html += '<a class="card wide" href="#regeln"><h3>Hausregeln</h3><p>Mission Haussegen 📜 Alles zum WG-Seelenfrieden</p></a>';
@@ -915,9 +915,62 @@ function renderEvList() {
         : e.participants.map((p) => `${esc(p.name)}${p.ok ? '' : ' (wartet auf Zusage)'}`).join(', ');
       return `<div class="ev"><div>${TYPE_ICON[e.type]} <strong>${esc(e.title || TYPE_LABEL[e.type])}</strong>
         <small>${fmtDay(e.from)}${e.to !== e.from ? ` – ${fmtDay(e.to)}` : ''}${e.time ? `, ${e.time} Uhr` : ''} · ${ppl}${e.note ? ` · ${esc(e.note)}` : ''}</small></div>
-        <button class="link small" data-ev-del="${esc(e.id)}">löschen</button></div>`;
+        <div class="ev-actions">${e.type === 'meeting' ? `<button class="link small" data-notes="${esc(e.id)}">📝 Themen & Protokoll${e.topics?.length ? ` (${e.topics.length})` : ''}</button>` : ''}
+        <button class="link small" data-ev-del="${esc(e.id)}">löschen</button></div></div>`;
     }).join('')
     : '<p class="empty">Nichts eingetragen.</p>';
+  const past = (state.events || []).filter((e) => e.type === 'meeting' && e.to < state.today).sort((a, b) => (a.from < b.from ? 1 : -1));
+  $('#past-meetings').innerHTML = past.length
+    ? `<h3>Vergangene WG-Meetings</h3>${past.map((e) => `<div class="ev"><div>🗣️ <strong>${esc(e.title || 'WG-Meeting')}</strong>
+        <small>${fmtDay(e.from)}${e.minutes?.text ? ' · Protokoll vorhanden' : ' · noch kein Protokoll'}</small></div>
+        <button class="link small" data-notes="${esc(e.id)}">📝 ${e.minutes?.text ? 'Protokoll lesen' : 'Protokoll schreiben'}</button></div>`).join('')}`
+    : '';
+}
+
+// WG-Meeting: Themen & Protokoll
+function openNotes(id) {
+  const dlg = $('#notes-dialog');
+  const draw = () => {
+    const e = (state.events || []).find((x) => x.id === id);
+    if (!e) { dlg.close(); return; }
+    $('#notes-title').textContent = `🗣️ ${e.title || 'WG-Meeting'}`;
+    $('#notes-when').textContent = `${fmtDay(e.from)}${e.time ? `, ${e.time} Uhr` : ''}`;
+    $('#notes-topics').innerHTML = (e.topics || []).length
+      ? e.topics.map((t) => `<li><span>${esc(t.text)}${t.by ? ` <small class="muted">(${esc(t.by)})</small>` : ''}</span>
+          <button type="button" class="link small" data-topic-del="${esc(t.id)}" aria-label="Thema entfernen">✕</button></li>`).join('')
+      : '<li class="muted">Noch keine Themen.</li>';
+    const m = e.minutes;
+    $('#notes-meta').textContent = m?.text ? `Zuletzt gespeichert${m.by ? ` von ${m.by}` : ''} am ${new Date(m.at).toLocaleString('de-DE', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}` : '';
+    return e;
+  };
+  const e = draw();
+  $('#notes-minutes').value = e.minutes?.text || '';
+  const addTopic = async () => {
+    const text = $('#notes-topic').value.trim();
+    if (!text) return;
+    try {
+      applyCal(await api('events/notes/topic', { id, text, by: state.me }));
+      $('#notes-topic').value = '';
+      draw(); renderEvList();
+    } catch (err) { toast(err.message); }
+  };
+  $('#notes-topic-add').onclick = addTopic;
+  $('#notes-topic').onkeydown = (ev) => { if (ev.key === 'Enter') { ev.preventDefault(); addTopic(); } };
+  $('#notes-topics').onclick = async (ev) => {
+    const b = ev.target.closest('[data-topic-del]');
+    if (!b) return;
+    try { applyCal(await api('events/notes/topic-delete', { id, topic: b.dataset.topicDel })); draw(); renderEvList(); } catch (err) { toast(err.message); }
+  };
+  $('#notes-form').onsubmit = async (ev) => {
+    if (ev.submitter?.value !== 'ok') return;
+    ev.preventDefault();
+    try {
+      applyCal(await api('events/notes/minutes', { id, text: $('#notes-minutes').value, by: state.me }));
+      draw(); renderEvList();
+      toast('Protokoll gespeichert');
+    } catch (err) { toast(err.message); }
+  };
+  dlg.showModal();
 }
 
 // Eintrag-Formular
@@ -1038,6 +1091,8 @@ $('#tab-cal').addEventListener('click', async (e) => {
       toast(resp.dataset.accept === '1' ? 'Bestätigt, schönen Urlaub! 🏖️' : 'Abgelehnt');
       return;
     }
+    const notes = t.closest('[data-notes]');
+    if (notes) { openNotes(notes.dataset.notes); return; }
     const del = t.closest('[data-ev-del]');
     if (del) {
       if (!confirm('Eintrag löschen?')) return;

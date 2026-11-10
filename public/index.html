@@ -108,6 +108,7 @@
       <section class="card">
         <h2>Demnächst</h2>
         <div id="ev-list"></div>
+        <div id="past-meetings"></div>
         <p class="muted small" style="margin:10px 0 0">Wer eine ganze Woche (Mo–So) im Urlaub ist, wird im Putzplan übersprungen und ist danach als Erstes wieder dran.</p>
       </section>
     </div>
@@ -254,6 +255,25 @@
       <div class="people" id="swap-people"></div>
       <div class="row end">
         <button value="cancel" class="ghost">Abbrechen</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="notes-dialog" class="wide">
+    <form method="dialog" id="notes-form">
+      <h2 id="notes-title">WG-Meeting</h2>
+      <p class="muted small" id="notes-when"></p>
+      <h3>Themen</h3>
+      <p class="muted small">Was soll besprochen werden? Jede:r kann vorher Themen sammeln.</p>
+      <ul class="topics" id="notes-topics"></ul>
+      <div class="row"><input id="notes-topic" maxlength="200" placeholder="Neues Thema, z.B. Spülmaschine"><button type="button" id="notes-topic-add">+</button></div>
+      <h3>Protokoll</h3>
+      <p class="muted small">Was wurde besprochen oder beschlossen? Kann jede:r ergänzen.</p>
+      <textarea id="notes-minutes" rows="8" maxlength="10000" placeholder="z.B. Wir kaufen eine neue Pfanne. Party am 12.12."></textarea>
+      <p class="muted small" id="notes-meta"></p>
+      <div class="row end">
+        <button value="cancel" class="ghost" formnovalidate>Schließen</button>
+        <button value="ok">Protokoll speichern</button>
       </div>
     </form>
   </dialog>

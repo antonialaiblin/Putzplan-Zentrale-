@@ -304,6 +304,26 @@ export class Putzplan extends DurableObject {
       await this.ctx.storage.put('events', ev.participants.length ? list : list.filter((e) => e !== ev));
       return calState();
     }
+    // WG-Meeting: Themen sammeln + Protokoll
+    if (path.startsWith('/events/notes') && request.method === 'POST') {
+      const list = await this.events();
+      const ev = list.find((e) => e.id === body.id && e.type === 'meeting');
+      if (!ev) return json({ error: 'Meeting nicht gefunden.' }, 404);
+      const by = PEOPLE.includes(body.by) ? body.by : null;
+      ev.topics ||= [];
+      if (path === '/events/notes/topic') {
+        const text = str(body.text, 200);
+        if (!text) return json({ error: 'Bitte ein Thema eingeben.' }, 400);
+        if (ev.topics.length >= 50) return json({ error: 'Zu viele Themen.' }, 400);
+        ev.topics.push({ id: crypto.randomUUID().slice(0, 8), text, by });
+      } else if (path === '/events/notes/topic-delete') {
+        ev.topics = ev.topics.filter((t) => t.id !== body.topic);
+      } else if (path === '/events/notes/minutes') {
+        ev.minutes = { text: str(body.text, 10000), by, at: Date.now() };
+      } else return json({ error: 'not found' }, 404);
+      await this.ctx.storage.put('events', list);
+      return calState();
+    }
     if (path === '/events/delete' && request.method === 'POST') {
       await this.ctx.storage.put('events', (await this.events()).filter((e) => e.id !== body.id));
       return calState();

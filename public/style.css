@@ -303,3 +303,13 @@ input:focus, select:focus { outline: 2px solid var(--accent); outline-offset: 0;
   .poll .votes button[aria-pressed="true"].yes { background: #1f3a2b; }
   .poll .votes button[aria-pressed="true"].no { background: #3d2419; }
 }
+
+/* WG-Meeting-Notizen */
+#notes-dialog h3 { margin: 16px 0 4px; font-size: 1rem; }
+#notes-dialog textarea { width: 100%; box-sizing: border-box; font: inherit; padding: 10px; border-radius: 10px; border: 1px solid var(--line, #ddd); background: var(--field, transparent); color: inherit; resize: vertical; }
+#notes-dialog .row input { flex: 1; min-width: 0; }
+.topics { list-style: none; padding: 0; margin: 6px 0 8px; }
+.topics li { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 6px 0; border-bottom: 1px solid var(--line, #eee); }
+.topics li:last-child { border-bottom: 0; }
+#past-meetings h3 { margin: 16px 0 6px; font-size: 1rem; }
+.ev-actions { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; flex-shrink: 0; }
