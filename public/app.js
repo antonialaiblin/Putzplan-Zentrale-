@@ -1695,7 +1695,7 @@ const SHORTCUTS = {
   note: { icon: '📌', de: 'Zettel anpinnen', en: 'Pin a note', sv: 'Sätt upp en lapp' },
   invite: { icon: '➕', de: 'Mitglied einladen', en: 'Invite member', sv: 'Bjud in medlem' },
 };
-const DEFAULT_HOME = ['week', 'activity', 'ranking', 'badges', 'board', 'plan', 'shop', 'money', 'cal', 'plants', 'meetings'].map((id) => ({ id, size: WIDGETS[id].size }));
+const DEFAULT_HOME = ['week', 'ranking', 'badges', 'board', 'plan', 'shop', 'money', 'cal', 'plants', 'meetings', 'activity'].map((id) => ({ id, size: WIDGETS[id].size }));
 const widgetName = (id) => (id.startsWith('sc:') ? L(SHORTCUTS[id.slice(3)]?.de || id, SHORTCUTS[id.slice(3)]?.en || id, SHORTCUTS[id.slice(3)]?.sv || id) : L(WIDGETS[id]?.de || id, WIDGETS[id]?.en || id, WIDGETS[id]?.sv || id));
 function homeLayout() {
   if (state.homeDraft) return state.homeDraft;
@@ -1706,9 +1706,9 @@ function homeLayout() {
   for (const id of ['plants', 'activity']) {
     if (ok && ok.length && !ok.some((x) => x.id === id) && !store.get(`${id}Tile`)) {
       store.set(`${id}Tile`, '1');
-      // Aktivitäten oben unter „Deine Woche“, Pflanzen weiter unten (vor den Meetings bzw. ans Ende)
+      // Pflanzen vor den Meetings, Aktivitäten ganz ans Ende
       const m = ok.findIndex((x) => x.id === 'meetings');
-      const i = id === 'activity' ? ok.findIndex((x) => x.id === 'week') + 1 : (m >= 0 ? m : ok.length);
+      const i = id === 'activity' ? ok.length : (m >= 0 ? m : ok.length);
       ok.splice(i, 0, { id, size: 'w' });
       added = true;
     }
