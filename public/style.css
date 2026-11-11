@@ -45,6 +45,7 @@ main { max-width: 640px; margin: 0 auto; padding: 0 16px 48px; }
 
 .top {
   max-width: 640px; margin: 0 auto;
+  position: sticky; top: 0; z-index: 30; background: var(--bg);
   display: flex; align-items: center; justify-content: space-between; gap: 12px;
   padding: calc(16px + env(safe-area-inset-top)) 16px 12px;
 }
@@ -618,3 +619,7 @@ body.guest #logout { display: none !important; }
 #tab-cal .cal-legend { margin: 0 4px; text-align: center; }
 #tab-cal .cal .day { cursor: pointer; }
 #cal-holidays-card:has(#cal-holidays:empty) { display: none; }
+
+/* Regelbuch oben rechts */
+.rules-btn { flex: none; display: inline-flex; align-items: center; justify-content: center; width: 48px; height: 48px; border-radius: 14px; font-size: 28px; text-decoration: none; background: var(--card); border: 1px solid var(--line); box-shadow: 0 2px 8px rgba(0,0,0,.12); }
+.rules-btn:active { transform: scale(.94); }
