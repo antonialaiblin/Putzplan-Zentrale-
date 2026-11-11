@@ -28,7 +28,7 @@ const VTIMEZONE = [
 /**
  * @param {object} o { events, members, people, weeks, person, lang, origin, stamp }
  */
-export const ICS_KINDS = ['putzkraft', 'dienste', 'urlaub', 'meeting', 'sonstiges', 'geburtstage'];
+export const ICS_KINDS = ['putzkraft', 'dienste', 'urlaub', 'meeting', 'sonstiges', 'besuch', 'geburtstage'];
 export function buildIcs({ events, members, people, weeks, person, lang = 'de', origin = '', stamp, kinds = ICS_KINDS }) {
   const want = (k) => kinds.includes(k);
   const L = (de, en, sv) => (lang === 'en' ? en : lang === 'sv' ? sv ?? en : de);
@@ -54,7 +54,10 @@ export function buildIcs({ events, members, people, weeks, person, lang = 'de', 
   for (const e of events || []) {
     if (!want(e.type)) continue;
     const ppl = e.participants.filter((p) => p.ok !== false).map((p) => p.name);
-    if (e.type === 'urlaub') {
+    if (e.type === 'besuch') {
+      const where = e.sleep === 'room' ? L(`schläft bei ${e.by}`, `sleeps in ${e.by}'s room`, `sover hos ${e.by}`) : e.bed ? L(`schläft in ${e.bed}s Bett`, `sleeps in ${e.bed}'s bed`, `sover i ${e.bed}s säng`) : '';
+      ev(e.id, { day: e.from, to: e.time ? e.from : e.to, time: e.time, end: e.time ? plusHour(e.time, 2) : '', summary: `👋 ${L('Besuch bei', 'Guest of', 'Besök hos')} ${e.by}${e.title ? `: ${e.title}` : ''}`, desc: [where, e.note].filter(Boolean).join('\n') });
+    } else if (e.type === 'urlaub') {
       const who = e.participants.filter((p) => p.ok).map((p) => p.name);
       if (!who.length) continue;
       ev(e.id, { day: e.from, to: e.to, summary: `🏖️ ${L('Urlaub', 'Holiday', `Semester`)}: ${who.join(', ')}${e.title ? ` (${e.title})` : ''}`, desc: e.note });

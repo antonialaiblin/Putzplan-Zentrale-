@@ -172,6 +172,7 @@ export function computeWeek(monday, ov = {}, ctx = {}) {
   const extra = !regular && ov.extra && ov.extra.date >= monday && ov.extra.date <= sunday ? ov.extra : null;
   const cleaner = regular || !!extra;
   const swaps = ov.swaps || {};
+  const gifts = ov.gifts || {};
 
   const tasks = [];
 
@@ -182,7 +183,7 @@ export function computeWeek(monday, ov = {}, ctx = {}) {
   if (firstOfMonth) wItems.push({ id: 'spuelbuerste', short: 'Neue Spülbürste', label: 'Neue Spülbürste kaufen (Monatswechsel)' });
   if (!cleaner) wItems.push(...WOCHE_EXTRA);
   if (asg.woche) {
-    tasks.push({ key: 'woche', title: 'Wochendienst', person: swaps.woche || asg.woche, planned: asg.woche, items: wItems });
+    tasks.push({ key: 'woche', title: 'Wochendienst', person: swaps.woche || asg.woche, planned: asg.woche, gift: !!(gifts.woche && swaps.woche), items: wItems });
   }
 
   // Bäder: geputzt wird in der Woche ohne Putzkraft, Klopapier gilt beide Wochen
@@ -197,6 +198,7 @@ export function computeWeek(monday, ov = {}, ctx = {}) {
       title,
       person: swaps[key] || asg[side],
       planned: asg[side],
+      gift: !!(gifts[key] && swaps[key]),
       note: bathCleaning
         ? `${BAD_UMFANG}. Außerdem 2 Wochen lang fürs Klopapier zuständig.`
         : 'Putzkraft-Woche: nur Klopapier checken und bei Bedarf kaufen.',

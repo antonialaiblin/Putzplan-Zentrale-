@@ -453,7 +453,7 @@ function renderWeek() {
     const mine = t.person === state.me || items.some((it) => it.person === state.me);
     const complete = items.length > 0 && doneCount === items.length;
     html += `<article class="card task${mine ? ' mine' : ''}${complete ? ' complete' : ''}">
-      <header><h3>${esc(T(t.title))}</h3>${t.person ? `<span class="person">${esc(t.person)}${t.person !== t.planned ? ` <span class="swapped">(${L('statt', 'instead of', `i stället för`)} ${esc(t.planned)})</span>` : ''}</span>` : `<span class="muted small">${doneCount}/${items.length}</span>`}</header>
+      <header><h3>${esc(T(t.title))}</h3>${t.person ? `<span class="person">${esc(t.person)}${t.person !== t.planned ? ` <span class="swapped">${t.gift ? `💛 (${L(`übernimmt für ${esc(t.planned)}`, `covering for ${esc(t.planned)}`, `tar över åt ${esc(t.planned)}`)})` : `(${L('statt', 'instead of', `i stället för`)} ${esc(t.planned)})`}</span>` : ''}</span>` : `<span class="muted small">${doneCount}/${items.length}</span>`}</header>
       ${t.note ? `<p class="note">${esc(T(t.note))}</p>` : ''}
       ${items.map((it) => {
         const key = `${t.key}:${it.id}`;
@@ -465,7 +465,7 @@ function renderWeek() {
       ${t.person ? (() => {
         const req = openSwaps().find((r) => r.monday === w.monday && r.task === t.key);
         const canRemind = state.me && t.person !== state.me && !complete && w.monday <= state.current;
-        return `<div class="actions">${canRemind ? `<button class="ghost small" data-remind="${t.key}">🔔 ${L('Erinnern', 'Remind', 'Påminn')}</button>` : ''}${req ? `<span class="muted small">⏳ ${L(`Tausch-Anfrage an ${esc(req.to)} läuft`, `Swap request to ${esc(req.to)} pending`, `Bytesförfrågan till ${esc(req.to)} väntar`)}</span>` : ''}<button class="ghost small" data-swap="${t.key}">${L('Tauschen', 'Swap', `Byt`)}</button></div>`;
+        return `<div class="actions">${canRemind ? `<button class="ghost small" data-remind="${t.key}">🔔 ${L('Erinnern', 'Remind', 'Påminn')}</button>` : ''}${req ? `<span class="muted small">⏳ ${L(`Tausch-Anfrage an ${esc(req.to)} läuft`, `Swap request to ${esc(req.to)} pending`, `Bytesförfrågan till ${esc(req.to)} väntar`)}</span>` : ''}${state.me && t.person !== state.me && !complete && w.monday >= state.current ? `<button class="ghost small gift-btn" data-gift="${t.key}">💛 ${L('Übernehmen', 'Take over', 'Ta över')}</button>` : ''}${t.gift && (t.person === state.me || t.planned === state.me) && !complete ? `<button class="ghost small" data-gift-undo="${t.key}">↩️ ${t.person === state.me ? L('Doch nicht übernehmen', "Don't take over", 'Ta inte över') : L('Doch selbst machen', "I'll do it myself", 'Gör det själv')}</button>` : ''}${t.gift ? '' : `<button class="ghost small" data-swap="${t.key}">${L('Tauschen', 'Swap', `Byt`)}</button>`}</div>`;
       })() : ''}
     </article>`;
   }
@@ -722,7 +722,7 @@ function rankingHtml() {
     if (r.n !== last) { place = i + 1; last = r.n; }
     const medal = r.n ? ['🥇', '🥈', '🥉'][place - 1] || `${place}.` : '–';
     return `<li class="${r.p === state.me ? 'me' : ''}"><span class="rk">${medal}</span>${avatar(r.p, 'sm')}<span class="nm">${esc(r.p)}${r.p !== state.me ? ` ${streakChip(r.p)}` : ''}</span><span class="bar"><b style="width:${Math.round((r.n / max) * 100)}%"></b></span><span class="ct">${r.n}</span></li>`;
-  }).join('')}</ol><p class="muted small" style="margin:6px 0 0">${L('Gezählt wird jede abgehakte Aufgabe.', 'Every ticked-off task counts.', 'Varje avbockad uppgift räknas.')}</p>`;
+  }).join('')}</ol><p class="muted small" style="margin:6px 0 0">${L('Gezählt wird jede abgehakte Aufgabe. 💛 Dienst übernehmen gibt +3 Bonus.', 'Every ticked-off task counts. 💛 Taking over a duty gives +3 bonus.', 'Varje avbockad uppgift räknas. 💛 Ta över en tjänst ger +3 i bonus.')}</p>`;
 }
 document.addEventListener('click', (e) => {
   const b = e.target.closest('[data-rank]');
@@ -974,6 +974,18 @@ document.addEventListener('click', async (e) => {
       await reloadWeeks();
       toast(canc ? L('Anfrage zurückgezogen', 'Request withdrawn', `Förfrågan återkallad`) : ans.dataset.accept === '1' ? L('Getauscht, der Putzplan ist angepasst', 'Swapped, the rota has been updated', `Bytt, schemat är uppdaterat`) : L('Abgelehnt', 'Declined', `Nekad`));
     } catch (err) { toast(err.message); await reloadWeeks(); }
+    return;
+  }
+  const gift = e.target.closest('[data-gift]');
+  const giftUndo = e.target.closest('[data-gift-undo]');
+  if (gift || giftUndo) {
+    const t = state.weeks.get(state.view).tasks.find((x) => x.key === (gift || giftUndo).dataset[gift ? 'gift' : 'giftUndo']);
+    if (gift && !confirm(L(`„${T(t.title)}“ für ${t.person} übernehmen? Das ist kein Tausch: Dein eigener Dienst bleibt wie geplant. Dafür gibt's +3 Bonus-Punkte im Ranking 💛`, `Take over "${T(t.title)}" for ${t.person}? This is not a swap: your own duty stays as planned. You get +3 bonus points in the ranking 💛`, `Ta över "${T(t.title)}" åt ${t.person}? Det är inget byte: din egen tjänst är kvar. Du får +3 bonuspoäng i rankingen 💛`))) return;
+    try {
+      await api(gift ? 'swap/gift' : 'swap/gift-undo', { monday: state.view, task: t.key });
+      await reloadWeeks();
+      toast(gift ? L(`Danke, du bist super! 💛 ${t.person} bekommt Bescheid.`, `Thank you, you're great! 💛 ${t.person} has been told.`, `Tack, du är toppen! 💛 ${t.person} får besked.`) : L('Zurückgenommen', 'Undone', 'Ångrat'));
+    } catch (err) { toast(err.message); }
     return;
   }
   const swapBtn = e.target.closest('[data-swap]');
@@ -2221,10 +2233,10 @@ const MONTHS = {
   en: ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'],
   sv: ['Januari', 'Februari', 'Mars', 'April', 'Maj', 'Juni', 'Juli', 'Augusti', 'September', 'Oktober', 'November', 'December'],
 };
-const TYPE_ICON = { urlaub: '🏖️', meeting: '🗣️', sonstiges: '📅' };
-const typeLabel = (t) => ({ urlaub: L('Urlaub', 'Holiday', `Semester`), meeting: L('WG-Meeting', 'Flat meeting', `Husmöte`), sonstiges: L('Termin', 'Event', `Händelse`) }[t]);
+const TYPE_ICON = { urlaub: '🏖️', meeting: '🗣️', sonstiges: '📅', besuch: '👋' };
+const typeLabel = (t) => ({ urlaub: L('Urlaub', 'Holiday', `Semester`), meeting: L('WG-Meeting', 'Flat meeting', `Husmöte`), sonstiges: L('Termin', 'Event', `Händelse`), besuch: L('Besuch', 'Visit', 'Besök') }[t]);
 /** Titel eines Eintrags; der Standardtitel "WG-Meeting" wird übersetzt */
-const evTitle = (e) => (e.title && e.title !== 'WG-Meeting' ? tx(e.title, e.by) : typeLabel(e.type));
+const evTitle = (e) => (e.type === 'besuch' ? `${L(`Besuch bei ${e.by}`, `${e.by}'s visitor`, `Besök hos ${e.by}`)}${e.title ? `: ${tx(e.title, e.by)}` : ''}` : e.title && e.title !== 'WG-Meeting' ? tx(e.title, e.by) : typeLabel(e.type));
 const dowOf = (d) => (new Date(`${d}T12:00:00Z`).getUTCDay() + 6) % 7;
 
 function applyCal(data) {
@@ -2322,6 +2334,41 @@ function renderPolls() {
   }).join('');
 }
 
+/** Besuch: wer ist laut Kalender weg (Urlaub über den ganzen Zeitraum)? */
+function awayDuring(from, to) {
+  return [...new Set((state.events || []).filter((e) => e.type === 'urlaub' && e.from <= from && e.to >= to).flatMap((e) => e.participants.filter((p) => p.ok).map((p) => p.name)))];
+}
+function visitBox(e) {
+  if (e.sleep === 'none' || !e.sleep) return '';
+  if (e.sleep === 'room') return `<p class="small visit-line">🛏️ ${L(`Schläft bei ${esc(e.by)} im Zimmer`, `Sleeping in ${esc(e.by)}'s room`, `Sover i ${esc(e.by)}s rum`)}</p>`;
+  const me = state.me;
+  const mine = e.by === me;
+  const beds = e.beds || [];
+  const away = awayDuring(e.from, e.to).filter((p) => p !== e.by && !beds.some((b) => b.name === p));
+  let h = '<div class="visit-box">';
+  if (e.bed) h += `<p class="small">✅ ${L(`Schläft in ${esc(e.bed)}s Bett`, `Sleeping in ${esc(e.bed)}'s bed`, `Sover i ${esc(e.bed)}s säng`)}${mine ? ` <button type="button" class="link small" data-bed-pick="${esc(e.id)}" data-name="">${L('ändern', 'change', 'ändra')}</button>` : ''}</p>`;
+  else h += `<p class="small">🙋 ${L(`${esc(e.by)} sucht ein freies Bett`, `${esc(e.by)} is looking for a free bed`, `${esc(e.by)} söker en ledig säng`)}</p>`;
+  if (!e.bed && beds.length) {
+    h += `<div class="bed-offers">${beds.map((b) => `<span class="pill">🛏️ ${esc(b.name)}</span>${mine ? `<button type="button" class="small" data-bed-pick="${esc(e.id)}" data-name="${esc(b.name)}">${L('Annehmen', 'Accept', 'Acceptera')}</button>` : ''}`).join('')}</div>`;
+  }
+  if (!e.bed && !beds.length) h += `<p class="muted small">${L('Noch hat niemand ein Bett angeboten.', 'Nobody has offered a bed yet.', 'Ingen har erbjudit en säng än.')}</p>`;
+  if (mine && away.length && !e.bed) h += `<p class="muted small">💡 ${L(`Laut Kalender weg: ${away.map(esc).join(', ')}`, `Away according to the calendar: ${away.map(esc).join(', ')}`, `Bortresta enligt kalendern: ${away.map(esc).join(', ')}`)}</p>`;
+  if (!mine && !e.bed) {
+    const offered = beds.some((b) => b.name === me);
+    h += `<button type="button" class="small${offered ? ' ghost' : ''}" data-bed-offer="${esc(e.id)}" data-offer="${offered ? '0' : '1'}">${offered ? L('Angebot zurückziehen', 'Withdraw offer', 'Dra tillbaka') : L('🛏️ Ich bin weg, mein Bett ist frei', "🛏️ I'm away, my bed is free", '🛏️ Jag är borta, min säng är ledig')}</button>`;
+  }
+  return `${h}</div>`;
+}
+document.addEventListener('click', async (ev) => {
+  const o = ev.target.closest('[data-bed-offer]');
+  const p = ev.target.closest('[data-bed-pick]');
+  if (!o && !p) return;
+  try {
+    applyCal(o ? await api('events/bed', { id: o.dataset.bedOffer, offer: o.dataset.offer === '1' }) : await api('events/bed/pick', { id: p.dataset.bedPick, bed: p.dataset.name || null }));
+    renderCal();
+    toast(o ? (o.dataset.offer === '1' ? L('Danke! Angebot ist raus 🛏️', 'Thanks! Offer sent 🛏️', 'Tack! Erbjudandet skickat 🛏️') : L('Zurückgezogen', 'Withdrawn', 'Tillbakadraget')) : p.dataset.name ? L('Super, ist ausgemacht 🛏️', 'Great, it is settled 🛏️', 'Toppen, det är klart 🛏️') : L('Auswahl zurückgesetzt', 'Choice reset', 'Val återställt'));
+  } catch (err) { toast(err.message); }
+});
 function renderEvList() {
   const up = (state.events || []).filter((e) => e.to >= state.today);
   $('#ev-list').innerHTML = up.length
@@ -2330,7 +2377,7 @@ function renderEvList() {
         ? L('alle', 'everyone', `alla`)
         : e.participants.map((p) => `${esc(p.name)}${p.ok ? '' : L(' (wartet auf Zusage)', ' (waiting to confirm)', ` (väntar på bekräftelse)`)}`).join(', ');
       return `<div class="ev"><div>${TYPE_ICON[e.type]} <strong>${esc(evTitle(e))}</strong>
-        <small>${fmtDay(e.from)}${e.to !== e.from ? ` – ${fmtDay(e.to)}` : ''}${e.time ? `, ${clock(e.time)}` : ''} · ${ppl}${e.note ? ` · ${esc(tx(e.note, e.by))}` : ''}</small></div>
+        <small>${fmtDay(e.from)}${e.to !== e.from ? ` – ${fmtDay(e.to)}` : ''}${e.time ? `, ${clock(e.time)}` : ''} · ${ppl}${e.note ? ` · ${esc(tx(e.note, e.by))}` : ''}</small>${e.type === 'besuch' ? visitBox(e) : ''}</div>
         <div class="ev-actions">${e.type === 'meeting' ? `<button class="link small" data-notes="${esc(e.id)}">📝 ${L('Themen & Protokoll', 'Topics & minutes', `Ämnen & protokoll`)}${e.topics?.length ? ` (${e.topics.length})` : ''}</button><button class="link small" data-report>📊 ${L('Report', 'Report', 'Rapport')}</button>` : ''}
         <button class="link small" data-ev-del="${esc(e.id)}">${L('löschen', 'delete', `ta bort`)}</button></div></div>`;
     }).join('')
@@ -2396,13 +2443,22 @@ function renderEvForm() {
   if (!state.people.length) return;
   const t = state.evType;
   document.querySelectorAll('#ev-type [data-type]').forEach((b) => b.setAttribute('aria-checked', b.dataset.type === t));
-  $('#ev-time-wrap').hidden = t !== 'meeting';
-  $('#ev-to-wrap').hidden = t === 'meeting';
-  $('#ev-from-label').textContent = t === 'meeting' ? L('Datum', 'Date', `Datum`) : L('Von', 'From', `Från`);
+  const visit = t === 'besuch';
+  const overnight = visit && $('#ev-overnight').checked;
+  $('#ev-visit').hidden = !visit;
+  $('#ev-sleep-wrap').hidden = !overnight;
+  document.querySelectorAll('#ev-sleep [data-sleep]').forEach((b) => b.setAttribute('aria-checked', b.dataset.sleep === (state.evSleep || 'room')));
+  $('#ev-people-wrap').hidden = visit;
+  $('#ev-title-label').textContent = visit ? L('Wer kommt? (optional)', 'Who is coming? (optional)', 'Vem kommer? (valfritt)') : L('Titel (optional)', 'Title (optional)', 'Titel (valfritt)');
+  $('#ev-time-wrap').hidden = !(t === 'meeting' || (visit && !overnight));
+  $('#ev-time').required = t === 'meeting';
+  $('#ev-to-wrap').hidden = t === 'meeting' || (visit && !overnight);
+  $('#ev-from-label').textContent = t === 'meeting' || (visit && !overnight) ? L('Datum', 'Date', `Datum`) : L('Von', 'From', `Från`);
   $('#ev-title').placeholder = {
     urlaub: L('z.B. Heimaturlaub, Skifahren', 'e.g. visiting family, skiing', `t.ex. hälsa på familjen, skidåkning`),
     meeting: L('WG-Meeting', 'Flat meeting', `Husmöte`),
     sonstiges: L('z.B. Hausbesichtigung, Party', 'e.g. flat viewing, party', `t.ex. visning, fest`),
+    besuch: L('z.B. meine Eltern', 'e.g. my parents', 't.ex. mina föräldrar'),
   }[t];
   if (!state.evPeople) state.evPeople = new Set(t === 'meeting' ? state.people : [state.me].filter(Boolean));
   $('#ev-people').innerHTML = state.people.map((p) => `<button type="button" class="chip" aria-pressed="${state.evPeople.has(p)}" data-evp="${esc(p)}">${esc(p)}</button>`).join('');
@@ -2442,8 +2498,11 @@ $('#ev-type').addEventListener('click', (e) => {
   if (!b) return;
   state.evType = b.dataset.type;
   state.evPeople = null;
+  if (state.evType === 'besuch') { $('#ev-time').value = ''; $('#ev-overnight').checked = false; state.evSleep = 'room'; } else if (!$('#ev-time').value) $('#ev-time').value = '19:00';
   renderEvForm();
 });
+$('#ev-overnight').addEventListener('change', renderEvForm);
+$('#ev-sleep').addEventListener('click', (e) => { const b = e.target.closest('[data-sleep]'); if (!b) return; state.evSleep = b.dataset.sleep; renderEvForm(); });
 $('#ev-people').addEventListener('click', (e) => {
   const b = e.target.closest('[data-evp]');
   if (!b) return;
@@ -2454,11 +2513,15 @@ $('#ev-people').addEventListener('click', (e) => {
 $('#ev-from').addEventListener('change', () => { if (!$('#ev-to').value || $('#ev-to').value < $('#ev-from').value) $('#ev-to').value = $('#ev-from').value; });
 $('#ev-form').addEventListener('submit', async (e) => {
   e.preventDefault();
+  const visit = state.evType === 'besuch';
+  if (visit) state.evPeople = new Set([state.me]);
   if (!state.evPeople.size) { toast(L('Bitte mindestens eine Person auswählen', 'Please choose at least one person', `Välj minst en person`)); return; }
+  const overnight = visit && $('#ev-overnight').checked;
   try {
     const data = await api('events/add', {
       type: state.evType, title: $('#ev-title').value, from: $('#ev-from').value, to: $('#ev-to').value || $('#ev-from').value,
-      time: state.evType === 'meeting' ? $('#ev-time').value : '', note: $('#ev-note').value, participants: [...state.evPeople], by: state.me,
+      time: state.evType === 'meeting' || (visit && !overnight) ? $('#ev-time').value : '', note: $('#ev-note').value, participants: [...state.evPeople], by: state.me,
+      ...(visit ? { overnight, sleep: state.evSleep || 'room' } : {}),
     });
     applyCal(data);
     $('#ev-form').hidden = true;
@@ -3202,9 +3265,11 @@ function actText(a) {
     case 'note': return ['📌', a.photo ? L(`${by} hat ein Foto an die Pinnwand gehängt`, `${by} pinned a photo to the board`, `${by} satte upp ett foto`) : L(`${by} hat einen Zettel an die Pinnwand gehängt`, `${by} pinned a note to the board`, `${by} satte upp en lapp`) + (a.title ? `: ${q(a.title)}` : '')];
     case 'survey': return ['🗳️', L(`${by} hat eine Umfrage gestartet: ${q(a.title)}`, `${by} started a poll: ${q(a.title)}`, `${by} startade en omröstning: ${q(a.title)}`)];
     case 'poll': return ['🗓️', L(`${by} sucht einen Termin fürs WG-Meeting`, `${by} is looking for a meeting date`, `${by} letar efter en tid för husmöte`)];
-    case 'event': return a.kind === 'urlaub' ? ['🏖️', L(`${by} hat Urlaub eingetragen (${range()})`, `${by} added a holiday (${range()})`, `${by} lade in semester (${range()})`)]
+    case 'bed': return ['🛏️', L(`${by} bietet ${esc(a.owner)}s Besuch das Bett an (${range()})`, `${by} offered their bed to ${esc(a.owner)}'s guests (${range()})`, `${by} erbjöd sin säng åt ${esc(a.owner)}s gäster (${range()})`)];
+    case 'event': return a.kind === 'besuch' ? ['👋', L(`${by} bekommt Besuch (${range()})`, `${by} is having visitors (${range()})`, `${by} får besök (${range()})`)] : a.kind === 'urlaub' ? ['🏖️', L(`${by} hat Urlaub eingetragen (${range()})`, `${by} added a holiday (${range()})`, `${by} lade in semester (${range()})`)]
       : a.kind === 'meeting' ? ['🗣️', L(`${by} hat ein WG-Meeting eingetragen (${range()})`, `${by} scheduled a flat meeting (${range()})`, `${by} lade in ett husmöte (${range()})`)]
         : ['📅', L(`${by} hat einen Termin eingetragen`, `${by} added an event`, `${by} lade in en händelse`) + (a.title ? `: ${q(a.title)}` : '') + ` (${range()})`];
+    case 'gift': return ['💛', L(`${by} übernimmt ${q(T(a.task), null)} für ${esc(a.from)}, einfach so`, `${by} is covering ${q(T(a.task), null)} for ${esc(a.from)}, just because`, `${by} tar över ${q(T(a.task), null)} åt ${esc(a.from)}, bara så`)];
     case 'swap': return ['🔁', L(`${by} übernimmt ${q(T(a.task), null)} von ${esc(a.from)}`, `${by} takes over ${q(T(a.task), null)} from ${esc(a.from)}`, `${by} tar över ${q(T(a.task), null)} från ${esc(a.from)}`)];
     case 'ausfall': return ['🚫', L(`${by} hat die Putzkraft für diese Woche abgesagt`, `${by} cancelled the cleaner this week`, `${by} ställde in städhjälpen den här veckan`)];
     case 'cleaner': return ['🧹', L(`${by} hat den Putzkraft-Termin eingetragen: ${fmtDay(a.date)}${a.time ? ` ${a.time}` : ''}`, `${by} set the cleaner date: ${fmtDay(a.date)}${a.time ? ` ${a.time}` : ''}`, `${by} bokade städhjälpen: ${fmtDay(a.date)}${a.time ? ` ${a.time}` : ''}`)];

@@ -343,6 +343,12 @@ export class Putzplan extends DurableObject {
     for (const e of (await this.ctx.storage.list({ prefix: 'exp:' })).values()) if (e.kind !== 'settle' && !e.net && per[e.paidBy]) per[e.paidBy].paidCount++;
     // Treue Seele: Tage in der WG
     for (const m of await this.members()) if (per[m.name] && m.since) per[m.name].days = Math.max(0, Math.round((Date.parse(berlinNow().day) - Date.parse(m.since)) / 864e5));
+    // Bonus fürs Übernehmen aus Nettigkeit: +3 Punkte im Ranking
+    for (const a of (await this.ctx.storage.get('actlog')) || []) {
+      if (a.type !== 'gift' || !per[a.by]) continue;
+      per[a.by].items += 3; per[a.by].gifts = (per[a.by].gifts || 0) + 1;
+      if (new Date(a.at).toISOString().slice(0, 7) === monthNow) per[a.by].itemsMonth += 3;
+    }
     // Persönlicher Streak: Wochen in Folge, in denen man alle eigenen Aufgaben erledigt hat.
     // Wochen ohne eigene Aufgabe (frei/weg) unterbrechen nicht. Die laufende Woche zählt, sobald sie fertig ist.
     const streaks = {};
@@ -902,6 +908,37 @@ export class Putzplan extends DurableObject {
       const save = async () => { await this.ctx.storage.put('swapRequests', list); return json({ swapRequests: list }); };
       const taskOf = async (monday, key) => (await this.week(monday)).tasks.find((t) => t.key === key);
       const wk = (m, l) => (l === 'en' ? `the week of ${ddmm(m, l)}` : l === 'sv' ? `veckan från ${ddmm(m, l)}` : `der Woche ab ${ddmm(m, l)}`);
+      // Aus Nettigkeit übernehmen: kein Tausch, der eigene Dienst bleibt. Gibt Bonus-Punkte fürs Ranking
+      if (path === '/swap/gift' || path === '/swap/gift-undo') {
+        if (!me) return json({ error: 'Bitte melde dich an.', auth: true }, 401);
+        const { monday, task } = body;
+        if (!validMonday(monday) || !TASKS.includes(task)) return json({ error: 'bad request' }, 400);
+        const t = await taskOf(monday, task);
+        if (!t) return json({ error: 'Dienst nicht gefunden.' }, 404);
+        const ov = await this.overrides(monday);
+        ov.swaps = ov.swaps || {}; ov.gifts = ov.gifts || {};
+        if (path === '/swap/gift-undo') {
+          if (!t.gift || (me !== t.person && me !== t.planned)) return json({ error: 'Das geht nur für die beiden Beteiligten.' }, 403);
+          const helper = t.person;
+          delete ov.swaps[task]; delete ov.gifts[task];
+          await this.ctx.storage.put(`ov:${monday}`, ov);
+          const other = me === helper ? t.planned : helper;
+          await this.pushCat('swap', other, (l) => { const L = pick(l); return me === helper
+            ? { title: L(`↩️ ${me} kann „${t.title}“ doch nicht übernehmen`, `↩️ ${me} can't take over "${tr(t.title, 'en')}" after all`, `↩️ ${me} kan inte ta över "${tr(t.title, 'sv')}" ändå`), body: L('Der Dienst ist wieder deiner.', 'The duty is yours again.', 'Tjänsten är din igen.'), url: '/#plan' }
+            : { title: L(`↩️ ${me} macht „${t.title}“ doch selbst`, `↩️ ${me} will do "${tr(t.title, 'en')}" after all`, `↩️ ${me} gör "${tr(t.title, 'sv')}" själv ändå`), body: L('Danke fürs Angebot! 💛', 'Thanks for offering! 💛', 'Tack för erbjudandet! 💛'), url: '/#plan' }; });
+          return json(await this.week(monday));
+        }
+        if (t.person === me) return json({ error: 'Das ist schon dein Dienst 😉' }, 400);
+        const wk0 = await this.week(monday);
+        if (t.items.length && t.items.every((it) => wk0.checks[`${task}:${it.id}`])) return json({ error: 'Der Dienst ist schon erledigt.' }, 400);
+        const from = t.person;
+        ov.swaps[task] = me; ov.gifts[task] = true;
+        await this.ctx.storage.put(`ov:${monday}`, ov);
+        await this.bump(me, 'rescue');
+        await this.logAct('gift', me, { from, task: t.title, monday });
+        await this.pushCat('swap', from, (l) => { const L = pick(l); return { title: L(`💛 ${me} übernimmt deinen Dienst!`, `💛 ${me} is taking over your duty!`, `💛 ${me} tar över din tjänst!`), body: L(`„${t.title}“ in ${wk(monday, 'de')}, einfach so. Dein nächster Dienst bleibt wie geplant.`, `"${tr(t.title, 'en')}" in ${wk(monday, 'en')}, just because. Your next duty stays as planned.`, `"${tr(t.title, 'sv')}" ${wk(monday, 'sv')}, bara så. Din nästa tjänst är som planerat.`), url: '/#plan' }; });
+        return json(await this.week(monday));
+      }
       if (path === '/swap/request') {
         const { monday, task, by, to, back } = body;
         if (!validMonday(monday) || !TASKS.includes(task) || !PEOPLE.includes(by) || !PEOPLE.includes(to) || by === to) return json({ error: 'bad request' }, 400);
@@ -1213,14 +1250,15 @@ export class Putzplan extends DurableObject {
 
     // ---------- Kalender ----------
     const calState = async () => json({ events: await this.events(), polls: await this.polls(), absences: await this.absences() });
-    const TYPES = ['urlaub', 'meeting', 'sonstiges'];
-    const label = (t) => ({ urlaub: 'Urlaub', meeting: 'WG-Meeting', sonstiges: 'Termin' }[t]);
+    const TYPES = ['urlaub', 'meeting', 'sonstiges', 'besuch'];
+    const label = (t) => ({ urlaub: 'Urlaub', meeting: 'WG-Meeting', sonstiges: 'Termin', besuch: 'Besuch' }[t]);
 
     if (path === '/events/add' && request.method === 'POST') {
       const type = TYPES.includes(body.type) ? body.type : 'sonstiges';
       const by = PEOPLE.includes(body.by) ? body.by : null;
       const from = body.from;
-      const to = type === 'meeting' ? from : body.to || from;
+      const dayVisit = type === 'besuch' && !body.overnight;
+      const to = type === 'meeting' || dayVisit ? from : body.to || from;
       if (!isDay(from) || !isDay(to) || to < from) return json({ error: 'Bitte ein gültiges Datum angeben.' }, 400);
       if (type === 'meeting' && !isTime(body.time)) return json({ error: 'Bitte eine Uhrzeit fürs Meeting angeben.' }, 400);
       let names = Array.isArray(body.participants) ? [...new Set(body.participants.filter((p) => PEOPLE.includes(p)))] : [];
@@ -1229,9 +1267,32 @@ export class Putzplan extends DurableObject {
       // Bei Urlaub müssen andere selbst zustimmen; Meetings/Termine gelten direkt
       const participants = names.map((n) => ({ name: n, ok: type !== 'urlaub' || n === by }));
       const ev = { id: rid(), type, title: str(body.title, 60), from, to, time: type !== 'urlaub' && isTime(body.time) ? body.time : '', note: str(body.note, 200), by, participants };
+      if (type === 'besuch') {
+        if (!by) return json({ error: 'Bitte melde dich an.' }, 401);
+        ev.participants = [{ name: by, ok: true }];
+        ev.sleep = dayVisit ? 'none' : body.sleep === 'ask' ? 'ask' : 'room';
+        if (!dayVisit) ev.time = '';
+        ev.beds = [];
+        ev.bed = null;
+      }
       await this.ctx.storage.put('events', [...(await this.events()), ev].sort((a, b) => (a.from + a.time < b.from + b.time ? -1 : 1)));
       await this.logAct('event', by, { kind: type, title: ev.title, from, to });
       const when = (lang) => `${fmtD(from, lang)}${to !== from ? ` – ${fmtD(to, lang)}` : ''}${ev.time ? `${{ en: ' at', sv: ' kl.' }[lang] || ' um'} ${ev.time}` : ''}`;
+      // Besuch: alle bekommen Bescheid; bei „Bett gesucht“ mit der Frage, ob jemand weg ist
+      if (type === 'besuch') {
+        for (const p of PEOPLE) {
+          if (p === by) continue;
+          await this.pushCat('cal', p, async (lang, who) => {
+            const L = pick(lang);
+            const g = ev.title ? ` (${await this.trFor(ev.title, lang, who)})` : '';
+            return ev.sleep === 'ask'
+              ? { title: L(`🛏️ ${by} bekommt Besuch – ist dein Bett frei?`, `🛏️ ${by} has guests – is your bed free?`, `🛏️ ${by} får besök – är din säng ledig?`), body: L(`${when(lang)}${g}. Bist du in der Zeit weg? Dann biete dein Bett in der Zentrale an.`, `${when(lang)}${g}. Away during that time? Offer your bed in the app.`, `${when(lang)}${g}. Är du bortrest då? Erbjud din säng i appen.`), url: '/#kalender' }
+              : ev.sleep === 'room' ? { title: L(`👋 ${by} bekommt Übernachtungsbesuch`, `👋 ${by} has overnight guests`, `👋 ${by} får övernattningsbesök`), body: L(`${when(lang)}${g}, schläft bei ${by} im Zimmer.`, `${when(lang)}${g}, sleeping in ${by}'s room.`, `${when(lang)}${g}, sover i ${by}s rum.`), url: '/#kalender' }
+                : { title: L(`👋 ${by} bekommt Besuch`, `👋 ${by} has a visitor`, `👋 ${by} får besök`), body: `${when(lang)}${g}`, url: '/#kalender' };
+          });
+        }
+        return calState();
+      }
       for (const p of participants) {
         if (p.name === by) continue;
         if (type === 'urlaub') {
@@ -1255,6 +1316,34 @@ export class Putzplan extends DurableObject {
           });
         }
       }
+      return calState();
+    }
+    // Besuch: Bett anbieten bzw. Angebot annehmen
+    if ((path === '/events/bed' || path === '/events/bed/pick') && request.method === 'POST') {
+      if (!me) return json({ error: 'Bitte melde dich an.', auth: true }, 401);
+      const list = await this.events();
+      const ev = list.find((e) => e.id === body.id && e.type === 'besuch');
+      if (!ev) return json({ error: 'Eintrag nicht gefunden.' }, 404);
+      ev.beds = ev.beds || [];
+      if (path === '/events/bed') {
+        if (ev.by === me) return json({ error: 'Das ist dein eigener Besuch 😉' }, 400);
+        const had = ev.beds.some((b) => b.name === me);
+        ev.beds = ev.beds.filter((b) => b.name !== me);
+        if (body.offer) ev.beds.push({ name: me, at: Date.now() });
+        else if (ev.bed === me) ev.bed = null;
+        await this.ctx.storage.put('events', list);
+        if (body.offer && !had) {
+          await this.logAct('bed', me, { owner: ev.by, from: ev.from, to: ev.to });
+          await this.pushCat('cal', ev.by, (lang) => { const L = pick(lang); return { title: L(`🛏️ ${me} bietet das Bett an`, `🛏️ ${me} offers their bed`, `🛏️ ${me} erbjuder sin säng`), body: L(`Für deinen Besuch ${fmtD(ev.from, 'de')} – ${fmtD(ev.to, 'de')}. Tipp in der Zentrale auf „Annehmen“.`, `For your guests ${fmtD(ev.from, 'en')} – ${fmtD(ev.to, 'en')}. Tap "Accept" in the app.`, `För ditt besök ${fmtD(ev.from, 'sv')} – ${fmtD(ev.to, 'sv')}. Tryck på "Acceptera" i appen.`), url: '/#kalender' }; });
+        }
+        return calState();
+      }
+      if (ev.by !== me) return json({ error: 'Nur wer den Besuch eingetragen hat, kann das auswählen.' }, 403);
+      const name = body.bed || null; // „name“ würde der Server auf die angemeldete Person setzen
+      if (name && !ev.beds.some((b) => b.name === name)) return json({ error: 'Dieses Angebot gibt es nicht mehr.' }, 400);
+      ev.bed = name;
+      await this.ctx.storage.put('events', list);
+      if (name) await this.pushCat('cal', name, (lang) => { const L = pick(lang); return { title: L(`🛏️ ${me}s Besuch schläft in deinem Bett`, `🛏️ ${me}'s guest will sleep in your bed`, `🛏️ ${me}s gäst sover i din säng`), body: L(`${fmtD(ev.from, 'de')} – ${fmtD(ev.to, 'de')}. Danke! 💛`, `${fmtD(ev.from, 'en')} – ${fmtD(ev.to, 'en')}. Thank you! 💛`, `${fmtD(ev.from, 'sv')} – ${fmtD(ev.to, 'sv')}. Tack! 💛`), url: '/#kalender' }; });
       return calState();
     }
     if (path === '/events/respond' && request.method === 'POST') {

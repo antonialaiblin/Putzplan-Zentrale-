@@ -676,3 +676,15 @@ button.rules-btn { cursor: pointer; padding: 0; color: inherit; font-family: inh
 .spot-row input { flex: 1; min-width: 0; font: inherit; padding: 8px 10px; border-radius: 10px; border: 1px solid var(--line); background: var(--field, transparent); color: inherit; }
 .spot-row .spot-icon { flex: none; width: 52px; text-align: center; }
 .spot-edit-btn { flex-basis: 100%; text-align: left; margin-top: 4px; }
+/* Besuch */
+.four-seg { grid-template-columns: repeat(2, 1fr); }
+.two-seg { grid-template-columns: repeat(2, 1fr); }
+.cal .pill.besuch, .pill-demo.besuch { background: #f3e8ff; color: #6b21a8; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .cal .pill.besuch, :root:not([data-theme="light"]) .pill-demo.besuch { background: #3b2252; color: #e9d5ff; } }
+:root[data-theme="dark"] .cal .pill.besuch, :root[data-theme="dark"] .pill-demo.besuch { background: #3b2252; color: #e9d5ff; }
+.ev-visit { margin: 10px 0; }
+#ev-sleep-wrap .seg button { white-space: normal; line-height: 1.25; }
+.visit-box { margin-top: 6px; padding: 8px 10px; border-radius: 12px; background: var(--accent-soft); }
+.visit-box p { margin: 2px 0; }
+.bed-offers { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 6px 0; }
+.visit-line { margin: 4px 0 0; }

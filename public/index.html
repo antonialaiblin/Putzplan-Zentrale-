@@ -183,7 +183,7 @@
         <div class="cal" id="cal-grid"></div>
         <button type="button" class="cal-bar" id="ev-open">+ Eintrag</button>
       </section>
-      <p class="muted small cal-legend">🧹 Putzkraft · <span class="pill-demo urlaub">Urlaub</span> <span class="pill-demo meeting">Meeting</span> <span class="pill-demo sonstiges">Termin</span> · <span class="cal-today-dot"></span> heute<br>🔴 gesetzlicher Feiertag, alles zu · ⚪ Feiertag, aber offen<br>Tipp: Tippe auf einen Tag, um dort etwas einzutragen.</p>
+      <p class="muted small cal-legend">🧹 Putzkraft · <span class="pill-demo urlaub">Urlaub</span> <span class="pill-demo meeting">Meeting</span> <span class="pill-demo sonstiges">Termin</span> <span class="pill-demo besuch">Besuch</span> · <span class="cal-today-dot"></span> heute<br>🔴 gesetzlicher Feiertag, alles zu · ⚪ Feiertag, aber offen<br>Tipp: Tippe auf einen Tag, um dort etwas einzutragen.</p>
       <div class="cal-actions">
         <button type="button" class="ghost cal-bar" id="poll-open">🗳️ WG-Meeting anfragen</button>
         <button type="button" class="ghost cal-bar" id="cleaner-open">🧹 Putzkraft</button>
@@ -193,10 +193,21 @@
       <section class="card cal-info" id="cal-holidays-card"><div id="cal-holidays" class="cal-holidays"></div></section>
       <form class="card" id="ev-form" hidden>
         <h2>Neuer Eintrag</h2>
-        <div class="seg three-seg" id="ev-type" role="radiogroup" aria-label="Kategorie">
+        <div class="seg four-seg" id="ev-type" role="radiogroup" aria-label="Kategorie">
           <button type="button" role="radio" data-type="urlaub" aria-checked="true">🏖️ Urlaub</button>
           <button type="button" role="radio" data-type="meeting" aria-checked="false">🗣️ WG-Meeting</button>
           <button type="button" role="radio" data-type="sonstiges" aria-checked="false">📅 Sonstiges</button>
+          <button type="button" role="radio" data-type="besuch" aria-checked="false">👋 Besuch</button>
+        </div>
+        <div id="ev-visit" class="ev-visit" hidden>
+          <label class="check-row"><input type="checkbox" id="ev-overnight"> <span id="ev-overnight-label">🌙 Mit Übernachtung</span></label>
+          <div id="ev-sleep-wrap" hidden>
+            <p class="muted small" id="ev-sleep-q">Wo schläft der Besuch?</p>
+            <div class="seg two-seg" id="ev-sleep" role="radiogroup">
+              <button type="button" role="radio" data-sleep="room" aria-checked="true">🛏️ Bei mir im Zimmer</button>
+              <button type="button" role="radio" data-sleep="ask" aria-checked="false">🙋 Fragen, ob ein Bett frei ist</button>
+            </div>
+          </div>
         </div>
         <label class="field"><span id="ev-title-label">Titel (optional)</span><input id="ev-title" maxlength="60"></label>
         <div class="row two">
@@ -204,7 +215,7 @@
           <label class="field" id="ev-to-wrap"><span>Bis</span><input type="date" id="ev-to"></label>
           <label class="field" id="ev-time-wrap" hidden><span>Uhrzeit</span><input type="time" id="ev-time" value="19:00"></label>
         </div>
-        <fieldset class="field"><legend>Wer ist dabei?</legend><div class="chips" id="ev-people"></div>
+        <fieldset class="field" id="ev-people-wrap"><legend>Wer ist dabei?</legend><div class="chips" id="ev-people"></div>
           <p class="muted small" id="ev-people-hint"></p></fieldset>
         <label class="field"><span>Notiz (optional)</span><input id="ev-note" maxlength="200"></label>
         <div class="row end"><button type="button" class="ghost" id="ev-cancel">Abbrechen</button><button type="submit">Eintragen</button></div>
@@ -648,6 +659,7 @@
         <label class="check-row"><input type="checkbox" value="meeting" checked> <span>🗣️ WG-Meetings</span></label>
         <label class="check-row"><input type="checkbox" value="urlaub" checked> <span>🏖️ Urlaube</span></label>
         <label class="check-row"><input type="checkbox" value="sonstiges" checked> <span>📅 Sonstige Termine</span></label>
+        <label class="check-row"><input type="checkbox" value="besuch" checked> <span>👋 Besuch</span></label>
         <label class="check-row"><input type="checkbox" value="geburtstage" checked> <span>🎂 Geburtstage</span></label>
       </div>
       <p class="muted small">Wenn du später etwas anderes auswählen willst: altes Abo im Handy-Kalender löschen und neu verbinden.</p>
