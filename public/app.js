@@ -252,7 +252,7 @@ function rulesGate() {
   $('#rules-read-done').onclick = () => { $('#rules-read').close(); read = true; setRead(); };
   $('#rules-read').oncancel = (e) => { e.preventDefault(); $('#rules-read-done').click(); };
   $('#rules-gate-ok').textContent = L('✅ Ich habe die Regeln gelesen und akzeptiere sie', '✅ I have read and accept the rules', '✅ Jag har läst och godkänner reglerna');
-  $('#rules-gate-out').textContent = L('Abmelden', 'Log out', 'Logga ut');
+  $('#rules-gate-out').textContent = L('← Zurück zur Anmeldung', '← Back to login', '← Tillbaka till inloggningen');
   d.oncancel = (e) => e.preventDefault();
   if (!d.open) d.showModal();
   return new Promise((resolve) => {
@@ -317,22 +317,30 @@ async function load() {
   if (who.account?.welcomeNeeded) showWelcome(); else maybeAskProfile();
 }
 /** Neu in der Zentrale: Willkommen mit Konfetti, erst nach dem Antippen geht's in die App */
+let welcomeConfetti = 0;
 function showWelcome() {
   const el = $('#welcome');
   $('#welcome-title').textContent = L(`Willkommen in der Zentrale, ${state.me}!`, `Welcome to the Zentrale, ${state.me}!`, `Välkommen till Zentrale, ${state.me}!`);
   $('#welcome-text').textContent = L('Schön, dass du da bist! Hier findest du Putzplan, Einkauf, Kasse, Kalender und alles, was unsere WG zusammenhält.', "Great to have you here! You'll find the cleaning rota, shopping, money, calendar and everything that keeps our flat together.", 'Kul att du är här! Här hittar du städschema, inköp, kassa, kalender och allt som håller ihop vårt kollektiv.');
   $('#welcome-go').textContent = L("Los geht's 🚀", "Let's go 🚀", 'Nu kör vi 🚀');
+  $('#welcome-back').textContent = L('← Zurück zu den Regeln', '← Back to the rules', '← Tillbaka till reglerna');
+  $('#welcome-back').onclick = () => rulesGate();
   el.hidden = false;
   document.body.classList.add('welcoming');
   confetti(260);
+  clearInterval(welcomeConfetti);
   const again = setInterval(() => confetti(120), 2600);
+  welcomeConfetti = again;
   $('#welcome-go').onclick = async () => {
     clearInterval(again);
     try { await api('auth/welcomed', {}); } catch { /* egal */ }
     if (state.account) state.account.welcomeNeeded = false;
     // Danach Profil einrichten (Foto, Geburtstag), überspringbar; erst dann kommt die Übersicht
     state.askedProfile = true;
-    $('#profile-dialog').addEventListener('close', () => { el.hidden = true; document.body.classList.remove('welcoming'); if ($('#profile-dialog').returnValue !== 'ok') store.set('profileSkip', '1'); }, { once: true });
+    $('#profile-dialog').addEventListener('close', () => {
+      if ($('#profile-dialog').returnValue === 'back') { showWelcome(); return; } // zurück zum Willkommen
+      el.hidden = true; document.body.classList.remove('welcoming'); if ($('#profile-dialog').returnValue !== 'ok') store.set('profileSkip', '1');
+    }, { once: true });
     openProfile(true, true);
     if (!$('#profile-dialog').open) { el.hidden = true; document.body.classList.remove('welcoming'); }
   };
@@ -2113,6 +2121,7 @@ $('#surveys').addEventListener('click', async (e) => {
 
 // ---------------- Mitglieder ----------------
 document.addEventListener('click', (e) => {
+  if (e.target.closest('[data-back-rules]')) { rulesGate(); return; }
   if (e.target.closest('[data-open-join]')) { state.joining = true; renderMe(); $('#join-name').focus(); }
 });
 $('#join-side').addEventListener('click', (e) => {
@@ -2131,6 +2140,7 @@ $('#join-lang').addEventListener('click', (e) => {
   markJoinLang();
 });
 $('#join-cancel').onclick = () => {
+  if ($('#join').classList.contains('quick')) { rulesGate(); return; } // alle Personen vergeben: zurück zu den Regeln
   state.joining = false;
   if (location.hash === '#beitreten') history.replaceState(null, '', '#start');
   renderMe();
@@ -2258,6 +2268,8 @@ function openProfile(intro = false, onboarding = false) {
   $('#profile-form h2').textContent = onboarding ? L('Richte dein Profil ein 📸', 'Set up your profile 📸', 'Skapa din profil 📸') : L('Mein Profil', 'My profile', 'Min profil');
   $('#profile-intro').textContent = onboarding ? L('Mit Foto und Geburtstag erkennen dich die anderen sofort, und an deinem Geburtstag gibt es eine Überraschung 🎂. Du kannst das auch überspringen und später in den Einstellungen machen.', "With a photo and your birthday the others recognise you right away, and there's a surprise on your birthday 🎂. You can also skip this and do it later in Settings.", 'Med foto och födelsedag känner de andra igen dig direkt, och på din födelsedag väntar en överraskning 🎂. Du kan också hoppa över och göra det senare i inställningarna.')
     : L('Bitte ergänze kurz dein Profil, damit die WG deinen Geburtstag kennt und die App dich richtig anspricht.', 'Please quickly complete your profile so the flat knows your birthday and the app addresses you correctly.', 'Fyll i din profil så att kollektivet vet din födelsedag och appen tilltalar dig rätt.');
+  $('#profile-back').hidden = !onboarding;
+  $('#profile-back').textContent = L('← Zurück', '← Back', '← Tillbaka');
   $('#profile-form button[value=cancel]').textContent = intro ? L('Überspringen', 'Skip', 'Hoppa över') : L('Abbrechen', 'Cancel', 'Avbryt');
   $('#profile-name').value = m.name;
   $('#profile-birthday').value = m.birthday || '';

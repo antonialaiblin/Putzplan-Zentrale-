@@ -732,3 +732,5 @@ body.welcoming { overflow: hidden; }
 #rules-gate #rules-gate-read { width: 100%; font-size: 17px; padding: 14px; }
 #rules-gate #rules-gate-ok:disabled { opacity: .45; }
 #rules-read { height: 92vh; }
+.welcome-back { display: block; margin: 14px auto 0; color: #fff; opacity: .85; }
+.welcome button.welcome-back { background: transparent; box-shadow: none; border: 0; color: #fff; font-weight: 500; font-size: 15px; padding: 8px 12px; }

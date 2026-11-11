@@ -66,7 +66,7 @@
         <p class="muted" id="wait-text"></p>
         <div class="auth-choice">
           <button type="button" id="wait-refresh">Nochmal prüfen</button>
-          <button type="button" class="ghost" id="wait-cancel">Anfrage zurückziehen</button>
+          <button type="button" class="ghost" id="wait-cancel">← Zurück (Anfrage zurückziehen)</button>
         </div>
       </div>
       <div id="auth-pick" hidden>
@@ -74,6 +74,7 @@
         <p class="muted">Wähl deine Person. Sie wird fest mit deinem Account verbunden und kann danach von niemand anderem mehr gewählt werden.</p>
         <div class="people" id="people-buttons"></div>
         <p class="small" style="margin:14px 0 0">Neu in der WG? <button type="button" class="link" data-open-join>Mitglied werden</button></p>
+        <div class="row" style="margin-top:14px"><button type="button" class="ghost" data-back-rules>← Zurück</button></div>
       </div>
     </section>
 
@@ -109,7 +110,7 @@
           <button type="button" role="radio" aria-checked="false" data-jlang="sv">Svenska</button>
         </div>
       </fieldset>
-      <div class="row end"><button type="button" class="ghost" id="join-cancel">Abbrechen</button><button type="submit">Mitglied werden</button></div>
+      <div class="row end"><button type="button" class="ghost" id="join-cancel">← Zurück</button><button type="submit">Mitglied werden</button></div>
     </form>
 
     <!-- Übersicht -->
@@ -481,6 +482,7 @@
       <h2 id="welcome-title">Willkommen in der Zentrale!</h2>
       <p id="welcome-text"></p>
       <button type="button" id="welcome-go">Los geht's 🚀</button>
+      <button type="button" class="link welcome-back" id="welcome-back">← Zurück</button>
     </div>
   </div>
   <dialog id="laundry-dialog">
@@ -683,6 +685,7 @@
         </div>
       </fieldset>
       <div class="row end">
+        <button value="back" class="ghost" formnovalidate id="profile-back" hidden>← Zurück</button>
         <button value="cancel" class="ghost" formnovalidate>Abbrechen</button>
         <button value="ok">Speichern</button>
       </div>
