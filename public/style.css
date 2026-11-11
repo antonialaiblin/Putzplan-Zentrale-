@@ -698,3 +698,14 @@ button.rules-btn { cursor: pointer; padding: 0; color: inherit; font-family: inh
 .welcome-card button { font-size: 18px; padding: 14px 28px; border-radius: 999px; background: #fff; color: #3b1466; border: 0; font-weight: 700; box-shadow: 0 6px 20px rgba(0,0,0,.25); }
 body.welcoming { overflow: hidden; }
 @keyframes wpop { from { transform: scale(.6); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+/* WG-Infos, Waschmaschine, Pakete */
+.wginfo h2 { margin: 0; }
+.wg-row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; padding: 8px 0; border-bottom: 1px solid var(--line); }
+.wg-row > span:first-child { min-width: 92px; color: var(--muted); font-size: 14px; }
+.wg-row.wg-app { align-items: flex-start; border-bottom: 0; }
+.wg-pass { font-size: 15px; word-break: break-all; }
+.wg-notes { margin: 8px 0 0; font-size: 14px; }
+.tile-btns { flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.laundry-card p, .parcel-card p { margin: 4px 0; }
+.wginfo a.button { text-decoration: none; color: #fff; display: inline-flex; align-items: center; }
+.wginfo a.button.ghost { color: var(--accent); }

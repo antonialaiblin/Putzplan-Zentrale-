@@ -232,6 +232,7 @@ function rulesGate() {
   const d = $('#rules-gate');
   const src = $('#tab-rules').cloneNode(true);
   src.querySelector('.back')?.closest('p')?.remove();
+  src.querySelector('.wginfo')?.remove();
   src.querySelectorAll('[id]').forEach((e) => e.removeAttribute('id'));
   $('#rules-gate-body').innerHTML = src.innerHTML;
   $('#rules-gate-title').textContent = L('Willkommen! Bitte lies zuerst unsere WG-Regeln 📖', 'Welcome! Please read our house rules first 📖', 'Välkommen! Läs först våra husregler 📖');
@@ -286,6 +287,9 @@ async function load() {
   state.alarms = data.alarms || [];
   state.alarmSpots = data.alarmSpots || [];
   state.activity = data.activity || [];
+  state.laundry = data.laundry || { run: null, queue: [] };
+  state.parcels = data.parcels || [];
+  state.wgInfo = data.wgInfo || null;
   state.today = data.today;
   state.current = data.current;
   if (state.me && !state.people.includes(state.me)) { state.me = null; store.set('me', ''); }
@@ -1254,6 +1258,7 @@ function showTab() {
   renderMe();
   if (tab === 'home') { renderHome(); if (state.me) { loadMoney(); loadShop(); } }
   if (tab === 'cal') renderCal();
+  if (tab === 'rules') renderWgInfo();
   if (location.hash === '#pflanzen' && state.me) { history.replaceState(null, '', '#start'); setTimeout(openPlants, 0); }
   document.querySelectorAll('.tabbar a').forEach((a) => a.classList.toggle('active', a.dataset.tab === (tab === 'rules' ? 'home' : tab)));
   if (state.me && tab === 'shop') loadShop();
@@ -1672,6 +1677,8 @@ const WIDGETS = {
   board: { de: 'Pinnwand', en: 'Pinboard', sv: 'Anslagstavla', size: 'w' },
   plants: { de: 'Pflanzen gießen', en: 'Watering plants', sv: 'Vattna växter', size: 'w' },
   activity: { de: 'Aktivitäten', en: 'Activity', sv: 'Aktivitet', size: 'w' },
+  laundry: { de: 'Waschmaschine', en: 'Washing machine', sv: 'Tvättmaskin', size: 's' },
+  parcel: { de: 'Pakete', en: 'Parcels', sv: 'Paket', size: 's' },
   plan: { de: 'Putzplan', en: 'Cleaning', sv: 'Städning', size: 's' },
   shop: { de: 'Einkauf', en: 'Shopping', sv: 'Handla', size: 's' },
   money: { de: 'Kasse', en: 'Money', sv: 'Kassa', size: 's' },
@@ -1697,7 +1704,7 @@ const SHORTCUTS = {
   note: { icon: '📌', de: 'Zettel anpinnen', en: 'Pin a note', sv: 'Sätt upp en lapp' },
   invite: { icon: '➕', de: 'Mitglied einladen', en: 'Invite member', sv: 'Bjud in medlem' },
 };
-const DEFAULT_HOME = ['week', 'ranking', 'badges', 'board', 'plan', 'shop', 'money', 'cal', 'plants', 'meetings', 'activity'].map((id) => ({ id, size: WIDGETS[id].size }));
+const DEFAULT_HOME = ['week', 'ranking', 'badges', 'board', 'plan', 'shop', 'money', 'cal', 'laundry', 'parcel', 'plants', 'meetings', 'activity'].map((id) => ({ id, size: WIDGETS[id].size }));
 const widgetName = (id) => (id.startsWith('sc:') ? L(SHORTCUTS[id.slice(3)]?.de || id, SHORTCUTS[id.slice(3)]?.en || id, SHORTCUTS[id.slice(3)]?.sv || id) : L(WIDGETS[id]?.de || id, WIDGETS[id]?.en || id, WIDGETS[id]?.sv || id));
 function homeLayout() {
   if (state.homeDraft) return state.homeDraft;
@@ -1705,13 +1712,14 @@ function homeLayout() {
   const ok = Array.isArray(saved) ? saved.filter((x) => WIDGETS[x.id] || (x.id.startsWith('sc:') && SHORTCUTS[x.id.slice(3)])) : null;
   // Neue Pflanzen-Kachel einmalig auch in schon angepasste Übersichten einfügen
   let added = false;
-  for (const id of ['plants', 'activity']) {
+  for (const id of ['plants', 'activity', 'laundry', 'parcel']) {
     if (ok && ok.length && !ok.some((x) => x.id === id) && !store.get(`${id}Tile`)) {
       store.set(`${id}Tile`, '1');
       // Pflanzen vor den Meetings, Aktivitäten ganz ans Ende
       const m = ok.findIndex((x) => x.id === 'meetings');
-      const i = id === 'activity' ? ok.length : (m >= 0 ? m : ok.length);
-      ok.splice(i, 0, { id, size: 'w' });
+      const act = ok.findIndex((x) => x.id === 'activity');
+      const i = id === 'activity' ? ok.length : ['laundry', 'parcel'].includes(id) ? (act >= 0 ? act : ok.length) : (m >= 0 ? m : ok.length);
+      ok.splice(i, 0, { id, size: WIDGETS[id].size });
       added = true;
     }
   }
@@ -1942,6 +1950,8 @@ function renderHome() {
   }
   tiles.plants = plantsTile();
   tiles.activity = activityTile();
+  tiles.laundry = laundryTile();
+  tiles.parcel = parcelTile();
   renderAlarms();
   tiles.rules = `<a class="card __CLS__" href="#regeln"><h3>${L('Hausregeln', 'House rules', `Husregler`)}</h3><p>${L('Mission Haussegen 📜 Alles zum WG-Seelenfrieden', 'Mission Haussegen 📜 Everything for peace in the flat', `Mission Haussegen 📜 Allt för husfriden`)}</p></a>`;
   Object.assign(tiles, extraTiles(w));
@@ -2836,6 +2846,8 @@ function PUSH_CATS() { return [
   ['people', L('🎂 Geburtstage & neue Mitbewohner:innen', '🎂 Birthdays & new flatmates', '🎂 Födelsedagar & nya i kollektivet')],
   ['plants', L('🪴 Pflanzen gießen & Gießvertretung', '🪴 Watering plants & watering help', '🪴 Vattna växter & vattningshjälp')],
   ['alarm', L('🔔 Alarmglocke', '🔔 Alarm bell', '🔔 Larmklocka')],
+  ['laundry', L('🧺 Waschmaschine (deine Wäsche fertig / du bist dran)', '🧺 Washing machine (your laundry done / your turn)', '🧺 Tvättmaskin (din tvätt klar / din tur)')],
+  ['parcel', L('📦 Pakete', '📦 Parcels', '📦 Paket')],
 ]; }
 function renderPushPrefs() {
   if ($('#set-translate')) $('#set-translate').checked = state.pushPrefs?.translate !== false;
@@ -3289,6 +3301,9 @@ function actText(a) {
     case 'note': return ['📌', a.photo ? L(`${by} hat ein Foto an die Pinnwand gehängt`, `${by} pinned a photo to the board`, `${by} satte upp ett foto`) : L(`${by} hat einen Zettel an die Pinnwand gehängt`, `${by} pinned a note to the board`, `${by} satte upp en lapp`) + (a.title ? `: ${q(a.title)}` : '')];
     case 'survey': return ['🗳️', L(`${by} hat eine Umfrage gestartet: ${q(a.title)}`, `${by} started a poll: ${q(a.title)}`, `${by} startade en omröstning: ${q(a.title)}`)];
     case 'poll': return ['🗓️', L(`${by} sucht einen Termin fürs WG-Meeting`, `${by} is looking for a meeting date`, `${by} letar efter en tid för husmöte`)];
+    case 'laundry': return ['🧺', L(`${by} hat die Waschmaschine angestellt`, `${by} started the washing machine`, `${by} startade tvättmaskinen`)];
+    case 'parcel-expect': return ['🚚', L(`${by} erwartet ein Paket`, `${by} is expecting a parcel`, `${by} väntar på ett paket`) + (a.title ? `: ${q(a.title)}` : '')];
+    case 'parcel-got': return ['📦', L(`${by} hat ein Paket für ${esc(a.for)} angenommen`, `${by} accepted a parcel for ${esc(a.for)}`, `${by} tog emot ett paket till ${esc(a.for)}`)];
     case 'bed': return ['🛏️', L(`${by} bietet ${esc(a.owner)}s Besuch das Bett an (${range()})`, `${by} offered their bed to ${esc(a.owner)}'s guests (${range()})`, `${by} erbjöd sin säng åt ${esc(a.owner)}s gäster (${range()})`)];
     case 'event': return a.kind === 'besuch' ? ['👋', L(`${by} bekommt Besuch (${range()})`, `${by} is having visitors (${range()})`, `${by} får besök (${range()})`)] : a.kind === 'urlaub' ? ['🏖️', L(`${by} hat Urlaub eingetragen (${range()})`, `${by} added a holiday (${range()})`, `${by} lade in semester (${range()})`)]
       : a.kind === 'meeting' ? ['🗣️', L(`${by} hat ein WG-Meeting eingetragen (${range()})`, `${by} scheduled a flat meeting (${range()})`, `${by} lade in ett husmöte (${range()})`)]
@@ -3309,3 +3324,138 @@ function activityTile() {
     ${rows.length > 3 ? `<p class="muted small act-more">↓ ${L('Im Feld scrollen für die ganze Historie', 'Scroll in the box for the full history', 'Scrolla i rutan för hela historiken')}</p>` : ''}`
     : `<p class="muted">${L('Noch nichts passiert. Sobald jemand etwas macht, steht es hier.', "Nothing yet. As soon as someone does something, it shows up here.", 'Inget än. Så fort någon gör något syns det här.')}</p>`}</div>`;
 }
+
+
+// ================= WG-Infos (beim Regelbuch) =================
+const DANFOSS = { ios: 'https://apps.apple.com/de/app/danfoss-eco/id1195035757', android: 'https://play.google.com/store/apps/details?id=com.danfoss.danfosseco' };
+let wgEditing = false;
+function renderWgInfo() {
+  const el = $('#wginfo');
+  if (!el) return;
+  const i = state.wgInfo;
+  el.hidden = !i;
+  if (!i) return;
+  if (wgEditing) {
+    el.innerHTML = `<h2>ℹ️ ${L('WG-Infos bearbeiten', 'Edit flat info', 'Redigera info')}</h2>
+      <label class="field"><span>📶 ${L('WLAN-Name', 'Wi-Fi name', 'Wifi-namn')}</span><input id="wg-wifi" maxlength="60" value="${esc(i.wifiName)}" autocomplete="off"></label>
+      <label class="field"><span>🔑 ${L('WLAN-Passwort', 'Wi-Fi password', 'Wifi-lösenord')}</span><input id="wg-pass" maxlength="100" value="${esc(i.wifiPass)}" autocomplete="off" autocapitalize="none" spellcheck="false"></label>
+      <label class="field"><span>📝 ${L('Weitere Infos (optional)', 'More info (optional)', 'Mer info (valfritt)')}</span><textarea id="wg-notes" rows="4" maxlength="1500">${esc(i.notes)}</textarea></label>
+      <div class="row end"><button type="button" class="ghost" data-wg-cancel>${L('Abbrechen', 'Cancel', 'Avbryt')}</button><button type="button" data-wg-save>${L('Speichern', 'Save', 'Spara')}</button></div>`;
+    return;
+  }
+  el.innerHTML = `<div class="board-head"><h2>ℹ️ ${L('WG-Infos', 'Flat info', 'Info')}</h2><button type="button" class="link small" data-wg-edit>✏️ ${L('Bearbeiten', 'Edit', 'Redigera')}</button></div>
+    <div class="wg-row"><span>📶 ${L('WLAN', 'Wi-Fi', 'Wifi')}</span>${i.wifiName ? `<strong>${esc(i.wifiName)}</strong> <button type="button" class="ghost small" data-copy="${esc(i.wifiName)}">📋</button>` : `<span class="muted">${L('noch nicht eingetragen', 'not added yet', 'inte tillagt än')}</span>`}</div>
+    <div class="wg-row"><span>🔑 ${L('Passwort', 'Password', 'Lösenord')}</span>${i.wifiPass ? `<code class="wg-pass" data-pass>••••••••••</code> <button type="button" class="ghost small" data-pass-toggle aria-label="${L('Anzeigen', 'Show', 'Visa')}">👁</button> <button type="button" class="ghost small" data-copy="${esc(i.wifiPass)}">📋</button>` : `<span class="muted">${L('noch nicht eingetragen', 'not added yet', 'inte tillagt än')}</span>`}</div>
+    <div class="wg-row wg-app"><span>🌡️ ${L('Heizung', 'Heating', 'Värme')}</span><div><strong>Danfoss Eco</strong> <span class="muted small">${L('App für die Heizkörper-Thermostate', 'App for the radiator thermostats', 'App för elementtermostaterna')}</span>
+      <div class="row"><a class="button small" href="${DANFOSS.ios}" target="_blank" rel="noopener">🍎 App Store</a><a class="button ghost small" href="${DANFOSS.android}" target="_blank" rel="noopener">▶ Google Play</a></div></div></div>
+    ${i.notes ? `<p class="wg-notes">${esc(i.notes).replace(/\n/g, '<br>')}</p>` : ''}`;
+}
+$('#wginfo').addEventListener('click', async (e) => {
+  if (e.target.closest('[data-wg-edit]')) { wgEditing = true; renderWgInfo(); return; }
+  if (e.target.closest('[data-wg-cancel]')) { wgEditing = false; renderWgInfo(); return; }
+  if (e.target.closest('[data-wg-save]')) {
+    try { state.wgInfo = (await api('info/save', { wifiName: $('#wg-wifi').value, wifiPass: $('#wg-pass').value, notes: $('#wg-notes').value })).wgInfo; wgEditing = false; renderWgInfo(); toast(L('Gespeichert', 'Saved', 'Sparat')); } catch (err) { toast(err.message); }
+    return;
+  }
+  const t = e.target.closest('[data-pass-toggle]');
+  if (t) { const c = $('#wginfo [data-pass]'); const show = c.textContent.startsWith('•'); c.textContent = show ? state.wgInfo.wifiPass : '••••••••••'; return; }
+  const c = e.target.closest('[data-copy]');
+  if (c) { try { await navigator.clipboard.writeText(c.dataset.copy); toast(L('Kopiert 📋', 'Copied 📋', 'Kopierat 📋')); } catch { toast(c.dataset.copy); } }
+});
+
+// ================= Waschmaschine =================
+function clockOf(ts) { return new Date(ts).toLocaleTimeString(locale(), { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Berlin' }); }
+function laundryTile() {
+  const l = state.laundry || { run: null, queue: [] };
+  const me = state.me;
+  const run = l.run && l.run.end > Date.now() - 60e3 ? l.run : null;
+  const inQ = l.queue.includes(me);
+  let body;
+  if (run) {
+    const left = Math.max(0, Math.round((run.end - Date.now()) / 60e3));
+    body = `<p><strong>${L('Läuft', 'Running', 'Igång')}</strong> · ${esc(run.by)}</p><p class="small">${L('fertig um', 'done at', 'klar kl.')} <strong>${clockOf(run.end)}</strong> (${left ? L(`noch ${left} Min.`, `${left} min left`, `${left} min kvar`) : L('gleich', 'any minute', 'strax')})</p>
+      <div class="progress"><b style="width:${Math.min(100, Math.round(((Date.now() - run.start) / (run.end - run.start)) * 100))}%"></b></div>`;
+  } else body = `<p><strong>${L('Frei', 'Free', 'Ledig')}</strong> ✨</p>`;
+  if (l.queue.length) body += `<p class="small muted">${L('Als Nächstes', 'Next up', 'Näst på tur')}: ${l.queue.map(esc).join(', ')}</p>`;
+  const btns = run
+    ? (run.by === me ? `<button type="button" class="small ghost" data-laundry-stop>${L('Schon fertig', 'Already done', 'Redan klar')}</button>` : `<button type="button" class="small${inQ ? ' ghost' : ''}" data-laundry-queue="${inQ ? 0 : 1}">${inQ ? L('Abmelden', 'Leave queue', 'Lämna kön') : L('🙋 Ich bin als Nächste:r dran', "🙋 I'm next", '🙋 Jag är näst på tur')}</button>`)
+    : `<button type="button" class="small" data-laundry-start>▶️ ${L('Maschine starten', 'Start machine', 'Starta maskinen')}</button>${inQ ? `<button type="button" class="small ghost" data-laundry-queue="0">${L('Abmelden', 'Leave queue', 'Lämna kön')}</button>` : ''}`;
+  return `<div class="card __CLS__ laundry-card"><h3>🧺 ${L('Waschmaschine', 'Washing machine', 'Tvättmaskin')}</h3>${body}<div class="row tile-btns">${btns}</div></div>`;
+}
+let laundryMins = 0;
+function openLaundry() {
+  laundryMins = 0;
+  $('#laundry-title').textContent = L('🧺 Waschmaschine starten', '🧺 Start the washing machine', '🧺 Starta tvättmaskinen');
+  $('#laundry-text').textContent = L('Wie lange läuft dein Programm? Wenn es fertig ist, bekommst du eine Benachrichtigung. Die anderen sehen, bis wann die Maschine belegt ist.', "How long is your programme? You'll get a notification when it's done. The others can see until when the machine is busy.", 'Hur länge går ditt program? Du får en notis när det är klart. De andra ser hur länge maskinen är upptagen.');
+  $('#laundry-mins').innerHTML = [30, 45, 60, 90, 120, 150, 180].map((m) => `<button type="button" class="chip" data-mins="${m}" aria-pressed="false">${m >= 60 && m % 60 === 0 ? `${m / 60} h` : m > 60 ? `${Math.floor(m / 60)} h ${m % 60}` : `${m} Min.`}</button>`).join('');
+  $('#laundry-custom').value = '';
+  $('#laundry-dialog').showModal();
+}
+$('#laundry-mins').addEventListener('click', (e) => {
+  const b = e.target.closest('[data-mins]');
+  if (!b) return;
+  laundryMins = +b.dataset.mins; $('#laundry-custom').value = '';
+  $('#laundry-mins').querySelectorAll('[data-mins]').forEach((x) => x.setAttribute('aria-pressed', x === b));
+});
+$('#laundry-custom').addEventListener('input', () => { laundryMins = 0; $('#laundry-mins').querySelectorAll('[data-mins]').forEach((x) => x.setAttribute('aria-pressed', 'false')); });
+$('#laundry-form').addEventListener('submit', async (e) => {
+  if (e.submitter?.value !== 'ok') return;
+  e.preventDefault();
+  const minutes = laundryMins || +$('#laundry-custom').value;
+  if (!minutes) { toast(L('Wie lange läuft das Programm?', 'How long is the programme?', 'Hur länge går programmet?')); return; }
+  try { state.laundry = (await api('laundry/start', { minutes })).laundry; $('#laundry-dialog').close(); renderHome(); toast(L(`🧺 Läuft! Fertig um ${clockOf(state.laundry.run.end)}`, `🧺 Running! Done at ${clockOf(state.laundry.run.end)}`, `🧺 Igång! Klar kl. ${clockOf(state.laundry.run.end)}`)); } catch (err) { toast(err.message); }
+});
+
+// ================= Pakete =================
+function parcelTile() {
+  const me = state.me;
+  const list = (state.parcels || []).filter((p) => !p.picked && !(p.type === 'expect' && p.got));
+  const rows = list.slice(0, 3).map((p) => p.type === 'expect'
+    ? `<p class="small">🚚 ${L(`Paket für <strong>${esc(p.for)}</strong> kommt`, `Parcel for <strong>${esc(p.for)}</strong> coming`, `Paket till <strong>${esc(p.for)}</strong> på väg`)}${p.note ? ` · ${esc(tx(p.note, p.by))}` : ''}${p.for !== me ? ` <button type="button" class="link small" data-parcel-got="${esc(p.for)}">${L('angenommen', 'accepted', 'mottaget')}</button>` : ` <button type="button" class="link small" data-parcel-del="${esc(p.id)}">✕</button>`}</p>`
+    : `<p class="small">📦 ${L(`<strong>${esc(p.by)}</strong> hat ein Paket für <strong>${esc(p.for)}</strong>`, `<strong>${esc(p.by)}</strong> has a parcel for <strong>${esc(p.for)}</strong>`, `<strong>${esc(p.by)}</strong> har ett paket till <strong>${esc(p.for)}</strong>`)}${p.note ? ` · ${esc(tx(p.note, p.by))}` : ''}${p.for === me ? ` <button type="button" class="link small" data-parcel-picked="${esc(p.id)}">✅ ${L('abgeholt', 'picked up', 'hämtat')}</button>` : ''}</p>`).join('');
+  return `<div class="card __CLS__ parcel-card"><h3>📦 ${L('Pakete', 'Parcels', 'Paket')}</h3>${rows || `<p class="muted small">${L('Gerade nichts unterwegs.', 'Nothing on the way.', 'Inget på väg just nu.')}</p>`}
+    <div class="row tile-btns"><button type="button" class="small" data-parcel-open="expect">🚚 ${L('Kommt an', 'Coming', 'På väg')}</button><button type="button" class="small ghost" data-parcel-open="got">🙌 ${L('Angenommen', 'Accepted', 'Mottaget')}</button></div></div>`;
+}
+let parcelMode = 'expect';
+let parcelFor = '';
+function renderParcelForm() {
+  document.querySelectorAll('#parcel-mode [data-pmode]').forEach((b) => b.setAttribute('aria-checked', b.dataset.pmode === parcelMode));
+  $('#parcel-for').hidden = parcelMode !== 'got';
+  $('#parcel-for').innerHTML = state.people.filter((p) => p !== state.me).map((p) => `<button type="button" class="chip" data-pfor="${esc(p)}" aria-pressed="${parcelFor === p}">${esc(p)}</button>`).join('');
+  $('#parcel-hint').textContent = parcelMode === 'expect'
+    ? L('Alle bekommen Bescheid, damit jemand es annimmt, falls du nicht da bist.', 'Everyone gets notified so someone can accept it if you are not home.', 'Alla får besked så att någon kan ta emot det om du inte är hemma.')
+    : L('Für wen hast du ein Paket angenommen? Nur diese Person bekommt Bescheid.', 'Who did you accept a parcel for? Only that person is notified.', 'Vem tog du emot ett paket åt? Bara den personen får besked.');
+  $('#parcel-note').placeholder = parcelMode === 'expect' ? L('z.B. DHL, heute zwischen 10 und 14 Uhr', 'e.g. DHL, today between 10 and 2', 't.ex. DHL, idag mellan 10 och 14') : L('z.B. liegt vor meiner Zimmertür', 'e.g. in front of my door', 't.ex. utanför min dörr');
+}
+document.addEventListener('click', async (e) => {
+  const t = e.target;
+  if (state.editHome) return;
+  try {
+    if (t.closest('[data-laundry-start]')) { openLaundry(); return; }
+    if (t.closest('[data-laundry-stop]')) { if (!confirm(L('Ist deine Wäsche schon fertig? Dann bekommt die nächste Person Bescheid.', 'Is your laundry done already? The next person will be notified.', 'Är din tvätt redan klar? Då får nästa person besked.'))) return; state.laundry = (await api('laundry/stop', {})).laundry; renderHome(); return; }
+    const q = t.closest('[data-laundry-queue]');
+    if (q) { state.laundry = (await api('laundry/queue', { join: q.dataset.laundryQueue === '1' })).laundry; renderHome(); if (q.dataset.laundryQueue === '1') toast(L('Du bekommst Bescheid, wenn die Maschine fertig ist 🧺', "You'll be notified when the machine is done 🧺", 'Du får besked när maskinen är klar 🧺')); return; }
+    const po = t.closest('[data-parcel-open]');
+    if (po) { parcelMode = po.dataset.parcelOpen; parcelFor = ''; $('#parcel-note').value = ''; renderParcelForm(); $('#parcel-dialog').showModal(); return; }
+    const pg = t.closest('[data-parcel-got]');
+    if (pg) { parcelMode = 'got'; parcelFor = pg.dataset.parcelGot; $('#parcel-note').value = ''; renderParcelForm(); $('#parcel-dialog').showModal(); return; }
+    const pp = t.closest('[data-parcel-picked]');
+    if (pp) { state.parcels = (await api('parcel/picked', { id: pp.dataset.parcelPicked })).parcels; renderHome(); return; }
+    const pd = t.closest('[data-parcel-del]');
+    if (pd) { state.parcels = (await api('parcel/delete', { id: pd.dataset.parcelDel })).parcels; renderHome(); }
+  } catch (err) { toast(err.message); }
+});
+$('#parcel-mode').addEventListener('click', (e) => { const b = e.target.closest('[data-pmode]'); if (!b) return; parcelMode = b.dataset.pmode; renderParcelForm(); });
+$('#parcel-for').addEventListener('click', (e) => { const b = e.target.closest('[data-pfor]'); if (!b) return; parcelFor = b.dataset.pfor; renderParcelForm(); });
+$('#parcel-form').addEventListener('submit', async (e) => {
+  if (e.submitter?.value !== 'ok') return;
+  e.preventDefault();
+  if (parcelMode === 'got' && !parcelFor) { toast(L('Für wen ist das Paket?', 'Who is the parcel for?', 'Vem är paketet till?')); return; }
+  try {
+    state.parcels = (await api(parcelMode === 'expect' ? 'parcel/expect' : 'parcel/got', { note: $('#parcel-note').value, for: parcelFor })).parcels;
+    $('#parcel-dialog').close(); renderHome();
+    toast(parcelMode === 'expect' ? L('Alle wissen Bescheid 🚚', 'Everyone has been told 🚚', 'Alla har fått besked 🚚') : L(`${parcelFor} bekommt Bescheid 📦`, `${parcelFor} has been notified 📦`, `${parcelFor} har fått besked 📦`));
+  } catch (err) { toast(err.message); }
+});
+// Waschmaschinen-Restzeit aktuell halten
+setInterval(() => { if (state.laundry?.run && currentTab() === 'home' && !state.editHome && !document.querySelector('dialog[open]')) renderHome(); }, 60e3);

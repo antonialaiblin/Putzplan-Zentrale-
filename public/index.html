@@ -331,6 +331,7 @@
     <!-- Hausregeln -->
     <div id="tab-rules" class="tab rules" hidden>
       <p><a href="#start" class="back">‹ Zur Übersicht</a></p>
+      <section class="card wginfo" id="wginfo" hidden></section>
       <div class="only-de">
       <section class="card intro">
         <h2>Mission Haussegen 🏡</h2>
@@ -482,6 +483,28 @@
       <button type="button" id="welcome-go">Los geht's 🚀</button>
     </div>
   </div>
+  <dialog id="laundry-dialog">
+    <form method="dialog" id="laundry-form">
+      <h2 id="laundry-title">🧺 Waschmaschine starten</h2>
+      <p class="muted small" id="laundry-text">Wie lange läuft dein Programm? Wenn es fertig ist, bekommst du eine Benachrichtigung.</p>
+      <div class="chips" id="laundry-mins"></div>
+      <label class="field"><span id="laundry-custom-label">Oder Minuten eingeben</span><input type="number" id="laundry-custom" min="5" max="300" inputmode="numeric"></label>
+      <div class="row end"><button value="cancel" class="ghost" formnovalidate>Abbrechen</button><button value="ok" id="laundry-go">Starten</button></div>
+    </form>
+  </dialog>
+  <dialog id="parcel-dialog">
+    <form method="dialog" id="parcel-form">
+      <h2 id="parcel-title">📦 Paket</h2>
+      <div class="seg two-seg" id="parcel-mode" role="radiogroup">
+        <button type="button" role="radio" data-pmode="expect" aria-checked="true">🚚 Paket für mich kommt</button>
+        <button type="button" role="radio" data-pmode="got" aria-checked="false">🙌 Paket angenommen</button>
+      </div>
+      <p class="muted small" id="parcel-hint"></p>
+      <div class="chips" id="parcel-for" hidden></div>
+      <label class="field"><span id="parcel-note-label">Notiz (optional)</span><input id="parcel-note" maxlength="120"></label>
+      <div class="row end"><button value="cancel" class="ghost" formnovalidate>Abbrechen</button><button value="ok" id="parcel-send">Senden</button></div>
+    </form>
+  </dialog>
   <dialog id="plants-dialog" class="wide">
     <form method="dialog">
       <h2>🪴 Pflanzen</h2>

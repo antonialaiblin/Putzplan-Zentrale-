@@ -480,6 +480,7 @@ export class Putzplan extends DurableObject {
     return ((await this.ctx.storage.get('plantsits')) || []).filter((s) => s.to >= old);
   }
   // ---------- Alarmglocke ----------
+  async parcels() { return ((await this.ctx.storage.get('parcels')) || []).filter((x) => Date.now() - x.at < 4 * 864e5); }
   async alarmSpots() {
     return (await this.ctx.storage.get('alarmspots')) || [['🍳', 'Küche'], ['🚿', 'Bad vorne'], ['🛁', 'Bad hinten'], ['🚪', 'Flur'], ['🛋️', 'Wohnzimmer'], ['🗑️', 'Müll'], ['🧊', 'Kühlschrank']].map(([icon, name]) => ({ icon, name }));
   }
@@ -815,7 +816,7 @@ export class Putzplan extends DurableObject {
     }
     if (path === '/push/prefs' && request.method === 'POST') {
       if (!me) return json({ error: 'Bitte melde dich an.', auth: true }, 401);
-      const CATS = ['plan', 'cleaner', 'swap', 'money', 'react', 'board', 'cal', 'people', 'plants', 'alarm', 'translate'];
+      const CATS = ['plan', 'cleaner', 'swap', 'money', 'react', 'board', 'cal', 'people', 'plants', 'alarm', 'laundry', 'parcel', 'translate'];
       const all = (await this.ctx.storage.get('pushprefs')) || {};
       all[me] = Object.fromEntries(CATS.filter((c) => body.prefs?.[c] === false).map((c) => [c, false]));
       await this.ctx.storage.put('pushprefs', all);
@@ -830,7 +831,7 @@ export class Putzplan extends DurableObject {
       const from = validMonday(url.searchParams.get('from')) ? url.searchParams.get('from') : addDays(current, -7);
       const count = Math.min(Math.max(Number(url.searchParams.get('count')) || 12, 1), 30);
       const weeks = await this.weeks([...Array(count)].map((_, i) => addDays(from, i * 7)));
-      return json({ people: PEOPLE, members: await this.members(), absences: await this.absences(), events: await this.events(), polls: await this.polls(), surveys: await this.surveysFor(me), swapRequests: await this.swapRequests(), board: await this.board(), reactions: await this.reactions(), gami: await this.gami(), cleanerContact: await this.cleanerContact(), pushPrefs: ((await this.ctx.storage.get('pushprefs')) || {})[me] || {}, feedback: await this.feedbackFor(me), plants: await this.plants(), plantSits: await this.plantSits(), alarms: await this.alarms(), alarmSpots: await this.alarmSpots(), activity: await this.activity(), current, today: berlinNow().day, weeks });
+      return json({ people: PEOPLE, members: await this.members(), absences: await this.absences(), events: await this.events(), polls: await this.polls(), surveys: await this.surveysFor(me), swapRequests: await this.swapRequests(), board: await this.board(), reactions: await this.reactions(), gami: await this.gami(), cleanerContact: await this.cleanerContact(), pushPrefs: ((await this.ctx.storage.get('pushprefs')) || {})[me] || {}, feedback: await this.feedbackFor(me), plants: await this.plants(), plantSits: await this.plantSits(), alarms: await this.alarms(), alarmSpots: await this.alarmSpots(), activity: await this.activity(), laundry: await this.laundry(), parcels: await this.parcels(), wgInfo: me && !sandbox ? await this.wgInfo() : null, current, today: berlinNow().day, weeks });
     }
 
     if (path === '/check' && request.method === 'POST') {
@@ -1731,6 +1732,66 @@ export class Putzplan extends DurableObject {
       return json({ error: 'bad request' }, 400);
     }
 
+    // ---------- WG-Infos ----------
+    if (path === '/info/save' && request.method === 'POST') {
+      if (!me || sandbox) return json({ error: 'Bitte melde dich an.', auth: true }, 401);
+      const info = { wifiName: str(body.wifiName, 60), wifiPass: str(body.wifiPass, 100), notes: str(body.notes, 1500), by: me, at: Date.now() };
+      await this.ctx.storage.put('wginfo', info);
+      return json({ wgInfo: info });
+    }
+    // ---------- Waschmaschine ----------
+    if (path.startsWith('/laundry/') && request.method === 'POST') {
+      if (!me) return json({ error: 'Bitte melde dich an.', auth: true }, 401);
+      const l = await this.laundry();
+      if (l.run && !l.run.notified && l.run.end <= Date.now()) { await this.laundryFinish(l); }
+      if (path === '/laundry/start') {
+        if (l.run) return json({ error: `Die Maschine läuft gerade (${l.run.by}).` }, 400);
+        const minutes = Math.max(5, Math.min(300, parseInt(body.minutes, 10) || 0));
+        if (!parseInt(body.minutes, 10)) return json({ error: 'Wie lange läuft das Programm?' }, 400);
+        l.run = { by: me, start: Date.now(), end: Date.now() + minutes * 60e3, minutes };
+        l.queue = l.queue.filter((p) => p !== me);
+        await this.ctx.storage.put('laundry', l);
+        await this.ctx.storage.setAlarm(l.run.end);
+        await this.logAct('laundry', me, { minutes });
+      } else if (path === '/laundry/stop') {
+        if (!l.run) return json({ laundry: l });
+        if (l.run.by !== me) return json({ error: `Das kann nur ${l.run.by}.` }, 403);
+        if (body.cancel) { l.run = null; await this.ctx.storage.put('laundry', l); } else await this.laundryFinish(l, true);
+      } else if (path === '/laundry/queue') {
+        l.queue = l.queue.filter((p) => p !== me);
+        if (body.join) l.queue.push(me);
+        await this.ctx.storage.put('laundry', l);
+      } else return json({ error: 'bad request' }, 400);
+      return json({ laundry: await this.laundry() });
+    }
+    // ---------- Pakete ----------
+    if (path.startsWith('/parcel/') && request.method === 'POST') {
+      if (!me) return json({ error: 'Bitte melde dich an.', auth: true }, 401);
+      let list = await this.parcels();
+      const note = str(body.note, 120);
+      if (path === '/parcel/expect') {
+        const p = { id: rid(), type: 'expect', by: me, for: me, note, at: Date.now() };
+        list.unshift(p);
+        for (const x of PEOPLE) if (x !== me) await this.pushCat('parcel', x, async (lang, who) => { const L = pick(lang); return { title: L(`📦 Paket für ${me} kommt – bitte annehmen!`, `📦 A parcel for ${me} is coming – please accept it!`, `📦 Paket till ${me} är på väg – ta gärna emot!`), body: note ? await this.trFor(note, lang, who) : L('Falls du zuhause bist und es klingelt 🙏', "If you're home and the bell rings 🙏", 'Om du är hemma och det ringer 🙏'), url: '/#start' }; });
+        await this.logAct('parcel-expect', me, { title: note });
+      } else if (path === '/parcel/got') {
+        const forWhom = PEOPLE.includes(body.for) ? body.for : null;
+        if (!forWhom || forWhom === me) return json({ error: 'Für wen ist das Paket?' }, 400);
+        list = list.map((x) => (x.type === 'expect' && x.for === forWhom && !x.got ? { ...x, got: { by: me, at: Date.now() } } : x));
+        list.unshift({ id: rid(), type: 'got', by: me, for: forWhom, note, at: Date.now() });
+        await this.pushCat('parcel', forWhom, async (lang, who) => { const L = pick(lang); return { title: L(`📦 ${me} hat dein Paket angenommen`, `📦 ${me} accepted your parcel`, `📦 ${me} tog emot ditt paket`), body: note ? await this.trFor(note, lang, who) : L(`Hol es dir bei ${me} ab.`, `Pick it up from ${me}.`, `Hämta det hos ${me}.`), url: '/#start' }; });
+        await this.logAct('parcel-got', me, { for: forWhom, title: note });
+      } else if (path === '/parcel/picked') {
+        const x = list.find((y) => y.id === body.id);
+        if (!x || x.for !== me) return json({ error: 'Paket nicht gefunden.' }, 404);
+        x.picked = Date.now();
+      } else if (path === '/parcel/delete') {
+        list = list.filter((y) => !(y.id === body.id && y.by === me));
+      } else return json({ error: 'bad request' }, 400);
+      await this.ctx.storage.put('parcels', list.slice(0, 30));
+      return json({ parcels: await this.parcels() });
+    }
+
     // ---------- Alarmglocke ----------
     if (path.startsWith('/alarm/') && request.method === 'POST') {
       if (!me) return json({ error: 'Bitte melde dich an.', auth: true }, 401);
@@ -1894,7 +1955,7 @@ export class Putzplan extends DurableObject {
     if (await this.ctx.storage.get('guestSandbox')) return true;
     const main = this.env.PUTZPLAN.get(this.env.PUTZPLAN.idFromName('wg'));
     const data = await main.dumpAll();
-    const skip = (k) => /^(sess:|sub:|acct:|auth:|sent:|reacted:)/.test(k) || ['pushprefs', 'vapid', 'actlog'].includes(k);
+    const skip = (k) => /^(sess:|sub:|acct:|auth:|sent:|reacted:)/.test(k) || ['pushprefs', 'vapid', 'actlog', 'wginfo'].includes(k);
     const entries = Object.entries(data).filter(([k]) => !skip(k));
     for (let i = 0; i < entries.length; i += 100) await this.ctx.storage.put(Object.fromEntries(entries.slice(i, i + 100)));
     await this.ctx.storage.put('guestSandbox', { person: data.admin || 'Toni', at: Date.now() });
@@ -1903,7 +1964,36 @@ export class Putzplan extends DurableObject {
   }
   /** Gast-Kopien räumen sich nach einem Tag selbst weg */
   async alarm() {
-    if (await this.ctx.storage.get('guestSandbox')) await this.ctx.storage.deleteAll();
+    if (await this.ctx.storage.get('guestSandbox')) { await this.ctx.storage.deleteAll(); return; }
+    await this.laundryCheck();
+  }
+  // ---------- Waschmaschine ----------
+  async laundry() { return (await this.ctx.storage.get('laundry')) || { run: null, queue: [] }; }
+  /** Wäsche fertig: Push an die Person, die wäscht, und an alle, die sich als Nächste angemeldet haben */
+  async laundryFinish(l, early = false) {
+    const run = l.run;
+    if (!run || run.notified) return;
+    run.notified = true;
+    l.last = { by: run.by, end: Date.now() };
+    l.run = null;
+    await this.ctx.storage.put('laundry', l);
+    if (!early) await this.pushCat('laundry', run.by, (lang) => { const L = pick(lang); return { title: L('🧺 Deine Wäsche ist fertig!', '🧺 Your laundry is done!', '🧺 Din tvätt är klar!'), body: l.queue.length ? L(`Bitte ausräumen, ${l.queue[0]} wartet schon.`, `Please take it out, ${l.queue[0]} is waiting.`, `Plocka ur, ${l.queue[0]} väntar.`) : L('Ab auf die Leine damit 🙂', 'Time to hang it up 🙂', 'Dags att hänga upp 🙂'), url: '/#start' }; });
+    for (const [i, p] of l.queue.entries()) {
+      await this.pushCat('laundry', p, (lang) => { const L = pick(lang); return i === 0
+        ? { title: L('🧺 Waschmaschine ist fertig, du bist dran!', '🧺 The washing machine is done, your turn!', '🧺 Tvättmaskinen är klar, din tur!'), body: L(`${run.by}s Wäsche ist durch.`, `${run.by}'s laundry has finished.`, `${run.by}s tvätt är klar.`), url: '/#start' }
+        : { title: L('🧺 Waschmaschine ist fertig', '🧺 The washing machine is done', '🧺 Tvättmaskinen är klar'), body: L(`Vor dir ist noch: ${l.queue.slice(0, i).join(', ')}`, `Still ahead of you: ${l.queue.slice(0, i).join(', ')}`, `Före dig: ${l.queue.slice(0, i).join(', ')}`), url: '/#start' }; });
+    }
+    l.queue = l.queue.slice(1);
+    await this.ctx.storage.put('laundry', l);
+  }
+  async laundryCheck() {
+    const l = await this.laundry();
+    if (l.run && !l.run.notified && l.run.end <= Date.now() + 30e3) await this.laundryFinish(l);
+    else if (l.run && !l.run.notified) await this.ctx.storage.setAlarm(l.run.end);
+  }
+  // ---------- WG-Infos (WLAN usw.) – nur in den Daten, nie im Code ----------
+  async wgInfo() {
+    return { wifiName: '', wifiPass: '', notes: '', ...((await this.ctx.storage.get('wginfo')) || {}) };
   }
 
   // ---------- App-Umfrage ----------
@@ -1972,6 +2062,7 @@ export class Putzplan extends DurableObject {
   async runCron(now = new Date()) {
     const b = berlinNow(now);
     const done = [];
+    await this.laundryCheck();
     await this.runRecurring(b.day);
     // Wöchentliche automatische Sicherung (Sonntag ab 3 Uhr) in ein separates Backup-Objekt
     if (b.dow === 6 && b.hour >= 3 && !(await this.ctx.storage.get(`sent:backup:${b.day}`))) {
