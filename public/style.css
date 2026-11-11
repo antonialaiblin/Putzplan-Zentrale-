@@ -709,3 +709,10 @@ body.welcoming { overflow: hidden; }
 .laundry-card p, .parcel-card p { margin: 4px 0; }
 .wginfo a.button { text-decoration: none; color: #fff; display: inline-flex; align-items: center; }
 .wginfo a.button.ghost { color: var(--accent); }
+.card.emoji-tile { position: relative; display: flex; text-align: center; align-items: center; justify-content: center; min-height: 130px; cursor: pointer; padding: 10px; }
+.emoji-tile .emoji-big { font-size: 76px; line-height: 1; margin: 0 auto; }
+.emoji-tile:active { transform: scale(0.97); }
+.emoji-tile .emoji-badge { position: absolute; top: 10px; right: 10px; font-size: 13px; font-weight: 700; background: var(--accent-soft); color: var(--accent); border-radius: 999px; padding: 3px 9px; }
+.emoji-tile.alert .emoji-badge { background: var(--accent); color: #fff; }
+.laundry-status { margin-bottom: 12px; }
+.parcel-list { margin-bottom: 12px; padding-bottom: 6px; border-bottom: 1px solid var(--line); }

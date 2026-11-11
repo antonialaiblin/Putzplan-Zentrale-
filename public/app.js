@@ -1675,7 +1675,7 @@ const plural = (n, de1, deN, en1, enN, sv1, svN) => (n === 1 ? L(de1, en1, sv1) 
 const WIDGETS = {
   week: { de: 'Deine Woche', en: 'Your week', sv: 'Din vecka', size: 'w' },
   board: { de: 'Pinnwand', en: 'Pinboard', sv: 'Anslagstavla', size: 'w' },
-  plants: { de: 'Pflanzen gießen', en: 'Watering plants', sv: 'Vattna växter', size: 'w' },
+  plants: { de: 'Pflanzen gießen', en: 'Watering plants', sv: 'Vattna växter', size: 's' },
   activity: { de: 'Aktivitäten', en: 'Activity', sv: 'Aktivitet', size: 'w' },
   laundry: { de: 'Waschmaschine', en: 'Washing machine', sv: 'Tvättmaskin', size: 's' },
   parcel: { de: 'Pakete', en: 'Parcels', sv: 'Paket', size: 's' },
@@ -1723,6 +1723,9 @@ function homeLayout() {
       added = true;
     }
   }
+  // Pflanzen ist jetzt eine kleine Emoji-Kachel: einmalig verkleinern
+  const pl = ok && ok.find((x) => x.id === 'plants' && x.size === 'w');
+  if (pl && !store.get('plantsSmall')) { store.set('plantsSmall', '1'); pl.size = 's'; added = true; }
   if (added) setTimeout(() => saveHome(ok.map((x) => ({ ...x }))), 0);
   return ok && ok.length ? ok : DEFAULT_HOME;
 }
@@ -3015,21 +3018,15 @@ function plantRow(pl, opts = {}) {
     ${pl.note ? `<div class="small pl-note">📝 ${esc(tx(pl.note, pl.owner))}</div>` : ''}</div>
     <div class="pl-actions">${waterBtn(pl)}${opts.edit ? `<button type="button" class="ghost small" data-plant-edit="${esc(pl.id)}" aria-label="${L('Bearbeiten', 'Edit', 'Redigera')}">✏️</button>` : ''}</div></div>`;
 }
+function emojiTile(cls, attr, emoji, label, badge, alert) {
+  return `<div class="card __CLS__ emoji-tile ${cls}${alert ? ' alert' : ''}" ${attr} role="button" tabindex="0" aria-label="${esc(label)}"><span class="emoji-big" aria-hidden="true">${emoji}</span>${badge ? `<span class="emoji-badge">${badge}</span>` : ''}</div>`;
+}
 function plantsTile() {
   const me = state.me;
   const duties = myPlantDuties().filter((x) => x.mine && x.due <= state.today && x.pl.last !== state.today);
   const asks = (state.plantSits || []).filter((s) => s.asked.includes(me) && !s.accepted.includes(me) && !s.declined.includes(me) && s.to >= state.today);
-  const mine = (state.plants || []).filter((p) => p.owner === me);
-  const helping = activeSits().filter((s) => s.accepted.includes(me));
-  let body = '';
-  if (asks.length) body += asks.map((s) => `<p class="pl-ask">🪴 ${L(`<strong>${esc(s.owner)}</strong> fragt, ob du gießen kannst (${fmtDay(s.from)} – ${fmtDay(s.to)})`, `<strong>${esc(s.owner)}</strong> asks if you can water (${fmtDay(s.from)} – ${fmtDay(s.to)})`, `<strong>${esc(s.owner)}</strong> undrar om du kan vattna (${fmtDay(s.from)} – ${fmtDay(s.to)})`)}</p>`).join('');
-  if (duties.length) body += duties.map(({ pl }) => `<div class="pl-mini">${plantThumb(pl)}<span><strong>${esc(tx(pl.name, pl.owner))}</strong>${pl.owner !== me ? ` <span class="muted small">(${esc(pl.owner)})</span>` : ''}<br>${plantDueText(pl)}</span>${waterBtn(pl)}</div>`).join('');
-  else if (mine.length || helping.length) {
-    const next = myPlantDuties().filter((x) => x.mine && x.pl.last !== state.today)[0];
-    body += `<p>${L('Alles gegossen 🌿', 'All watered 🌿', 'Allt vattnat 🌿')}${next ? ` <span class="muted small">· ${L('als Nächstes', 'next', 'nästa')}: ${esc(tx(next.pl.name, next.pl.owner))}, ${fmtDay(next.due)}</span>` : ''}</p>`;
-  } else body += `<p class="muted">${L('Trag deine Pflanzen ein, dann erinnert dich die Zentrale ans Gießen.', 'Add your plants and the Zentrale will remind you to water them.', 'Lägg till dina växter så påminner Zentrale dig om att vattna.')}</p>`;
-  if (helping.length) body += `<p class="muted small">🌱 ${L('Du gießt gerade für', 'You are watering for', 'Du vattnar just nu åt')} ${helping.map((s) => esc(s.owner)).join(', ')}</p>`;
-  return `<div class="card __CLS__ plants-card" data-open-plants role="button" tabindex="0"><h3>🪴 ${L('Pflanzen', 'Plants', 'Växter')}</h3>${body}</div>`;
+  const n = duties.length + asks.length;
+  return emojiTile('plants-card', 'data-open-plants', '🪴', L('Pflanzen', 'Plants', 'Växter'), n ? `💧 ${n}` : '', n);
 }
 function openPlants() {
   renderPlants();
@@ -3365,10 +3362,18 @@ $('#wginfo').addEventListener('click', async (e) => {
 
 // ================= Waschmaschine =================
 function clockOf(ts) { return new Date(ts).toLocaleTimeString(locale(), { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Berlin' }); }
+function laundryRun() {
+  const l = state.laundry || { run: null, queue: [] };
+  return l.run && l.run.end > Date.now() - 60e3 ? l.run : null;
+}
 function laundryTile() {
+  const run = laundryRun();
+  return emojiTile('laundry-card', 'data-laundry-open', '🧺', L('Waschmaschine', 'Washing machine', 'Tvättmaskin'), run ? `⏳ ${clockOf(run.end)}` : '', false);
+}
+function laundryStatus() {
   const l = state.laundry || { run: null, queue: [] };
   const me = state.me;
-  const run = l.run && l.run.end > Date.now() - 60e3 ? l.run : null;
+  const run = laundryRun();
   const inQ = l.queue.includes(me);
   let body;
   if (run) {
@@ -3379,8 +3384,8 @@ function laundryTile() {
   if (l.queue.length) body += `<p class="small muted">${L('Als Nächstes', 'Next up', 'Näst på tur')}: ${l.queue.map(esc).join(', ')}</p>`;
   const btns = run
     ? (run.by === me ? `<button type="button" class="small ghost" data-laundry-stop>${L('Schon fertig', 'Already done', 'Redan klar')}</button>` : `<button type="button" class="small${inQ ? ' ghost' : ''}" data-laundry-queue="${inQ ? 0 : 1}">${inQ ? L('Abmelden', 'Leave queue', 'Lämna kön') : L('🙋 Ich bin als Nächste:r dran', "🙋 I'm next", '🙋 Jag är näst på tur')}</button>`)
-    : `<button type="button" class="small" data-laundry-start>▶️ ${L('Maschine starten', 'Start machine', 'Starta maskinen')}</button>${inQ ? `<button type="button" class="small ghost" data-laundry-queue="0">${L('Abmelden', 'Leave queue', 'Lämna kön')}</button>` : ''}`;
-  return `<div class="card __CLS__ laundry-card"><h3>🧺 ${L('Waschmaschine', 'Washing machine', 'Tvättmaskin')}</h3>${body}<div class="row tile-btns">${btns}</div></div>`;
+    : (inQ ? `<button type="button" class="small ghost" data-laundry-queue="0">${L('Abmelden', 'Leave queue', 'Lämna kön')}</button>` : '');
+  return `<div class="laundry-status">${body}${btns ? `<div class="row tile-btns">${btns}</div>` : ''}</div>`;
 }
 let laundryMins = 0;
 function openLaundry() {
@@ -3389,7 +3394,16 @@ function openLaundry() {
   $('#laundry-text').textContent = L('Wie lange läuft dein Programm? Wenn es fertig ist, bekommst du eine Benachrichtigung. Die anderen sehen, bis wann die Maschine belegt ist.', "How long is your programme? You'll get a notification when it's done. The others can see until when the machine is busy.", 'Hur länge går ditt program? Du får en notis när det är klart. De andra ser hur länge maskinen är upptagen.');
   $('#laundry-mins').innerHTML = [30, 45, 60, 90, 120, 150, 180].map((m) => `<button type="button" class="chip" data-mins="${m}" aria-pressed="false">${m >= 60 && m % 60 === 0 ? `${m / 60} h` : m > 60 ? `${Math.floor(m / 60)} h ${m % 60}` : `${m} Min.`}</button>`).join('');
   $('#laundry-custom').value = '';
+  renderLaundryDialog();
   $('#laundry-dialog').showModal();
+}
+function renderLaundryDialog() {
+  const run = laundryRun();
+  $('#laundry-title').textContent = run ? L('🧺 Waschmaschine', '🧺 Washing machine', '🧺 Tvättmaskin') : L('🧺 Waschmaschine starten', '🧺 Start the washing machine', '🧺 Starta tvättmaskinen');
+  $('#laundry-status').innerHTML = laundryStatus();
+  $('#laundry-start-box').hidden = !!run;
+  $('#laundry-go').hidden = !!run;
+  $('#laundry-close').textContent = run ? L('Schließen', 'Close', 'Stäng') : L('Abbrechen', 'Cancel', 'Avbryt');
 }
 $('#laundry-mins').addEventListener('click', (e) => {
   const b = e.target.closest('[data-mins]');
@@ -3407,18 +3421,27 @@ $('#laundry-form').addEventListener('submit', async (e) => {
 });
 
 // ================= Pakete =================
+function openParcels() {
+  const list = (state.parcels || []).filter((p) => !p.picked && !(p.type === 'expect' && p.got));
+  return list;
+}
 function parcelTile() {
   const me = state.me;
-  const list = (state.parcels || []).filter((p) => !p.picked && !(p.type === 'expect' && p.got));
-  const rows = list.slice(0, 3).map((p) => p.type === 'expect'
+  const list = openParcels();
+  const forMe = list.filter((p) => p.type === 'got' && p.for === me).length;
+  return emojiTile('parcel-card', 'data-parcel-open="list"', '📦', L('Pakete', 'Parcels', 'Paket'), forMe ? `🙌 ${forMe}` : list.length ? `🚚 ${list.length}` : '', forMe);
+}
+function parcelRows() {
+  const me = state.me;
+  return openParcels().map((p) => p.type === 'expect'
     ? `<p class="small">🚚 ${L(`Paket für <strong>${esc(p.for)}</strong> kommt`, `Parcel for <strong>${esc(p.for)}</strong> coming`, `Paket till <strong>${esc(p.for)}</strong> på väg`)}${p.note ? ` · ${esc(tx(p.note, p.by))}` : ''}${p.for !== me ? ` <button type="button" class="link small" data-parcel-got="${esc(p.for)}">${L('angenommen', 'accepted', 'mottaget')}</button>` : ` <button type="button" class="link small" data-parcel-del="${esc(p.id)}">✕</button>`}</p>`
     : `<p class="small">📦 ${L(`<strong>${esc(p.by)}</strong> hat ein Paket für <strong>${esc(p.for)}</strong>`, `<strong>${esc(p.by)}</strong> has a parcel for <strong>${esc(p.for)}</strong>`, `<strong>${esc(p.by)}</strong> har ett paket till <strong>${esc(p.for)}</strong>`)}${p.note ? ` · ${esc(tx(p.note, p.by))}` : ''}${p.for === me ? ` <button type="button" class="link small" data-parcel-picked="${esc(p.id)}">✅ ${L('abgeholt', 'picked up', 'hämtat')}</button>` : ''}</p>`).join('');
-  return `<div class="card __CLS__ parcel-card"><h3>📦 ${L('Pakete', 'Parcels', 'Paket')}</h3>${rows || `<p class="muted small">${L('Gerade nichts unterwegs.', 'Nothing on the way.', 'Inget på väg just nu.')}</p>`}
-    <div class="row tile-btns"><button type="button" class="small" data-parcel-open="expect">🚚 ${L('Kommt an', 'Coming', 'På väg')}</button><button type="button" class="small ghost" data-parcel-open="got">🙌 ${L('Angenommen', 'Accepted', 'Mottaget')}</button></div></div>`;
 }
 let parcelMode = 'expect';
 let parcelFor = '';
 function renderParcelForm() {
+  const rows = parcelRows();
+  $('#parcel-list').innerHTML = rows ? `<div class="parcel-list">${rows}</div>` : `<p class="muted small">${L('Gerade nichts unterwegs.', 'Nothing on the way.', 'Inget på väg just nu.')}</p>`;
   document.querySelectorAll('#parcel-mode [data-pmode]').forEach((b) => b.setAttribute('aria-checked', b.dataset.pmode === parcelMode));
   $('#parcel-for').hidden = parcelMode !== 'got';
   $('#parcel-for').innerHTML = state.people.filter((p) => p !== state.me).map((p) => `<button type="button" class="chip" data-pfor="${esc(p)}" aria-pressed="${parcelFor === p}">${esc(p)}</button>`).join('');
@@ -3431,18 +3454,18 @@ document.addEventListener('click', async (e) => {
   const t = e.target;
   if (state.editHome) return;
   try {
-    if (t.closest('[data-laundry-start]')) { openLaundry(); return; }
-    if (t.closest('[data-laundry-stop]')) { if (!confirm(L('Ist deine Wäsche schon fertig? Dann bekommt die nächste Person Bescheid.', 'Is your laundry done already? The next person will be notified.', 'Är din tvätt redan klar? Då får nästa person besked.'))) return; state.laundry = (await api('laundry/stop', {})).laundry; renderHome(); return; }
+    if (t.closest('[data-laundry-open]')) { openLaundry(); return; }
+    if (t.closest('[data-laundry-stop]')) { if (!confirm(L('Ist deine Wäsche schon fertig? Dann bekommt die nächste Person Bescheid.', 'Is your laundry done already? The next person will be notified.', 'Är din tvätt redan klar? Då får nästa person besked.'))) return; state.laundry = (await api('laundry/stop', {})).laundry; renderHome(); renderLaundryDialog(); return; }
     const q = t.closest('[data-laundry-queue]');
-    if (q) { state.laundry = (await api('laundry/queue', { join: q.dataset.laundryQueue === '1' })).laundry; renderHome(); if (q.dataset.laundryQueue === '1') toast(L('Du bekommst Bescheid, wenn die Maschine fertig ist 🧺', "You'll be notified when the machine is done 🧺", 'Du får besked när maskinen är klar 🧺')); return; }
+    if (q) { state.laundry = (await api('laundry/queue', { join: q.dataset.laundryQueue === '1' })).laundry; renderHome(); renderLaundryDialog(); if (q.dataset.laundryQueue === '1') toast(L('Du bekommst Bescheid, wenn die Maschine fertig ist 🧺', "You'll be notified when the machine is done 🧺", 'Du får besked när maskinen är klar 🧺')); return; }
     const po = t.closest('[data-parcel-open]');
-    if (po) { parcelMode = po.dataset.parcelOpen; parcelFor = ''; $('#parcel-note').value = ''; renderParcelForm(); $('#parcel-dialog').showModal(); return; }
+    if (po) { parcelMode = po.dataset.parcelOpen === 'got' ? 'got' : 'expect'; parcelFor = ''; $('#parcel-note').value = ''; renderParcelForm(); $('#parcel-dialog').showModal(); return; }
     const pg = t.closest('[data-parcel-got]');
-    if (pg) { parcelMode = 'got'; parcelFor = pg.dataset.parcelGot; $('#parcel-note').value = ''; renderParcelForm(); $('#parcel-dialog').showModal(); return; }
+    if (pg) { parcelMode = 'got'; parcelFor = pg.dataset.parcelGot; $('#parcel-note').value = ''; renderParcelForm(); if (!$('#parcel-dialog').open) $('#parcel-dialog').showModal(); return; }
     const pp = t.closest('[data-parcel-picked]');
-    if (pp) { state.parcels = (await api('parcel/picked', { id: pp.dataset.parcelPicked })).parcels; renderHome(); return; }
+    if (pp) { state.parcels = (await api('parcel/picked', { id: pp.dataset.parcelPicked })).parcels; renderHome(); renderParcelForm(); return; }
     const pd = t.closest('[data-parcel-del]');
-    if (pd) { state.parcels = (await api('parcel/delete', { id: pd.dataset.parcelDel })).parcels; renderHome(); }
+    if (pd) { state.parcels = (await api('parcel/delete', { id: pd.dataset.parcelDel })).parcels; renderHome(); renderParcelForm(); }
   } catch (err) { toast(err.message); }
 });
 $('#parcel-mode').addEventListener('click', (e) => { const b = e.target.closest('[data-pmode]'); if (!b) return; parcelMode = b.dataset.pmode; renderParcelForm(); });

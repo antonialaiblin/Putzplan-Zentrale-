@@ -486,15 +486,19 @@
   <dialog id="laundry-dialog">
     <form method="dialog" id="laundry-form">
       <h2 id="laundry-title">🧺 Waschmaschine starten</h2>
+      <div id="laundry-status"></div>
+      <div id="laundry-start-box">
       <p class="muted small" id="laundry-text">Wie lange läuft dein Programm? Wenn es fertig ist, bekommst du eine Benachrichtigung.</p>
       <div class="chips" id="laundry-mins"></div>
       <label class="field"><span id="laundry-custom-label">Oder Minuten eingeben</span><input type="number" id="laundry-custom" min="5" max="300" inputmode="numeric"></label>
-      <div class="row end"><button value="cancel" class="ghost" formnovalidate>Abbrechen</button><button value="ok" id="laundry-go">Starten</button></div>
+      </div>
+      <div class="row end"><button value="cancel" class="ghost" formnovalidate id="laundry-close">Abbrechen</button><button value="ok" id="laundry-go">Starten</button></div>
     </form>
   </dialog>
   <dialog id="parcel-dialog">
     <form method="dialog" id="parcel-form">
-      <h2 id="parcel-title">📦 Paket</h2>
+      <h2 id="parcel-title">📦 Pakete</h2>
+      <div id="parcel-list"></div>
       <div class="seg two-seg" id="parcel-mode" role="radiogroup">
         <button type="button" role="radio" data-pmode="expect" aria-checked="true">🚚 Paket für mich kommt</button>
         <button type="button" role="radio" data-pmode="got" aria-checked="false">🙌 Paket angenommen</button>
