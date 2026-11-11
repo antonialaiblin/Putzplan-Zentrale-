@@ -665,3 +665,14 @@ button.rules-btn { cursor: pointer; padding: 0; color: inherit; font-family: inh
 .row.two { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 .alarm-replies { display: flex; flex-wrap: wrap; gap: 6px; }
 .alarm-actions { flex-wrap: wrap; gap: 6px; }
+/* Aktivitäten */
+.act-list { max-height: 196px; overflow-y: auto; overscroll-behavior: contain; margin: 4px -4px 0; padding: 0 4px; -webkit-overflow-scrolling: touch; }
+.act-row { display: flex; gap: 10px; align-items: flex-start; padding: 8px 0; border-bottom: 1px solid var(--line); font-size: 14px; line-height: 1.35; }
+.act-row:last-child { border-bottom: 0; }
+.act-icon { font-size: 18px; width: 24px; text-align: center; flex: none; }
+.act-more { margin: 6px 0 0; text-align: center; }
+.spot-edit { width: 100%; }
+.spot-row { display: flex; gap: 6px; align-items: center; margin: 4px 0; }
+.spot-row input { flex: 1; min-width: 0; font: inherit; padding: 8px 10px; border-radius: 10px; border: 1px solid var(--line); background: var(--field, transparent); color: inherit; }
+.spot-row .spot-icon { flex: none; width: 52px; text-align: center; }
+.spot-edit-btn { flex-basis: 100%; text-align: left; margin-top: 4px; }

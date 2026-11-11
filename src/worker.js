@@ -362,6 +362,11 @@ export class Putzplan extends DurableObject {
     return (await this.ctx.storage.get('reactions')) || {};
   }
   /** Kleines Protokoll für den Report (Erinnerungen, Einkäufe) */
+  /** Aktivitäten-Feed: die letzten Einträge, neueste zuerst (Erinnerungen bleiben privat) */
+  async activity() {
+    const HIDE = new Set(['remind']);
+    return ((await this.ctx.storage.get('actlog')) || []).filter((a) => !HIDE.has(a.type)).slice(-150).reverse();
+  }
   async logAct(type, by, extra = {}) {
     const list = (await this.ctx.storage.get('actlog')) || [];
     list.push({ type, by, at: Date.now(), ...extra });
@@ -469,6 +474,9 @@ export class Putzplan extends DurableObject {
     return ((await this.ctx.storage.get('plantsits')) || []).filter((s) => s.to >= old);
   }
   // ---------- Alarmglocke ----------
+  async alarmSpots() {
+    return (await this.ctx.storage.get('alarmspots')) || [['🍳', 'Küche'], ['🚿', 'Bad vorne'], ['🛁', 'Bad hinten'], ['🚪', 'Flur'], ['🛋️', 'Wohnzimmer'], ['🗑️', 'Müll'], ['🧊', 'Kühlschrank']].map(([icon, name]) => ({ icon, name }));
+  }
   async alarms() { return ((await this.ctx.storage.get('alarms')) || []).filter((a) => Date.now() - a.at < 3 * 864e5); }
   async board() {
     const today = berlinNow().day;
@@ -532,6 +540,7 @@ export class Putzplan extends DurableObject {
     if (sandbox && path.startsWith('/auth/') && path !== '/auth/people') return json({ error: 'In der Gastansicht geht das nicht.' }, 403);
     // Alle (außer der Person selbst) bekommen eine Push, wenn sich in der Kasse etwas tut
     const notifyMoney = async (action, e, by) => {
+      await this.logAct(e.kind === 'settle' ? 'settle' : `money-${action}`, by || e.paidBy || null, { desc: e.desc, amount: e.amount, currency: e.currency || 'EUR', to: e.kind === 'settle' ? Object.keys(e.parts || {})[0] : undefined });
       const fmt = (l) => new Intl.NumberFormat(l === 'en' ? 'en-GB' : l === 'sv' ? 'sv-SE' : 'de-DE', { style: 'currency', currency: e.currency || 'EUR' }).format(e.amount / 100);
       const settle = e.kind === 'settle';
       const to = Object.keys(e.parts || {})[0];
@@ -731,9 +740,11 @@ export class Putzplan extends DurableObject {
           const others = (await accounts()).filter((a) => a.username !== target.username);
           if (!PEOPLE.includes(pend.person) || others.some((a) => a.person === pend.person)) return json({ error: `${pend.person} ist schon mit einem anderen Account verbunden.` }, 400);
           await this.ctx.storage.put(acctKey(target.username), { ...target, person: pend.person, pending: null });
+          await this.logAct('join', pend.person);
         } else {
           const err = await doJoin(target, pend);
           if (err) return json({ error: err }, 400);
+          await this.logAct('join', pend.name);
         }
         return list();
       }
@@ -808,7 +819,7 @@ export class Putzplan extends DurableObject {
       const from = validMonday(url.searchParams.get('from')) ? url.searchParams.get('from') : addDays(current, -7);
       const count = Math.min(Math.max(Number(url.searchParams.get('count')) || 12, 1), 30);
       const weeks = await this.weeks([...Array(count)].map((_, i) => addDays(from, i * 7)));
-      return json({ people: PEOPLE, members: await this.members(), absences: await this.absences(), events: await this.events(), polls: await this.polls(), surveys: await this.surveysFor(me), swapRequests: await this.swapRequests(), board: await this.board(), reactions: await this.reactions(), gami: await this.gami(), cleanerContact: await this.cleanerContact(), pushPrefs: ((await this.ctx.storage.get('pushprefs')) || {})[me] || {}, feedback: await this.feedbackFor(me), plants: await this.plants(), plantSits: await this.plantSits(), alarms: await this.alarms(), current, today: berlinNow().day, weeks });
+      return json({ people: PEOPLE, members: await this.members(), absences: await this.absences(), events: await this.events(), polls: await this.polls(), surveys: await this.surveysFor(me), swapRequests: await this.swapRequests(), board: await this.board(), reactions: await this.reactions(), gami: await this.gami(), cleanerContact: await this.cleanerContact(), pushPrefs: ((await this.ctx.storage.get('pushprefs')) || {})[me] || {}, feedback: await this.feedbackFor(me), plants: await this.plants(), plantSits: await this.plantSits(), alarms: await this.alarms(), alarmSpots: await this.alarmSpots(), activity: await this.activity(), current, today: berlinNow().day, weeks });
     }
 
     if (path === '/check' && request.method === 'POST') {
@@ -817,7 +828,14 @@ export class Putzplan extends DurableObject {
       const k = `check:${monday}:${key}`;
       if (done) await this.ctx.storage.put(k, { by: me || (PEOPLE.includes(by) ? by : null), at: Date.now() });
       else await this.ctx.storage.delete(k);
-      return json({ ...(await this.week(monday)), gami: await this.gami() });
+      const wk = await this.week(monday);
+      // Aktivität: ganzer Dienst erledigt (einmal pro Woche und Dienst)
+      const tk = wk.tasks.find((t) => key.startsWith(`${t.key}:`));
+      if (done && tk && tk.items.every((it) => wk.checks[`${tk.key}:${it.id}`]) && !(await this.ctx.storage.get(`actdone:${monday}:${tk.key}`))) {
+        await this.ctx.storage.put(`actdone:${monday}:${tk.key}`, 1);
+        await this.logAct('task', me, { task: tk.title, monday, key: tk.key });
+      }
+      return json({ ...wk, gami: await this.gami() });
     }
 
     // ---------- Reaktionen (Emoji auf erledigte Dienste und Pinnwand-Zettel) ----------
@@ -938,6 +956,7 @@ export class Putzplan extends DurableObject {
         }
         r.status = body.accept ? 'accepted' : 'declined';
         r.answeredAt = Date.now();
+        if (body.accept) await this.logAct('swap', r.to, { from: r.by, task: t.title });
         await this.pushCat('swap', r.by, (l) => {
           const L = pick(l);
           return body.accept
@@ -956,6 +975,7 @@ export class Putzplan extends DurableObject {
       ov.ausfall = !!value;
       const list = new Set((await this.ctx.storage.get('ausfaelle')) || []);
       if (ov.ausfall) list.add(monday); else list.delete(monday);
+      if (ov.ausfall) await this.logAct('ausfall', me, { monday });
       await this.ctx.storage.put('ausfaelle', [...list].sort());
       await this.ctx.storage.put(`ov:${monday}`, ov);
       const week = await this.week(monday);
@@ -984,6 +1004,7 @@ export class Putzplan extends DurableObject {
       ov.cleanerTime = typeof time === 'string' && /^\d{2}:\d{2}$/.test(time) ? time : '';
       ov.cleanerConfirmed = true;
       await this.ctx.storage.put(`ov:${monday}`, ov);
+      await this.logAct('cleaner', me || (PEOPLE.includes(by) ? by : null), { date: ov.cleanerDate, time: ov.cleanerTime });
       const week = await this.week(monday);
       if (!week.plannedCleaner) return json({ error: 'In dieser Woche ist keine Putzkraft geplant.' }, 400);
       for (const [p, m] of Object.entries(cleanerVisitMessages(week, PEOPLE.includes(by) ? by : null, await this.langs()))) await this.pushCat('cleaner', p, m);
@@ -1184,6 +1205,7 @@ export class Putzplan extends DurableObject {
       const until = addDays(mondayOf(day), 7);
       if (members.filter((x) => !x.until && x.name !== m.name).length < 1) return json({ error: 'Die letzte Person kann nicht ausziehen 😉' }, 400);
       await this.ctx.storage.put('members', members.map((x) => (x === m ? { ...x, until: until < x.since ? x.since : until, leftNote: body.checklist || null } : x)));
+      await this.logAct('leave', m.name, { until });
       // Benachrichtigungen dieser Person abmelden
       for (const [k, v] of await this.subscriptions()) if (v.person === m.name) await this.ctx.storage.delete(k);
       return json({ ok: true, until, members: await this.members() });
@@ -1208,6 +1230,7 @@ export class Putzplan extends DurableObject {
       const participants = names.map((n) => ({ name: n, ok: type !== 'urlaub' || n === by }));
       const ev = { id: rid(), type, title: str(body.title, 60), from, to, time: type !== 'urlaub' && isTime(body.time) ? body.time : '', note: str(body.note, 200), by, participants };
       await this.ctx.storage.put('events', [...(await this.events()), ev].sort((a, b) => (a.from + a.time < b.from + b.time ? -1 : 1)));
+      await this.logAct('event', by, { kind: type, title: ev.title, from, to });
       const when = (lang) => `${fmtD(from, lang)}${to !== from ? ` – ${fmtD(to, lang)}` : ''}${ev.time ? `${{ en: ' at', sv: ' kl.' }[lang] || ' um'} ${ev.time}` : ''}`;
       for (const p of participants) {
         if (p.name === by) continue;
@@ -1281,6 +1304,7 @@ export class Putzplan extends DurableObject {
       if (options.length < 1) return json({ error: 'Bitte mindestens einen Terminvorschlag mit Datum und Uhrzeit angeben.' }, 400);
       const poll = { id: rid(), title: str(body.title, 60) || 'WG-Meeting', note: str(body.note, 200), by, options, votes: by ? { [by]: Object.fromEntries(options.map((o) => [o.id, 'yes'])) } : {}, status: 'open', at: Date.now() };
       await this.ctx.storage.put('polls', [...(await this.polls()), poll]);
+      await this.logAct('poll', by, { title: poll.title });
       for (const p of PEOPLE) {
         if (p !== by) {
           await this.pushCat('cal', p, (lang) => {
@@ -1336,6 +1360,7 @@ export class Putzplan extends DurableObject {
         if (opts.length < 2) return json({ error: 'Bitte mindestens zwei Antworten angeben.' }, 400);
         const s = { id: rid(), question, options: opts.map((t) => ({ id: rid() + Math.random().toString(36).slice(2, 5), text: t })), multi: !!body.multi, anon: !!body.anon, by, votes: {}, status: 'open', at: Date.now() };
         list.push(s);
+        await this.logAct('survey', by, { title: question });
         for (const p of PEOPLE) {
           if (p === by) continue;
           await this.pushCat('board', p, async (l, who) => { const q = await this.trFor(question, l, who); return (l === 'en'
@@ -1391,6 +1416,7 @@ export class Putzplan extends DurableObject {
       if (!name) return json({ error: 'Was soll eingekauft werden?' }, 400);
       const id = newId();
       await this.ctx.storage.put(`shop:${id}`, { id, name, cat, by: PEOPLE.includes(body.by) ? body.by : null, at: Date.now() });
+      await this.logAct('shop', me || (PEOPLE.includes(body.by) ? body.by : null), { title: name });
       return json(await this.shop());
     }
     if (path === '/shop/categories' && request.method === 'POST') {
@@ -1416,7 +1442,7 @@ export class Putzplan extends DurableObject {
       if (item) {
         await this.ctx.storage.delete(key);
         await this.bump(body.by, 'bought');
-        if (PEOPLE.includes(body.by)) await this.logAct('bought', body.by);
+        if (PEOPLE.includes(body.by)) await this.logAct('bought', body.by, { title: item.name });
         // Optional direkt als Ausgabe in die WG-Kasse
         const amount = parseEuro(body.price);
         if (amount && PEOPLE.includes(body.by)) {
@@ -1553,6 +1579,7 @@ export class Putzplan extends DurableObject {
         if (pl.last === today) return json({ error: `${pl.name} wurde heute schon gegossen${pl.lastBy ? ` (von ${pl.lastBy})` : ''}.` }, 400);
         pl.prev = { last: pl.last, lastBy: pl.lastBy || null, lastAt: pl.lastAt || null };
         Object.assign(pl, { last: today, lastBy: me, lastAt: Date.now() });
+        await this.logAct('water', me, { title: pl.name, owner: pl.owner });
         if (pl.owner !== me) {
           await this.bump(me, 'plants');
           await this.pushCat('plants', pl.owner, (l) => ({ title: pick(l)(`💧 ${me} hat deine ${pl.name} gegossen`, `💧 ${me} watered your ${pl.name}`, `💧 ${me} vattnade din ${pl.name}`), body: pick(l)('Danke-Reaktion nicht vergessen 🙏', "Don't forget to say thanks 🙏", 'Glöm inte att tacka 🙏'), url: '/#pflanzen' }));
@@ -1584,6 +1611,7 @@ export class Putzplan extends DurableObject {
         sit.accepted = sit.accepted.filter((p) => p !== me);
         sit.declined = sit.declined.filter((p) => p !== me);
         (body.yes ? sit.accepted : sit.declined).push(me);
+        if (body.yes && !was) await this.logAct('sit', me, { owner: sit.owner, from: sit.from, to: sit.to });
         if (body.yes && !was) {
           await this.pushCat('plants', sit.owner, (l) => ({ title: pick(l)(`🌱 ${me} gießt deine Pflanzen`, `🌱 ${me} will water your plants`, `🌱 ${me} vattnar dina växter`), body: pick(l)(`${fmtD(sit.from, 'de')} bis ${fmtD(sit.to, 'de')}: ${nameList(sit.plants, l)}`, `${fmtD(sit.from, 'en')} to ${fmtD(sit.to, 'en')}: ${nameList(sit.plants, l)}`, `${fmtD(sit.from, 'sv')} till ${fmtD(sit.to, 'sv')}: ${nameList(sit.plants, l)}`), url: '/#pflanzen' }));
         } else if (!body.yes && (was || sit.declined.length === sit.asked.length)) {
@@ -1613,6 +1641,13 @@ export class Putzplan extends DurableObject {
     if (path.startsWith('/alarm/') && request.method === 'POST') {
       if (!me) return json({ error: 'Bitte melde dich an.', auth: true }, 401);
       const all = (await this.ctx.storage.get('alarms')) || [];
+      // Orte für die Alarmglocke: alle dürfen sie bearbeiten
+      if (path === '/alarm/spots') {
+        const spots = (Array.isArray(body.spots) ? body.spots : []).slice(0, 20)
+          .map((x) => ({ icon: [...str(x?.icon, 16)].slice(0, 2).join('') || '📍', name: str(x?.name, 30) })).filter((x) => x.name);
+        await this.ctx.storage.put('alarmspots', spots);
+        return json({ alarmSpots: spots });
+      }
       if (path === '/alarm/ring') {
         const text = str(body.text, 200);
         const where = str(body.where, 30);
@@ -1626,7 +1661,7 @@ export class Putzplan extends DurableObject {
           if (p === me) continue;
           await this.pushCat('alarm', p, async (l, who) => ({ title: await (async () => { const wh = where ? `: ${await this.trFor(where, l, who)}` : ''; return pick(l)(`🔔 Alarm von ${me}${wh}`, `🔔 Alarm from ${me}${wh}`, `🔔 Larm från ${me}${wh}`); })(), body: text ? await this.trFor(text, l, who) : pick(l)('Hier sieht es aus wie im Saustall 🐷', 'It looks like a pigsty here 🐷', 'Det ser ut som en svinstia här 🐷'), url: '/#start' }));
         }
-        await this.logAct('alarm', me, { where });
+        await this.logAct('alarm', me, { where, title: text });
         return json({ alarms: await this.alarms() });
       }
       const a = all.find((x) => x.id === body.id);
@@ -1636,7 +1671,7 @@ export class Putzplan extends DurableObject {
         const kind = ['mine', 'onit', 'done'].includes(body.kind) ? body.kind : null;
         if (!kind) return json({ error: 'bad request' }, 400);
         a.replies = (a.replies || []).filter((r) => !(r.by === me && r.kind === kind));
-        if (!body.undo) a.replies.push({ by: me, kind, at: Date.now() });
+        if (!body.undo) { a.replies.push({ by: me, kind, at: Date.now() }); await this.logAct('alarm-reply', me, { kind, from: a.by, where: a.where }); }
         await this.ctx.storage.put('alarms', all);
         if (!body.undo && a.by !== me) {
           await this.pushCat('alarm', a.by, (l) => {
@@ -1670,6 +1705,7 @@ export class Putzplan extends DurableObject {
         const id = rid();
         if (photo) await this.ctx.storage.put(`boardphoto:${id}`, photo);
         if (by) await this.bump(by, 'notes');
+        await this.logAct('note', by, { title: text.slice(0, 80), photo: !!photo });
         list.unshift({ id, text, color, by, at: Date.now(), tilt: Math.round((Math.random() * 6 - 3) * 10) / 10, ...(expires ? { expires } : {}), ...(photo ? { photo: true } : {}) });
         // Abgelaufene und zu alte Zettel samt Fotos wegräumen
         const all = (await this.ctx.storage.get('board')) || [];

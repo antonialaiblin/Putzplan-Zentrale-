@@ -284,6 +284,8 @@ async function load() {
   state.plants = data.plants || [];
   state.plantSits = data.plantSits || [];
   state.alarms = data.alarms || [];
+  state.alarmSpots = data.alarmSpots || [];
+  state.activity = data.activity || [];
   state.today = data.today;
   state.current = data.current;
   if (state.me && !state.people.includes(state.me)) { state.me = null; store.set('me', ''); }
@@ -1636,6 +1638,7 @@ const WIDGETS = {
   week: { de: 'Deine Woche', en: 'Your week', sv: 'Din vecka', size: 'w' },
   board: { de: 'Pinnwand', en: 'Pinboard', sv: 'Anslagstavla', size: 'w' },
   plants: { de: 'Pflanzen gießen', en: 'Watering plants', sv: 'Vattna växter', size: 'w' },
+  activity: { de: 'Aktivitäten', en: 'Activity', sv: 'Aktivitet', size: 'w' },
   plan: { de: 'Putzplan', en: 'Cleaning', sv: 'Städning', size: 's' },
   shop: { de: 'Einkauf', en: 'Shopping', sv: 'Handla', size: 's' },
   money: { de: 'Kasse', en: 'Money', sv: 'Kassa', size: 's' },
@@ -1661,19 +1664,23 @@ const SHORTCUTS = {
   note: { icon: '📌', de: 'Zettel anpinnen', en: 'Pin a note', sv: 'Sätt upp en lapp' },
   invite: { icon: '➕', de: 'Mitglied einladen', en: 'Invite member', sv: 'Bjud in medlem' },
 };
-const DEFAULT_HOME = ['week', 'plants', 'ranking', 'badges', 'board', 'plan', 'shop', 'money', 'cal', 'meetings'].map((id) => ({ id, size: WIDGETS[id].size }));
+const DEFAULT_HOME = ['week', 'activity', 'plants', 'ranking', 'badges', 'board', 'plan', 'shop', 'money', 'cal', 'meetings'].map((id) => ({ id, size: WIDGETS[id].size }));
 const widgetName = (id) => (id.startsWith('sc:') ? L(SHORTCUTS[id.slice(3)]?.de || id, SHORTCUTS[id.slice(3)]?.en || id, SHORTCUTS[id.slice(3)]?.sv || id) : L(WIDGETS[id]?.de || id, WIDGETS[id]?.en || id, WIDGETS[id]?.sv || id));
 function homeLayout() {
   if (state.homeDraft) return state.homeDraft;
   const saved = memberOf(state.me)?.home;
   const ok = Array.isArray(saved) ? saved.filter((x) => WIDGETS[x.id] || (x.id.startsWith('sc:') && SHORTCUTS[x.id.slice(3)])) : null;
   // Neue Pflanzen-Kachel einmalig auch in schon angepasste Übersichten einfügen
-  if (ok && ok.length && !ok.some((x) => x.id === 'plants') && !store.get('plantsTile')) {
-    store.set('plantsTile', '1');
-    const i = ok.findIndex((x) => x.id === 'week');
-    ok.splice(i + 1, 0, { id: 'plants', size: 'w' });
-    setTimeout(() => saveHome(ok.map((x) => ({ ...x }))), 0);
+  let added = false;
+  for (const id of ['plants', 'activity']) {
+    if (ok && ok.length && !ok.some((x) => x.id === id) && !store.get(`${id}Tile`)) {
+      store.set(`${id}Tile`, '1');
+      const i = ok.findIndex((x) => x.id === 'week');
+      ok.splice(i + 1, 0, { id, size: 'w' });
+      added = true;
+    }
   }
+  if (added) setTimeout(() => saveHome(ok.map((x) => ({ ...x }))), 0);
   return ok && ok.length ? ok : DEFAULT_HOME;
 }
 async function saveHome(layout) {
@@ -1899,6 +1906,7 @@ function renderHome() {
       <button type="button" class="report-btn" data-report>📊 ${L('Report ansehen', 'View report', 'Visa rapport')}</button></div>`;
   }
   tiles.plants = plantsTile();
+  tiles.activity = activityTile();
   renderAlarms();
   tiles.rules = `<a class="card __CLS__" href="#regeln"><h3>${L('Hausregeln', 'House rules', `Husregler`)}</h3><p>${L('Mission Haussegen 📜 Alles zum WG-Seelenfrieden', 'Mission Haussegen 📜 Everything for peace in the flat', `Mission Haussegen 📜 Allt för husfriden`)}</p></a>`;
   Object.assign(tiles, extraTiles(w));
@@ -3080,27 +3088,54 @@ document.addEventListener('click', async (e) => {
 });
 
 // ================= Alarmglocke =================
-const ALARM_SPOTS = () => [['Küche', '🍳', L('Küche', 'Kitchen', 'Kök')], ['Bad vorne', '🚿', L('Bad vorne', 'Front bath', 'Främre badrum')], ['Bad hinten', '🛁', L('Bad hinten', 'Back bath', 'Bakre badrum')], ['Flur', '🚪', L('Flur', 'Hallway', 'Hall')], ['Wohnzimmer', '🛋️', L('Wohnzimmer', 'Living room', 'Vardagsrum')], ['Müll', '🗑️', L('Müll', 'Rubbish', 'Sopor')], ['Kühlschrank', '🧊', L('Kühlschrank', 'Fridge', 'Kylskåp')]];
 let alarmWhere = '';
+let alarmEditing = false;
+function renderAlarmSpots() {
+  const box = $('#alarm-where');
+  if (alarmEditing) {
+    box.innerHTML = `<div class="spot-edit">${(state.alarmSpotsDraft || []).map((x, i) => `<div class="spot-row"><input class="spot-icon" data-spot-icon="${i}" value="${esc(x.icon)}" maxlength="4" aria-label="Emoji"><input data-spot-name="${i}" value="${esc(x.name)}" maxlength="30" aria-label="Name"><button type="button" class="ghost small" data-spot-del="${i}" aria-label="${L('Entfernen', 'Remove', 'Ta bort')}">✕</button></div>`).join('')}
+      <div class="row"><button type="button" class="ghost small" data-spot-add>+ ${L('Ort hinzufügen', 'Add place', 'Lägg till plats')}</button><button type="button" class="small" data-spot-save>${L('Speichern', 'Save', 'Spara')}</button></div></div>`;
+    return;
+  }
+  box.innerHTML = (state.alarmSpots || []).map((x) => `<button type="button" class="chip" data-alarm-where="${esc(x.name)}" aria-pressed="${alarmWhere === x.name}">${esc(x.icon)} ${esc(tx(x.name, null))}</button>`).join('')
+    + `<button type="button" class="chip" data-alarm-where="__other" aria-pressed="${alarmWhere === '__other'}">✍️ ${L('Sonstiges …', 'Other …', 'Annat …')}</button>`
+    + `<button type="button" class="link small spot-edit-btn" data-spot-edit>✏️ ${L('Orte bearbeiten', 'Edit places', 'Redigera platser')}</button>`;
+  $('#alarm-other-wrap').hidden = alarmWhere !== '__other';
+}
 function openAlarm() {
-  alarmWhere = '';
-  $('#alarm-where').innerHTML = ALARM_SPOTS().map(([k, i, n]) => `<button type="button" class="chip" data-alarm-where="${esc(k)}" aria-pressed="false">${i} ${esc(n)}</button>`).join('');
+  alarmWhere = ''; alarmEditing = false;
   $('#alarm-text').value = '';
+  $('#alarm-other').value = '';
+  renderAlarmSpots();
   $('#alarm-dialog').showModal();
 }
-$('#alarm-where').addEventListener('click', (e) => {
+$('#alarm-where').addEventListener('input', (e) => {
+  const i = e.target.dataset.spotIcon ?? e.target.dataset.spotName;
+  if (i === undefined) return;
+  state.alarmSpotsDraft[i][e.target.dataset.spotIcon !== undefined ? 'icon' : 'name'] = e.target.value;
+});
+$('#alarm-where').addEventListener('click', async (e) => {
+  if (e.target.closest('[data-spot-edit]')) { alarmEditing = true; state.alarmSpotsDraft = (state.alarmSpots || []).map((x) => ({ ...x })); $('#alarm-other-wrap').hidden = true; renderAlarmSpots(); return; }
+  if (e.target.closest('[data-spot-add]')) { state.alarmSpotsDraft.push({ icon: '📍', name: '' }); renderAlarmSpots(); $('#alarm-where').querySelector(`[data-spot-name="${state.alarmSpotsDraft.length - 1}"]`)?.focus(); return; }
+  const del = e.target.closest('[data-spot-del]');
+  if (del) { state.alarmSpotsDraft.splice(Number(del.dataset.spotDel), 1); renderAlarmSpots(); return; }
+  if (e.target.closest('[data-spot-save]')) {
+    try { state.alarmSpots = (await api('alarm/spots', { spots: state.alarmSpotsDraft })).alarmSpots; alarmEditing = false; renderAlarmSpots(); toast(L('Orte gespeichert', 'Places saved', 'Platser sparade')); } catch (err) { toast(err.message); }
+    return;
+  }
   const b = e.target.closest('[data-alarm-where]');
   if (!b) return;
   alarmWhere = alarmWhere === b.dataset.alarmWhere ? '' : b.dataset.alarmWhere;
-  $('#alarm-where').querySelectorAll('[data-alarm-where]').forEach((x) => x.setAttribute('aria-pressed', x.dataset.alarmWhere === alarmWhere));
+  renderAlarmSpots();
+  if (alarmWhere === '__other') $('#alarm-other').focus();
 });
 $('#alarm-btn').onclick = openAlarm;
 $('#alarm-form').addEventListener('submit', async (e) => {
   if (e.submitter?.value !== 'ok') return;
   e.preventDefault();
-  const spot = ALARM_SPOTS().find(([k]) => k === alarmWhere);
+  const where = alarmWhere === '__other' ? $('#alarm-other').value.trim() : alarmWhere;
   try {
-    const r = await api('alarm/ring', { where: spot ? spot[2] : '', text: $('#alarm-text').value });
+    const r = await api('alarm/ring', { where, text: $('#alarm-text').value });
     state.alarms = r.alarms;
     $('#alarm-dialog').close();
     renderHome();
@@ -3135,3 +3170,51 @@ document.addEventListener('click', async (e) => {
     if (h && !undo) toast(L('Danke! 💪', 'Thanks! 💪', 'Tack! 💪'));
   } catch (err) { toast(err.message); }
 });
+
+// ================= Aktivitäten =================
+function actTime(ts) {
+  const d = new Date(ts);
+  const day = d.toLocaleDateString('sv-SE', { timeZone: 'Europe/Berlin' });
+  const time = d.toLocaleTimeString(locale(), { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Berlin' });
+  if (day === state.today) return `${L('heute', 'today', 'idag')} ${time}`;
+  if (day === addDays(state.today, -1)) return `${L('gestern', 'yesterday', 'igår')} ${time}`;
+  return `${fmtDay(day)} ${time}`;
+}
+function actText(a) {
+  const by = `<strong>${esc(a.by || L('Jemand', 'Someone', 'Någon'))}</strong>`;
+  const q = (t, who = a.by) => `„${esc(tx(t || '', who))}“`;
+  const money = () => new Intl.NumberFormat(locale(), { style: 'currency', currency: a.currency || 'EUR' }).format((a.amount || 0) / 100);
+  const range = () => (a.from ? `${fmtDay(a.from)}${a.to && a.to !== a.from ? ` – ${fmtDay(a.to)}` : ''}` : '');
+  switch (a.type) {
+    case 'task': return ['✅', L(`${by} hat ${q(T(a.task), null)} erledigt`, `${by} finished ${q(T(a.task), null)}`, `${by} har klarat ${q(T(a.task), null)}`)];
+    case 'join': return ['🎉', L(`${by} ist der Zentrale beigetreten`, `${by} joined the Zentrale`, `${by} gick med i Zentrale`)];
+    case 'leave': return ['👋', L(`${by} zieht aus`, `${by} is moving out`, `${by} flyttar ut`)];
+    case 'alarm': return ['🔔', L(`${by} hat Alarm ausgelöst`, `${by} rang the alarm`, `${by} slog larm`) + (a.where ? ` (${esc(tx(a.where, a.by))})` : '') + (a.title ? `: ${q(a.title)}` : '')];
+    case 'alarm-reply': return [{ mine: '🙈', onit: '🙋', done: '✨' }[a.kind] || '🔔', { mine: L(`${by}: „Ich war's“ (Alarm von ${esc(a.from)})`, `${by}: "It was me" (alarm from ${esc(a.from)})`, `${by}: "Det var jag" (larm från ${esc(a.from)})`), onit: L(`${by} kümmert sich um den Alarm von ${esc(a.from)}`, `${by} is handling ${esc(a.from)}'s alarm`, `${by} tar hand om larmet från ${esc(a.from)}`), done: L(`${by} hat den Alarm von ${esc(a.from)} erledigt`, `${by} resolved ${esc(a.from)}'s alarm`, `${by} har löst larmet från ${esc(a.from)}`) }[a.kind] || ''];
+    case 'money-add': return ['💶', L(`${by} hat eine Ausgabe eingetragen: ${q(a.desc)} ${money()}`, `${by} added an expense: ${q(a.desc)} ${money()}`, `${by} lade till en utgift: ${q(a.desc)} ${money()}`)];
+    case 'money-edit': return ['✏️', L(`${by} hat die Ausgabe ${q(a.desc)} geändert (${money()})`, `${by} edited the expense ${q(a.desc)} (${money()})`, `${by} ändrade utgiften ${q(a.desc)} (${money()})`)];
+    case 'money-delete': return ['🗑️', L(`${by} hat die Ausgabe ${q(a.desc)} gelöscht (${money()})`, `${by} deleted the expense ${q(a.desc)} (${money()})`, `${by} tog bort utgiften ${q(a.desc)} (${money()})`)];
+    case 'settle': return ['🤝', L(`${by} hat eine Rückzahlung eingetragen${a.to ? ` an ${esc(a.to)}` : ''}: ${money()}`, `${by} recorded a payment${a.to ? ` to ${esc(a.to)}` : ''}: ${money()}`, `${by} registrerade en återbetalning${a.to ? ` till ${esc(a.to)}` : ''}: ${money()}`)];
+    case 'shop': return ['📝', L(`${by} hat ${q(a.title)} auf die Einkaufsliste gesetzt`, `${by} added ${q(a.title)} to the shopping list`, `${by} lade till ${q(a.title)} på inköpslistan`)];
+    case 'bought': return ['🛒', a.title ? L(`${by} hat ${q(a.title)} gekauft`, `${by} bought ${q(a.title)}`, `${by} köpte ${q(a.title)}`) : L(`${by} hat etwas von der Einkaufsliste gekauft`, `${by} bought something from the list`, `${by} köpte något från listan`)];
+    case 'note': return ['📌', a.photo ? L(`${by} hat ein Foto an die Pinnwand gehängt`, `${by} pinned a photo to the board`, `${by} satte upp ett foto`) : L(`${by} hat einen Zettel an die Pinnwand gehängt`, `${by} pinned a note to the board`, `${by} satte upp en lapp`) + (a.title ? `: ${q(a.title)}` : '')];
+    case 'survey': return ['🗳️', L(`${by} hat eine Umfrage gestartet: ${q(a.title)}`, `${by} started a poll: ${q(a.title)}`, `${by} startade en omröstning: ${q(a.title)}`)];
+    case 'poll': return ['🗓️', L(`${by} sucht einen Termin fürs WG-Meeting`, `${by} is looking for a meeting date`, `${by} letar efter en tid för husmöte`)];
+    case 'event': return a.kind === 'urlaub' ? ['🏖️', L(`${by} hat Urlaub eingetragen (${range()})`, `${by} added a holiday (${range()})`, `${by} lade in semester (${range()})`)]
+      : a.kind === 'meeting' ? ['🗣️', L(`${by} hat ein WG-Meeting eingetragen (${range()})`, `${by} scheduled a flat meeting (${range()})`, `${by} lade in ett husmöte (${range()})`)]
+        : ['📅', L(`${by} hat einen Termin eingetragen`, `${by} added an event`, `${by} lade in en händelse`) + (a.title ? `: ${q(a.title)}` : '') + ` (${range()})`];
+    case 'swap': return ['🔁', L(`${by} übernimmt ${q(T(a.task), null)} von ${esc(a.from)}`, `${by} takes over ${q(T(a.task), null)} from ${esc(a.from)}`, `${by} tar över ${q(T(a.task), null)} från ${esc(a.from)}`)];
+    case 'ausfall': return ['🚫', L(`${by} hat die Putzkraft für diese Woche abgesagt`, `${by} cancelled the cleaner this week`, `${by} ställde in städhjälpen den här veckan`)];
+    case 'cleaner': return ['🧹', L(`${by} hat den Putzkraft-Termin eingetragen: ${fmtDay(a.date)}${a.time ? ` ${a.time}` : ''}`, `${by} set the cleaner date: ${fmtDay(a.date)}${a.time ? ` ${a.time}` : ''}`, `${by} bokade städhjälpen: ${fmtDay(a.date)}${a.time ? ` ${a.time}` : ''}`)];
+    case 'water': return ['💧', a.owner && a.owner !== a.by ? L(`${by} hat ${q(a.title, a.owner)} von ${esc(a.owner)} gegossen`, `${by} watered ${esc(a.owner)}'s ${q(a.title, a.owner)}`, `${by} vattnade ${esc(a.owner)}s ${q(a.title, a.owner)}`) : L(`${by} hat ${q(a.title)} gegossen`, `${by} watered ${q(a.title)}`, `${by} vattnade ${q(a.title)}`)];
+    case 'sit': return ['🌱', L(`${by} gießt für ${esc(a.owner)} (${range()})`, `${by} is watering for ${esc(a.owner)} (${range()})`, `${by} vattnar åt ${esc(a.owner)} (${range()})`)];
+    default: return null;
+  }
+}
+function activityTile() {
+  const rows = (state.activity || []).map((a) => ({ a, t: actText(a) })).filter((x) => x.t && x.t[1]);
+  return `<div class="card __CLS__ activity-card"><h3>📜 ${L('Aktivitäten', 'Activity', 'Aktivitet')}</h3>
+    ${rows.length ? `<div class="act-list">${rows.map(({ a, t }) => `<div class="act-row"><span class="act-icon">${t[0]}</span><div><div>${t[1]}</div><div class="muted small">${actTime(a.at)}</div></div></div>`).join('')}</div>
+    ${rows.length > 3 ? `<p class="muted small act-more">↓ ${L('Im Feld scrollen für die ganze Historie', 'Scroll in the box for the full history', 'Scrolla i rutan för hela historiken')}</p>` : ''}`
+    : `<p class="muted">${L('Noch nichts passiert. Sobald jemand etwas macht, steht es hier.', "Nothing yet. As soon as someone does something, it shows up here.", 'Inget än. Så fort någon gör något syns det här.')}</p>`}</div>`;
+}
