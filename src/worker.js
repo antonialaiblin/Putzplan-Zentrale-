@@ -2096,7 +2096,7 @@ export class Putzplan extends DurableObject {
   /** Push nur, wenn die Person diesen Bereich nicht in den Einstellungen abgeschaltet hat */
   async pushCat(cat, person, message) {
     const prefs = (await this.ctx.storage.get('pushprefs')) || {};
-    if (prefs[person]?.[cat] === false) return 0;
+    if (cat !== 'alarm' && prefs[person]?.[cat] === false) return 0; // Alarmglocke lässt sich nicht abschalten
     return this.pushToPerson(person, message);
   }
   async pushToPerson(person, message) {

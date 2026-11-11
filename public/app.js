@@ -2858,7 +2858,7 @@ function PUSH_CATS() { return [
   ['cal', L('📅 Kalender, Urlaub & WG-Meetings', '📅 Calendar, holidays & meetings', '📅 Kalender, semester & husmöten')],
   ['people', L('🎂 Geburtstage & neue Mitbewohner:innen', '🎂 Birthdays & new flatmates', '🎂 Födelsedagar & nya i kollektivet')],
   ['plants', L('🪴 Pflanzen gießen & Gießvertretung', '🪴 Watering plants & watering help', '🪴 Vattna växter & vattningshjälp')],
-  ['alarm', L('🔔 Alarmglocke', '🔔 Alarm bell', '🔔 Larmklocka')],
+  ['alarm', L('🔔 Alarmglocke (immer an)', '🔔 Alarm bell (always on)', '🔔 Larmklocka (alltid på)')],
   ['laundry', L('🧺 Waschmaschine (deine Wäsche fertig / du bist dran)', '🧺 Washing machine (your laundry done / your turn)', '🧺 Tvättmaskin (din tvätt klar / din tur)')],
   ['parcel', L('📦 Pakete', '📦 Parcels', '📦 Paket')],
   ['meal', L('🍝 Wer isst mit? / Wer kocht mit?', '🍝 Who is eating? / Who is cooking?', '🍝 Vem äter med? / Vem lagar med?')],
@@ -2870,7 +2870,7 @@ function renderPushPrefs() {
   const box = $('#push-prefs');
   if (!box) return;
   const p = state.pushPrefs || {};
-  box.innerHTML = PUSH_CATS().map(([k, label]) => `<label class="check-row pp-row"><input type="checkbox" data-pp="${k}" ${p[k] === false ? '' : 'checked'}> <span>${label}</span></label>`).join('');
+  box.innerHTML = PUSH_CATS().map(([k, label]) => `<label class="check-row pp-row"><input type="checkbox" data-pp="${k}" ${k === 'alarm' || p[k] !== false ? 'checked' : ''}${k === 'alarm' ? ' disabled' : ''}> <span>${label}</span></label>`).join('');
 }
 document.addEventListener('change', async (e) => {
   const c = e.target.closest('[data-pp], #set-translate');
