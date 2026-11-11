@@ -580,12 +580,20 @@
   </dialog>
   <dialog id="rules-gate" class="wide rules-gate">
     <h2 id="rules-gate-title"></h2>
-    <div id="rules-gate-body" class="rules"></div>
+    <p id="rules-gate-intro"></p>
+    <button type="button" class="ghost" id="rules-gate-read"></button>
+    <p class="muted small" id="rules-gate-hint"></p>
     <div class="rules-gate-actions">
       <button type="button" id="rules-gate-ok"></button>
       <button type="button" class="link small" id="rules-gate-out"></button>
     </div>
   </dialog>
+  <dialog id="rules-read" class="wide rules-gate">
+    <h2 id="rules-read-title"></h2>
+    <div id="rules-gate-body" class="rules"></div>
+    <div class="rules-gate-actions"><button type="button" id="rules-read-done"></button></div>
+  </dialog>
+
   <dialog id="swap-dialog">
     <form method="dialog">
       <h2 id="swap-title">Tauschen</h2>

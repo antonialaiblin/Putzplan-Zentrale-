@@ -728,3 +728,7 @@ body.welcoming { overflow: hidden; }
 .laundry-card.spinning .washer-drum { animation: washer-spin 2.4s linear infinite; }
 @keyframes washer-spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { .laundry-card.spinning .washer-drum { animation: none; } }
+#rules-gate .rules-gate-actions { margin-top: 12px; }
+#rules-gate #rules-gate-read { width: 100%; font-size: 17px; padding: 14px; }
+#rules-gate #rules-gate-ok:disabled { opacity: .45; }
+#rules-read { height: 92vh; }

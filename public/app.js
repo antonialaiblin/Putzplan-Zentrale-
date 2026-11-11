@@ -234,8 +234,23 @@ function rulesGate() {
   src.querySelector('.back')?.closest('p')?.remove();
   src.querySelector('.wginfo')?.remove();
   src.querySelectorAll('[id]').forEach((e) => e.removeAttribute('id'));
+  src.querySelectorAll('details').forEach((e) => { e.open = true; });
   $('#rules-gate-body').innerHTML = src.innerHTML;
-  $('#rules-gate-title').textContent = L('Willkommen! Bitte lies zuerst unsere WG-Regeln 📖', 'Welcome! Please read our house rules first 📖', 'Välkommen! Läs först våra husregler 📖');
+  $('#rules-gate-title').textContent = L('Willkommen in der Zentrale! 👋', 'Welcome to the Zentrale! 👋', 'Välkommen till Zentrale! 👋');
+  $('#rules-gate-intro').textContent = L('Bevor es losgeht: Bitte lies dir unsere WG-Regeln durch und bestätige sie.', 'Before you start: please read our house rules and confirm them.', 'Innan du börjar: läs våra husregler och bekräfta dem.');
+  $('#rules-gate-read').textContent = L('📖 WG-Regeln lesen', '📖 Read the house rules', '📖 Läs husreglerna');
+  $('#rules-read-title').textContent = L('📖 Unsere WG-Regeln', '📖 Our house rules', '📖 Våra husregler');
+  $('#rules-read-done').textContent = L('Fertig gelesen 👍', 'Done reading 👍', 'Klart 👍');
+  let read = false;
+  const setRead = () => {
+    $('#rules-gate-ok').disabled = !read;
+    $('#rules-gate-hint').textContent = read ? '' : L('Du kannst zustimmen, sobald du die Regeln geöffnet hast.', 'You can accept once you have opened the rules.', 'Du kan godkänna när du har öppnat reglerna.');
+    $('#rules-gate-read').textContent = read ? L('📖 Regeln nochmal ansehen', '📖 View the rules again', '📖 Visa reglerna igen') : L('📖 WG-Regeln lesen', '📖 Read the house rules', '📖 Läs husreglerna');
+  };
+  setRead();
+  $('#rules-gate-read').onclick = () => { const r = $('#rules-read'); r.showModal(); $('#rules-gate-body').scrollTop = 0; };
+  $('#rules-read-done').onclick = () => { $('#rules-read').close(); read = true; setRead(); };
+  $('#rules-read').oncancel = (e) => { e.preventDefault(); $('#rules-read-done').click(); };
   $('#rules-gate-ok').textContent = L('✅ Ich habe die Regeln gelesen und akzeptiere sie', '✅ I have read and accept the rules', '✅ Jag har läst och godkänner reglerna');
   $('#rules-gate-out').textContent = L('Abmelden', 'Log out', 'Logga ut');
   d.oncancel = (e) => e.preventDefault();
