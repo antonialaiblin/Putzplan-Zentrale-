@@ -294,7 +294,26 @@ async function load() {
   syncLang();
   render();
   birthdayMode();
-  maybeAskProfile();
+  if (who.account?.welcomeNeeded) showWelcome(); else maybeAskProfile();
+}
+/** Neu in der Zentrale: Willkommen mit Konfetti, erst nach dem Antippen geht's in die App */
+function showWelcome() {
+  const el = $('#welcome');
+  $('#welcome-title').textContent = L(`Willkommen in der Zentrale, ${state.me}!`, `Welcome to the Zentrale, ${state.me}!`, `Välkommen till Zentrale, ${state.me}!`);
+  $('#welcome-text').textContent = L('Schön, dass du da bist! Hier findest du Putzplan, Einkauf, Kasse, Kalender und alles, was unsere WG zusammenhält.', "Great to have you here! You'll find the cleaning rota, shopping, money, calendar and everything that keeps our flat together.", 'Kul att du är här! Här hittar du städschema, inköp, kassa, kalender och allt som håller ihop vårt kollektiv.');
+  $('#welcome-go').textContent = L("Los geht's 🚀", "Let's go 🚀", 'Nu kör vi 🚀');
+  el.hidden = false;
+  document.body.classList.add('welcoming');
+  confetti(260);
+  const again = setInterval(() => confetti(120), 2600);
+  $('#welcome-go').onclick = async () => {
+    clearInterval(again);
+    el.hidden = true;
+    document.body.classList.remove('welcoming');
+    try { await api('auth/welcomed', {}); } catch { /* egal */ }
+    if (state.account) state.account.welcomeNeeded = false;
+    maybeAskProfile();
+  };
 }
 /** Am eigenen Geburtstag: Konfetti beim Öffnen und überall Geschenke 🎁 */
 function isMyBirthday() {

@@ -688,3 +688,13 @@ button.rules-btn { cursor: pointer; padding: 0; color: inherit; font-family: inh
 .visit-box p { margin: 2px 0; }
 .bed-offers { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 6px 0; }
 .visit-line { margin: 4px 0 0; }
+/* Willkommen (neu beigetreten) */
+.welcome { position: fixed; inset: 0; z-index: 9000; display: grid; place-items: center; padding: 24px; background: linear-gradient(160deg, #3b1466, #5b2a91); }
+.welcome[hidden] { display: none; }
+.welcome-card { max-width: 420px; text-align: center; color: #fff; }
+.welcome-logo { border-radius: 24px; box-shadow: 0 8px 30px rgba(0,0,0,.35); animation: wpop .6s ease-out; }
+.welcome-card h2 { font-size: 28px; margin: 20px 0 10px; line-height: 1.2; }
+.welcome-card p { font-size: 17px; opacity: .9; margin: 0 0 28px; }
+.welcome-card button { font-size: 18px; padding: 14px 28px; border-radius: 999px; background: #fff; color: #3b1466; border: 0; font-weight: 700; box-shadow: 0 6px 20px rgba(0,0,0,.25); }
+body.welcoming { overflow: hidden; }
+@keyframes wpop { from { transform: scale(.6); opacity: 0; } to { transform: scale(1); opacity: 1; } }
