@@ -25,7 +25,10 @@
         <p class="sub" id="who-line">Mission Haussegen</p>
       </div>
     </div>
-    <a href="#regeln" class="rules-btn" id="rules-btn" hidden aria-label="Hausregeln" title="Hausregeln">📖</a>
+    <div class="top-actions">
+      <button type="button" class="rules-btn alarm-btn" id="alarm-btn" hidden aria-label="Alarmglocke" title="Alarmglocke">🔔</button>
+      <a href="#regeln" class="rules-btn" id="rules-btn" hidden aria-label="Hausregeln" title="Hausregeln">📖</a>
+    </div>
     <div class="lang-flags" id="lang-quick" hidden><button type="button" data-flag="de" aria-label="Deutsch">🇩🇪</button><button type="button" data-flag="en" aria-label="English">🇬🇧</button><button type="button" data-flag="sv" aria-label="Svenska">🇸🇪</button></div>
   </header>
 
@@ -112,6 +115,7 @@
     <!-- Übersicht -->
     <div id="tab-home" class="tab" hidden>
       <div id="bday-banner" class="bday-banner" hidden></div>
+      <div id="alarm-list" class="alarm-list" hidden></div>
       <div id="admin-requests" hidden></div>
       <div id="feedback-card" class="card feedback-card" hidden></div>
       <details class="card settings" id="settings">
@@ -459,6 +463,52 @@
     <a href="#kalender" data-tab="cal"><span aria-hidden="true">📅</span>Kalender</a>
   </nav>
 
+  <dialog id="plants-dialog" class="wide">
+    <form method="dialog">
+      <h2>🪴 Pflanzen</h2>
+      <div id="plants-body"></div>
+      <div class="row end"><button value="cancel" class="ghost">Schließen</button></div>
+    </form>
+  </dialog>
+  <dialog id="plant-form-dialog">
+    <form method="dialog" id="plant-form">
+      <h2 id="plant-form-title">🪴 Neue Pflanze</h2>
+      <input type="hidden" id="plant-id">
+      <label class="field"><span>Name</span><input id="plant-name" maxlength="40" required placeholder="z.B. Monstera"></label>
+      <label class="field"><span>Wo steht sie? (optional)</span><input id="plant-where" maxlength="40" placeholder="z.B. Küche Fensterbank"></label>
+      <label class="field"><span>Gießen alle … Tage</span><select id="plant-every">
+        <option value="1">jeden Tag</option><option value="2">alle 2 Tage</option><option value="3">alle 3 Tage</option><option value="4">alle 4 Tage</option><option value="5">alle 5 Tage</option><option value="7">jede Woche</option><option value="10">alle 10 Tage</option><option value="14">alle 2 Wochen</option><option value="21">alle 3 Wochen</option><option value="30">einmal im Monat</option>
+      </select></label>
+      <label class="field"><span>Zuletzt gegossen</span><input type="date" id="plant-last"></label>
+      <label class="field"><span>Hinweis (optional)</span><input id="plant-note" maxlength="160" placeholder="z.B. nur wenig Wasser, nicht auf die Blätter"></label>
+      <div class="row"><button type="button" class="ghost small" id="plant-photo-btn">📷 Foto (optional)</button><input type="file" id="plant-photo" accept="image/*" hidden></div>
+      <div id="plant-photo-preview" class="plant-photo-preview"></div>
+      <div class="row end"><button type="button" class="ghost danger" id="plant-delete" hidden>Löschen</button><button value="cancel" class="ghost" formnovalidate>Abbrechen</button><button value="ok">Speichern</button></div>
+    </form>
+  </dialog>
+  <dialog id="sit-dialog">
+    <form method="dialog" id="sit-form">
+      <h2>✈️ Wer gießt für dich?</h2>
+      <p class="muted small">Alle, die du fragst, bekommen eine Nachricht. Wer zusagt, bekommt an den Gieß-Tagen die Erinnerung. Sagen mehrere zu: Wer zuerst abhakt, hat gegossen.</p>
+      <div class="row two"><label class="field"><span>Von</span><input type="date" id="sit-from" required></label><label class="field"><span>Bis</span><input type="date" id="sit-to" required></label></div>
+      <h3>Welche Pflanzen?</h3>
+      <div id="sit-plants"></div>
+      <h3>Wen fragst du?</h3>
+      <div class="chips" id="sit-people"></div>
+      <label class="field"><span>Nachricht (optional)</span><input id="sit-note" maxlength="200" placeholder="z.B. Gießkanne steht im Bad"></label>
+      <div class="row end"><button value="cancel" class="ghost" formnovalidate>Abbrechen</button><button value="ok">Anfragen</button></div>
+    </form>
+  </dialog>
+  <dialog id="alarm-dialog">
+    <form method="dialog" id="alarm-form">
+      <h2>🔔 Alarm schlagen</h2>
+      <p class="muted small">Alle bekommen sofort eine Benachrichtigung.</p>
+      <h3>Wo?</h3>
+      <div class="chips" id="alarm-where"></div>
+      <label class="field"><span>Was ist los?</span><textarea id="alarm-text" rows="3" maxlength="200" placeholder="z.B. Die Küche sieht aus wie ein Saustall 🐷"></textarea></label>
+      <div class="row end"><button value="cancel" class="ghost" formnovalidate>Abbrechen</button><button value="ok">🔔 Klingeln</button></div>
+    </form>
+  </dialog>
   <dialog id="rules-gate" class="wide rules-gate">
     <h2 id="rules-gate-title"></h2>
     <div id="rules-gate-body" class="rules"></div>

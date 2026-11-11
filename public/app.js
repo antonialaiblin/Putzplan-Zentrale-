@@ -281,6 +281,9 @@ async function load() {
   state.cleanerContact = data.cleanerContact || null;
   state.pushPrefs = data.pushPrefs || {};
   state.feedback = data.feedback || null;
+  state.plants = data.plants || [];
+  state.plantSits = data.plantSits || [];
+  state.alarms = data.alarms || [];
   state.today = data.today;
   state.current = data.current;
   if (state.me && !state.people.includes(state.me)) { state.me = null; store.set('me', ''); }
@@ -383,6 +386,7 @@ function renderMe() {
   const quick = $('#lang-quick');
   quick.hidden = !!state.me;
   $('#rules-btn').hidden = !state.me;
+  $('#alarm-btn').hidden = !state.me || state.guest;
   quick.querySelectorAll('[data-flag]').forEach((b) => b.classList.toggle('on', b.dataset.flag === state.lang));
   document.querySelectorAll('#set-lang [data-lang]').forEach((b) => b.setAttribute('aria-checked', b.dataset.lang === state.lang));
   $('#settings').hidden = !state.me;
@@ -673,6 +677,7 @@ const BADGES = [
   { id: 'streakBest', icon: '🔥', name: () => L('Dauerbrenner', 'On fire', 'I farten'), desc: (n) => L(`${n} Wochen in Folge alle eigenen Aufgaben erledigt`, `${n} weeks in a row with all your tasks done`, `${n} veckor i rad med alla dina uppgifter klara`), tiers: [3, 8, 20] },
   { id: 'sent', icon: '💬', name: () => L('Plaudertasche', 'Chatterbox', 'Pratkvarn'), desc: (n) => L(`${n} Reaktionen verschickt`, `${n} reactions sent`, `${n} reaktioner skickade`), tiers: [10, 50, 200] },
   { id: 'swaps', icon: '🔁', name: () => L('Tauschprofi', 'Swap pro', 'Bytesproffs'), desc: (n) => L(`${n}× einem Tausch zugestimmt`, `${n}× accepted a swap`, `${n}× tackat ja till ett byte`), tiers: [1, 5, 15] },
+  { id: 'plants', icon: '🌱', name: () => L('Grüner Daumen', 'Green thumb', 'Grön tumme'), desc: (n) => L(`${n}× Pflanzen von anderen gegossen`, `${n}× watered someone else's plants`, `${n}× vattnat någon annans växter`), tiers: [1, 10, 30] },
   { id: 'notes', icon: '📌', name: () => L('Pinnwand-Poet', 'Board poet', 'Anslagspoet'), desc: (n) => L(`${n} Zettel an die Pinnwand gehängt`, `${n} notes pinned to the board`, `${n} lappar på anslagstavlan`), tiers: [3, 15, 50] },
   { id: 'paidCount', icon: '💸', name: () => L('Spendierhosen', 'Big spender', 'Givmild'), desc: (n) => L(`${n} Ausgaben für die WG ausgelegt`, `${n} expenses paid for the flat`, `${n} utgifter betalda för kollektivet`), tiers: [5, 25, 100] },
   { id: 'days', icon: '🏠', name: () => L('Treue Seele', 'Loyal soul', 'Trogen själ'), desc: (n) => L(`${n} Tage Teil der WG`, `${n} days in the flat`, `${n} dagar i kollektivet`), tiers: [100, 365, 730] },
@@ -1204,7 +1209,7 @@ function openCleanerContact() {
 }
 
 // ---------------- Tabs ----------------
-const TABS = { start: 'home', plan: 'plan', einkauf: 'shop', kasse: 'money', kalender: 'cal', regeln: 'rules' };
+const TABS = { start: 'home', pflanzen: 'home', plan: 'plan', einkauf: 'shop', kasse: 'money', kalender: 'cal', regeln: 'rules' };
 function currentTab() { return TABS[location.hash.slice(1)] || 'home'; }
 function showTab() {
   const tab = currentTab();
@@ -1214,6 +1219,7 @@ function showTab() {
   renderMe();
   if (tab === 'home') { renderHome(); if (state.me) { loadMoney(); loadShop(); } }
   if (tab === 'cal') renderCal();
+  if (location.hash === '#pflanzen' && state.me) { history.replaceState(null, '', '#start'); setTimeout(openPlants, 0); }
   document.querySelectorAll('.tabbar a').forEach((a) => a.classList.toggle('active', a.dataset.tab === (tab === 'rules' ? 'home' : tab)));
   if (state.me && tab === 'shop') loadShop();
   if (state.me && tab === 'money') loadMoney();
@@ -1629,6 +1635,7 @@ const plural = (n, de1, deN, en1, enN, sv1, svN) => (n === 1 ? L(de1, en1, sv1) 
 const WIDGETS = {
   week: { de: 'Deine Woche', en: 'Your week', sv: 'Din vecka', size: 'w' },
   board: { de: 'Pinnwand', en: 'Pinboard', sv: 'Anslagstavla', size: 'w' },
+  plants: { de: 'Pflanzen gießen', en: 'Watering plants', sv: 'Vattna växter', size: 'w' },
   plan: { de: 'Putzplan', en: 'Cleaning', sv: 'Städning', size: 's' },
   shop: { de: 'Einkauf', en: 'Shopping', sv: 'Handla', size: 's' },
   money: { de: 'Kasse', en: 'Money', sv: 'Kassa', size: 's' },
@@ -1654,12 +1661,19 @@ const SHORTCUTS = {
   note: { icon: '📌', de: 'Zettel anpinnen', en: 'Pin a note', sv: 'Sätt upp en lapp' },
   invite: { icon: '➕', de: 'Mitglied einladen', en: 'Invite member', sv: 'Bjud in medlem' },
 };
-const DEFAULT_HOME = ['week', 'ranking', 'badges', 'board', 'plan', 'shop', 'money', 'cal', 'meetings'].map((id) => ({ id, size: WIDGETS[id].size }));
+const DEFAULT_HOME = ['week', 'plants', 'ranking', 'badges', 'board', 'plan', 'shop', 'money', 'cal', 'meetings'].map((id) => ({ id, size: WIDGETS[id].size }));
 const widgetName = (id) => (id.startsWith('sc:') ? L(SHORTCUTS[id.slice(3)]?.de || id, SHORTCUTS[id.slice(3)]?.en || id, SHORTCUTS[id.slice(3)]?.sv || id) : L(WIDGETS[id]?.de || id, WIDGETS[id]?.en || id, WIDGETS[id]?.sv || id));
 function homeLayout() {
   if (state.homeDraft) return state.homeDraft;
   const saved = memberOf(state.me)?.home;
   const ok = Array.isArray(saved) ? saved.filter((x) => WIDGETS[x.id] || (x.id.startsWith('sc:') && SHORTCUTS[x.id.slice(3)])) : null;
+  // Neue Pflanzen-Kachel einmalig auch in schon angepasste Übersichten einfügen
+  if (ok && ok.length && !ok.some((x) => x.id === 'plants') && !store.get('plantsTile')) {
+    store.set('plantsTile', '1');
+    const i = ok.findIndex((x) => x.id === 'week');
+    ok.splice(i + 1, 0, { id: 'plants', size: 'w' });
+    setTimeout(() => saveHome(ok.map((x) => ({ ...x }))), 0);
+  }
   return ok && ok.length ? ok : DEFAULT_HOME;
 }
 async function saveHome(layout) {
@@ -1884,6 +1898,8 @@ function renderHome() {
     tiles.meetings = `<div class="card __CLS__ meetings-card"><h3>${L('Letzte WG-Meetings', 'Recent flat meetings', `Senaste husmötena`)}</h3><p class="muted">${L('Noch keine vergangenen WG-Meetings. Die Protokolle erscheinen dann hier.', 'No past flat meetings yet. Their minutes will show up here.', `Inga tidigare husmöten än. Protokollen visas sedan här.`)}</p>
       <button type="button" class="report-btn" data-report>📊 ${L('Report ansehen', 'View report', 'Visa rapport')}</button></div>`;
   }
+  tiles.plants = plantsTile();
+  renderAlarms();
   tiles.rules = `<a class="card __CLS__" href="#regeln"><h3>${L('Hausregeln', 'House rules', `Husregler`)}</h3><p>${L('Mission Haussegen 📜 Alles zum WG-Seelenfrieden', 'Mission Haussegen 📜 Everything for peace in the flat', `Mission Haussegen 📜 Allt för husfriden`)}</p></a>`;
   Object.assign(tiles, extraTiles(w));
   const layout = homeLayout();
@@ -2439,6 +2455,9 @@ $('#ev-form').addEventListener('submit', async (e) => {
     state.weeks.clear();
     await load();
     toast(state.evType === 'urlaub' && state.evPeople.size > 1 ? L('Eingetragen, die anderen müssen noch zustimmen', 'Added, the others still have to confirm', `Tillagt, de andra måste fortfarande bekräfta`) : L('Eingetragen', 'Added', `Tillagt`));
+    const from = $('#ev-from').value; const to = $('#ev-to').value || from;
+    if (state.evType === 'urlaub' && state.evPeople.has(state.me) && (state.plants || []).some((p) => p.owner === state.me) && to >= state.today
+      && confirm(L('🪴 Soll jemand deine Pflanzen gießen, während du weg bist?', '🪴 Should someone water your plants while you are away?', '🪴 Ska någon vattna dina växter medan du är borta?'))) openSitForm(from < state.today ? state.today : from, to);
   } catch (err) { toast(err.message); }
 });
 
@@ -2718,6 +2737,8 @@ function PUSH_CATS() { return [
   ['board', L('📌 Pinnwand & Umfragen', '📌 Board & polls', '📌 Anslagstavla & omröstningar')],
   ['cal', L('📅 Kalender, Urlaub & WG-Meetings', '📅 Calendar, holidays & meetings', '📅 Kalender, semester & husmöten')],
   ['people', L('🎂 Geburtstage & neue Mitbewohner:innen', '🎂 Birthdays & new flatmates', '🎂 Födelsedagar & nya i kollektivet')],
+  ['plants', L('🪴 Pflanzen gießen & Gießvertretung', '🪴 Watering plants & watering help', '🪴 Vattna växter & vattningshjälp')],
+  ['alarm', L('🔔 Alarmglocke', '🔔 Alarm bell', '🔔 Larmklocka')],
 ]; }
 function renderPushPrefs() {
   if ($('#set-translate')) $('#set-translate').checked = state.pushPrefs?.translate !== false;
@@ -2848,3 +2869,269 @@ async function openFeedbackReport() {
   if (!dlg.open) dlg.showModal();
 }
 $('#feedback-report-open').onclick = () => openFeedbackReport().catch((err) => toast(err.message));
+
+// ================= Pflanzen gießen & Gießvertretung =================
+const plantDue = (pl) => addDays(pl.last || pl.since, pl.every || 7);
+const activeSits = (day = state.today) => (state.plantSits || []).filter((s) => s.from <= day && s.to >= day);
+function plantCarers(pl, day = state.today) {
+  const h = [...new Set(activeSits(day).filter((s) => s.plants.includes(pl.id)).flatMap((s) => s.accepted))];
+  return h.length ? h : [pl.owner];
+}
+/** Pflanzen, um die ich mich gerade kümmere (eigene + Vertretung), mit Fälligkeit */
+function myPlantDuties() {
+  const me = state.me;
+  return (state.plants || []).filter((pl) => plantCarers(pl).includes(me) || (pl.owner === me))
+    .map((pl) => ({ pl, due: plantDue(pl), mine: plantCarers(pl).includes(me) }))
+    .sort((a, b) => (a.due < b.due ? -1 : a.due > b.due ? 1 : 0));
+}
+function plantDueText(pl) {
+  const due = plantDue(pl);
+  const t = state.today;
+  if (pl.last === t) return `<span class="pl-ok">💧 ${L('heute gegossen', 'watered today', 'vattnad idag')}${pl.lastBy && pl.lastBy !== state.me ? ` ${L('von', 'by', 'av')} ${esc(pl.lastBy)}` : ''}</span>`;
+  if (due < t) { const d = Math.round((Date.parse(t) - Date.parse(due)) / 864e5); return `<span class="pl-late">⚠️ ${L(`seit ${d} ${d === 1 ? 'Tag' : 'Tagen'} fällig`, `overdue by ${d} ${d === 1 ? 'day' : 'days'}`, `försenad ${d} ${d === 1 ? 'dag' : 'dagar'}`)}</span>`; }
+  if (due === t) return `<span class="pl-due">💧 ${L('heute dran', 'due today', 'dags idag')}</span>`;
+  if (due === addDays(t, 1)) return `<span class="muted">${L('morgen dran', 'due tomorrow', 'imorgon')}</span>`;
+  return `<span class="muted">${L('dran am', 'due', 'dags')} ${fmtDay(due)}</span>`;
+}
+const plantThumb = (pl) => (pl.photo ? `<img class="pl-photo" src="/api/plants/photo/${encodeURIComponent(pl.id)}?v=${pl.photo}" alt="" loading="lazy">` : '<span class="pl-photo pl-emoji">🪴</span>');
+function waterBtn(pl) {
+  if (pl.last === state.today) return pl.lastBy === state.me && pl.prev ? `<button type="button" class="ghost small" data-plant-undo="${esc(pl.id)}">↩︎ ${L('Rückgängig', 'Undo', 'Ångra')}</button>` : '';
+  return `<button type="button" class="small water-btn" data-plant-water="${esc(pl.id)}">💧 ${L('Gegossen', 'Watered', 'Vattnad')}</button>`;
+}
+function plantRow(pl, opts = {}) {
+  const sub = [pl.where, pl.every === 1 ? L('jeden Tag', 'every day', 'varje dag') : L(`alle ${pl.every} Tage`, `every ${pl.every} days`, `var ${pl.every}:e dag`)].filter(Boolean).map(esc).join(' · ');
+  const last = pl.last && pl.last !== state.today ? `${L('zuletzt', 'last', 'senast')} ${fmtDay(pl.last)}${pl.lastBy && pl.lastBy !== state.me ? ` (${esc(pl.lastBy)})` : ''}` : '';
+  return `<div class="pl-row">${plantThumb(pl)}<div class="pl-main"><strong>${esc(tx(pl.name, pl.owner))}</strong>${opts.owner && pl.owner !== state.me ? ` <span class="muted small">${L('von', 'of', 'från')} ${esc(pl.owner)}</span>` : ''}
+    <div class="muted small">${sub}</div><div class="small">${plantDueText(pl)}${last ? ` <span class="muted">· ${last}</span>` : ''}</div>
+    ${pl.note ? `<div class="small pl-note">📝 ${esc(tx(pl.note, pl.owner))}</div>` : ''}</div>
+    <div class="pl-actions">${waterBtn(pl)}${opts.edit ? `<button type="button" class="ghost small" data-plant-edit="${esc(pl.id)}" aria-label="${L('Bearbeiten', 'Edit', 'Redigera')}">✏️</button>` : ''}</div></div>`;
+}
+function plantsTile() {
+  const me = state.me;
+  const duties = myPlantDuties().filter((x) => x.mine && x.due <= state.today && x.pl.last !== state.today);
+  const asks = (state.plantSits || []).filter((s) => s.asked.includes(me) && !s.accepted.includes(me) && !s.declined.includes(me) && s.to >= state.today);
+  const mine = (state.plants || []).filter((p) => p.owner === me);
+  const helping = activeSits().filter((s) => s.accepted.includes(me));
+  let body = '';
+  if (asks.length) body += asks.map((s) => `<p class="pl-ask">🪴 ${L(`<strong>${esc(s.owner)}</strong> fragt, ob du gießen kannst (${fmtDay(s.from)} – ${fmtDay(s.to)})`, `<strong>${esc(s.owner)}</strong> asks if you can water (${fmtDay(s.from)} – ${fmtDay(s.to)})`, `<strong>${esc(s.owner)}</strong> undrar om du kan vattna (${fmtDay(s.from)} – ${fmtDay(s.to)})`)}</p>`).join('');
+  if (duties.length) body += duties.map(({ pl }) => `<div class="pl-mini">${plantThumb(pl)}<span><strong>${esc(tx(pl.name, pl.owner))}</strong>${pl.owner !== me ? ` <span class="muted small">(${esc(pl.owner)})</span>` : ''}<br>${plantDueText(pl)}</span>${waterBtn(pl)}</div>`).join('');
+  else if (mine.length || helping.length) {
+    const next = myPlantDuties().filter((x) => x.mine && x.pl.last !== state.today)[0];
+    body += `<p>${L('Alles gegossen 🌿', 'All watered 🌿', 'Allt vattnat 🌿')}${next ? ` <span class="muted small">· ${L('als Nächstes', 'next', 'nästa')}: ${esc(tx(next.pl.name, next.pl.owner))}, ${fmtDay(next.due)}</span>` : ''}</p>`;
+  } else body += `<p class="muted">${L('Trag deine Pflanzen ein, dann erinnert dich die Zentrale ans Gießen.', 'Add your plants and the Zentrale will remind you to water them.', 'Lägg till dina växter så påminner Zentrale dig om att vattna.')}</p>`;
+  if (helping.length) body += `<p class="muted small">🌱 ${L('Du gießt gerade für', 'You are watering for', 'Du vattnar just nu åt')} ${helping.map((s) => esc(s.owner)).join(', ')}</p>`;
+  return `<div class="card __CLS__ plants-card" data-open-plants role="button" tabindex="0"><h3>🪴 ${L('Pflanzen', 'Plants', 'Växter')}</h3>${body}</div>`;
+}
+function openPlants() {
+  renderPlants();
+  const d = $('#plants-dialog');
+  if (!d.open) d.showModal();
+}
+function renderPlants() {
+  const me = state.me;
+  const box = $('#plants-body');
+  if (!box) return;
+  const mine = (state.plants || []).filter((p) => p.owner === me);
+  const asks = (state.plantSits || []).filter((s) => s.asked.includes(me) && s.to >= state.today);
+  const mySits = (state.plantSits || []).filter((s) => s.owner === me);
+  const helpingPlants = (state.plants || []).filter((pl) => pl.owner !== me && asks.some((s) => s.accepted.includes(me) && s.plants.includes(pl.id) && s.from <= state.today));
+  const today = myPlantDuties().filter((x) => x.mine && x.due <= state.today && x.pl.last !== state.today);
+  let h = '';
+  if (today.length) h += `<h3 class="add-h">💧 ${L('Heute gießen', 'Water today', 'Vattna idag')}</h3>${today.map((x) => plantRow(x.pl, { owner: true })).join('')}`;
+  // Anfragen an mich
+  if (asks.length) {
+    h += `<h3 class="add-h">🙋 ${L('Anfragen an dich', 'Requests for you', 'Förfrågningar till dig')}</h3>`;
+    h += asks.map((s) => {
+      const names = s.plants.map((id) => (state.plants || []).find((p) => p.id === id)?.name).filter(Boolean).map((n) => esc(tx(n, s.owner))).join(', ');
+      const st = s.accepted.includes(me) ? 'yes' : s.declined.includes(me) ? 'no' : '';
+      const others = s.accepted.filter((p) => p !== me);
+      return `<div class="sit-card"><p><strong>${esc(s.owner)}</strong> · ${fmtDay(s.from)} – ${fmtDay(s.to)}</p><p class="small">🪴 ${names}</p>${s.note ? `<p class="small">💬 ${esc(tx(s.note, s.owner))}</p>` : ''}
+        ${others.length ? `<p class="small muted">${L('Gießen auch', 'Also watering', 'Vattnar också')}: ${others.map(esc).join(', ')}. ${L('Wer zuerst abhakt, hat gegossen.', 'Whoever ticks first has watered.', 'Den som bockar av först har vattnat.')}</p>` : ''}
+        <div class="row">${st === 'yes' ? `<span class="pill ok">✅ ${L('Du hast zugesagt', 'You said yes', 'Du har tackat ja')}</span><button type="button" class="ghost small" data-sit-answer="${esc(s.id)}" data-yes="0">${L('Doch nicht', 'Withdraw', 'Ångra')}</button>`
+          : `<button type="button" class="small" data-sit-answer="${esc(s.id)}" data-yes="1">🌱 ${L('Ich gieße', "I'll water", 'Jag vattnar')}</button>${st === 'no' ? `<span class="muted small">${L('abgelehnt', 'declined', 'avböjt')}</span>` : `<button type="button" class="ghost small" data-sit-answer="${esc(s.id)}" data-yes="0">${L('Kann leider nicht', "Sorry, can't", 'Kan tyvärr inte')}</button>`}`}</div></div>`;
+    }).join('');
+    if (helpingPlants.length) h += helpingPlants.map((pl) => plantRow(pl, { owner: true })).join('');
+  }
+  // Meine Pflanzen
+  h += `<h3 class="add-h">🪴 ${L('Meine Pflanzen', 'My plants', 'Mina växter')}</h3>`;
+  h += mine.length ? mine.map((pl) => plantRow(pl, { edit: true })).join('') : `<p class="muted small">${L('Noch keine Pflanzen eingetragen.', 'No plants added yet.', 'Inga växter tillagda än.')}</p>`;
+  h += `<div class="row"><button type="button" class="ghost" data-plant-new>+ ${L('Pflanze hinzufügen', 'Add plant', 'Lägg till växt')}</button></div>`;
+  // Meine Gießvertretungen
+  if (mine.length) {
+    h += `<h3 class="add-h">✈️ ${L('Gießvertretung', 'Watering help', 'Vattningshjälp')}</h3>`;
+    h += mySits.map((s) => {
+      const ended = s.to < state.today;
+      const waiting = s.asked.filter((p) => !s.accepted.includes(p) && !s.declined.includes(p));
+      const names = s.plants.map((id) => mine.find((p) => p.id === id)).filter(Boolean);
+      return `<div class="sit-card${ended ? ' ended' : ''}"><p><strong>${fmtDay(s.from)} – ${fmtDay(s.to)}</strong>${ended ? ` <span class="muted small">(${L('vorbei', 'over', 'slut')})</span>` : ''}</p>
+        <p class="small">${s.accepted.length ? `🌱 ${L('Gießen', 'Watering', 'Vattnar')}: <strong>${s.accepted.map(esc).join(', ')}</strong>` : `<span class="pl-late">${L('Noch hat niemand zugesagt', 'Nobody has said yes yet', 'Ingen har tackat ja än')}</span>`}</p>
+        ${waiting.length ? `<p class="small muted">⏳ ${L('Noch keine Antwort', 'No answer yet', 'Inget svar än')}: ${waiting.map(esc).join(', ')}</p>` : ''}
+        ${s.declined.length ? `<p class="small muted">✕ ${L('Können nicht', "Can't", 'Kan inte')}: ${s.declined.map(esc).join(', ')}</p>` : ''}
+        <ul class="sit-plants">${names.map((pl) => `<li>${esc(pl.name)}: ${plantDueText(pl)}${pl.last && pl.last !== state.today ? ` <span class="muted">· ${L('zuletzt', 'last', 'senast')} ${fmtDay(pl.last)}${pl.lastBy ? ` (${esc(pl.lastBy)})` : ''}</span>` : ''}</li>`).join('')}</ul>
+        <div class="row">${ended || s.from <= state.today ? (s.thanked ? `<span class="muted small">🙏 ${L('Danke gesagt', 'Thanked', 'Tackat')}</span>` : s.accepted.length ? `<button type="button" class="small" data-sit-thank="${esc(s.id)}">🙏 ${L('Danke sagen', 'Say thanks', 'Säg tack')}</button>` : '') : ''}
+          ${!ended ? `<button type="button" class="ghost small" data-sit-cancel="${esc(s.id)}">${L('Absagen', 'Cancel', 'Avbryt')}</button>` : ''}</div></div>`;
+    }).join('');
+    h += `<div class="row"><button type="button" class="ghost" data-sit-new>✈️ ${L('Jemanden zum Gießen fragen', 'Ask someone to water', 'Be någon vattna')}</button></div>`;
+  }
+  box.innerHTML = h;
+}
+function applyPlants(d) {
+  if (d.plants) state.plants = d.plants;
+  if (d.plantSits) state.plantSits = d.plantSits;
+  renderPlants();
+  if (currentTab() === 'home') renderHome();
+}
+// Pflanze anlegen / bearbeiten
+let plantPhoto;
+function openPlantForm(id) {
+  const pl = id ? (state.plants || []).find((p) => p.id === id) : null;
+  $('#plant-id').value = pl?.id || '';
+  $('#plant-name').value = pl?.name || '';
+  $('#plant-where').value = pl?.where || '';
+  $('#plant-every').value = String(pl?.every || 7);
+  $('#plant-last').value = pl?.last || state.today;
+  $('#plant-last').max = state.today;
+  $('#plant-note').value = pl?.note || '';
+  $('#plant-form-title').textContent = pl ? L('🪴 Pflanze bearbeiten', '🪴 Edit plant', '🪴 Redigera växt') : L('🪴 Neue Pflanze', '🪴 New plant', '🪴 Ny växt');
+  $('#plant-delete').hidden = !pl;
+  plantPhoto = undefined;
+  showPlantPhoto(pl?.photo ? `/api/plants/photo/${encodeURIComponent(pl.id)}?v=${pl.photo}` : null);
+  $('#plant-form-dialog').showModal();
+}
+function showPlantPhoto(src) {
+  $('#plant-photo-preview').innerHTML = src ? `<img src="${src}" alt=""><button type="button" class="link small" id="plant-photo-del">${L('Foto entfernen', 'Remove photo', 'Ta bort foto')}</button>` : '';
+  $('#plant-photo-btn').textContent = src ? L('📷 Anderes Foto', '📷 Other photo', '📷 Annat foto') : L('📷 Foto (optional)', '📷 Photo (optional)', '📷 Foto (valfritt)');
+  if (src) $('#plant-photo-del').onclick = () => { plantPhoto = null; $('#plant-photo').value = ''; showPlantPhoto(null); };
+}
+$('#plant-photo-btn').onclick = () => $('#plant-photo').click();
+$('#plant-photo').onchange = async (e) => {
+  const f = e.target.files?.[0];
+  if (!f) return;
+  try { plantPhoto = await resizeImage(f, 600); showPlantPhoto(plantPhoto); } catch { toast(L('Das Foto ist zu groß oder kein Bild.', 'The photo is too big or not an image.', 'Fotot är för stort eller ingen bild.')); }
+};
+$('#plant-form').addEventListener('submit', async (e) => {
+  if (e.submitter?.value !== 'ok') return;
+  e.preventDefault();
+  try {
+    applyPlants(await api('plants/save', { id: $('#plant-id').value || undefined, title: $('#plant-name').value, where: $('#plant-where').value, every: $('#plant-every').value, last: $('#plant-last').value, note: $('#plant-note').value, ...(plantPhoto !== undefined ? { photo: plantPhoto } : {}) }));
+    $('#plant-form-dialog').close();
+    toast(L('Gespeichert 🪴', 'Saved 🪴', 'Sparat 🪴'));
+  } catch (err) { toast(err.message); }
+});
+$('#plant-delete').onclick = async () => {
+  if (!confirm(L('Diese Pflanze wirklich löschen?', 'Really delete this plant?', 'Vill du verkligen ta bort växten?'))) return;
+  try { applyPlants(await api('plants/delete', { id: $('#plant-id').value })); $('#plant-form-dialog').close(); } catch (err) { toast(err.message); }
+};
+// Gießvertretung anfragen
+const sitPeople = new Set();
+function openSitForm(from, to) {
+  const me = state.me;
+  const mine = (state.plants || []).filter((p) => p.owner === me);
+  if (!mine.length) { toast(L('Trag zuerst deine Pflanzen ein.', 'Add your plants first.', 'Lägg till dina växter först.')); openPlantForm(); return; }
+  $('#sit-from').value = from || state.today;
+  $('#sit-to').value = to || addDays(state.today, 7);
+  $('#sit-from').min = state.today;
+  $('#sit-note').value = '';
+  $('#sit-plants').innerHTML = mine.map((pl) => `<label class="check-row"><input type="checkbox" value="${esc(pl.id)}" checked> <span>${esc(pl.name)}${pl.where ? ` <span class="muted small">· ${esc(pl.where)}</span>` : ''}</span></label>`).join('');
+  sitPeople.clear();
+  const others = state.people.filter((p) => p !== me);
+  $('#sit-people').innerHTML = `<button type="button" class="chip" data-sit-all aria-pressed="false">👥 ${L('Alle fragen', 'Ask everyone', 'Fråga alla')}</button>` + others.map((p) => `<button type="button" class="chip" data-sit-p="${esc(p)}" aria-pressed="false">${esc(p)}</button>`).join('');
+  $('#sit-dialog').showModal();
+}
+$('#sit-people').addEventListener('click', (e) => {
+  const others = state.people.filter((p) => p !== state.me);
+  if (e.target.closest('[data-sit-all]')) { const all = sitPeople.size !== others.length; sitPeople.clear(); if (all) others.forEach((p) => sitPeople.add(p)); }
+  const b = e.target.closest('[data-sit-p]');
+  if (b) { const p = b.dataset.sitP; if (sitPeople.has(p)) sitPeople.delete(p); else sitPeople.add(p); }
+  $('#sit-people').querySelectorAll('[data-sit-p]').forEach((x) => x.setAttribute('aria-pressed', sitPeople.has(x.dataset.sitP)));
+  $('#sit-people').querySelector('[data-sit-all]').setAttribute('aria-pressed', sitPeople.size === others.length);
+});
+$('#sit-from').addEventListener('change', () => { if ($('#sit-to').value < $('#sit-from').value) $('#sit-to').value = $('#sit-from').value; });
+$('#sit-form').addEventListener('submit', async (e) => {
+  if (e.submitter?.value !== 'ok') return;
+  e.preventDefault();
+  const plants = [...$('#sit-plants').querySelectorAll('input:checked')].map((i) => i.value);
+  if (!sitPeople.size) { toast(L('Bitte mindestens eine Person auswählen', 'Please choose at least one person', 'Välj minst en person')); return; }
+  try {
+    applyPlants(await api('plants/sit/ask', { from: $('#sit-from').value, to: $('#sit-to').value, plants, asked: [...sitPeople], note: $('#sit-note').value }));
+    $('#sit-dialog').close();
+    toast(L('Anfrage verschickt 🪴', 'Request sent 🪴', 'Förfrågan skickad 🪴'));
+  } catch (err) { toast(err.message); }
+});
+document.addEventListener('click', async (e) => {
+  if (state.editHome) return;
+  const t = e.target;
+  const water = t.closest('[data-plant-water]');
+  const undo = t.closest('[data-plant-undo]');
+  try {
+    if (water) { e.preventDefault(); e.stopPropagation(); applyPlants(await api('plants/water', { id: water.dataset.plantWater })); toast(L('💧 Gegossen!', '💧 Watered!', '💧 Vattnad!')); return; }
+    if (undo) { e.preventDefault(); e.stopPropagation(); applyPlants(await api('plants/undo', { id: undo.dataset.plantUndo })); return; }
+    if (t.closest('[data-plant-edit]')) { openPlantForm(t.closest('[data-plant-edit]').dataset.plantEdit); return; }
+    if (t.closest('[data-plant-new]')) { openPlantForm(); return; }
+    if (t.closest('[data-sit-new]')) { openSitForm(); return; }
+    const ans = t.closest('[data-sit-answer]');
+    if (ans) { applyPlants(await api('plants/sit/answer', { id: ans.dataset.sitAnswer, yes: ans.dataset.yes === '1' })); toast(ans.dataset.yes === '1' ? L('Danke! Du bekommst die Gieß-Erinnerungen 🌱', 'Thanks! You will get the watering reminders 🌱', 'Tack! Du får vattningspåminnelserna 🌱') : L('Okay, Bescheid gegeben', 'Okay, they have been told', 'Okej, besked lämnat')); return; }
+    const cancel = t.closest('[data-sit-cancel]');
+    if (cancel) { if (!confirm(L('Gießvertretung absagen?', 'Cancel the watering help?', 'Avbryta vattningshjälpen?'))) return; applyPlants(await api('plants/sit/cancel', { id: cancel.dataset.sitCancel })); return; }
+    const thank = t.closest('[data-sit-thank]');
+    if (thank) { const text = prompt(L('Magst du noch etwas dazuschreiben? (optional)', 'Want to add a message? (optional)', 'Vill du skriva något? (valfritt)'), ''); if (text === null) return; applyPlants(await api('plants/sit/thank', { id: thank.dataset.sitThank, text })); toast('🙏'); return; }
+    if (t.closest('[data-open-plants]')) openPlants();
+  } catch (err) { toast(err.message); }
+});
+
+// ================= Alarmglocke =================
+const ALARM_SPOTS = () => [['Küche', '🍳', L('Küche', 'Kitchen', 'Kök')], ['Bad vorne', '🚿', L('Bad vorne', 'Front bath', 'Främre badrum')], ['Bad hinten', '🛁', L('Bad hinten', 'Back bath', 'Bakre badrum')], ['Flur', '🚪', L('Flur', 'Hallway', 'Hall')], ['Wohnzimmer', '🛋️', L('Wohnzimmer', 'Living room', 'Vardagsrum')], ['Müll', '🗑️', L('Müll', 'Rubbish', 'Sopor')], ['Kühlschrank', '🧊', L('Kühlschrank', 'Fridge', 'Kylskåp')]];
+let alarmWhere = '';
+function openAlarm() {
+  alarmWhere = '';
+  $('#alarm-where').innerHTML = ALARM_SPOTS().map(([k, i, n]) => `<button type="button" class="chip" data-alarm-where="${esc(k)}" aria-pressed="false">${i} ${esc(n)}</button>`).join('');
+  $('#alarm-text').value = '';
+  $('#alarm-dialog').showModal();
+}
+$('#alarm-where').addEventListener('click', (e) => {
+  const b = e.target.closest('[data-alarm-where]');
+  if (!b) return;
+  alarmWhere = alarmWhere === b.dataset.alarmWhere ? '' : b.dataset.alarmWhere;
+  $('#alarm-where').querySelectorAll('[data-alarm-where]').forEach((x) => x.setAttribute('aria-pressed', x.dataset.alarmWhere === alarmWhere));
+});
+$('#alarm-btn').onclick = openAlarm;
+$('#alarm-form').addEventListener('submit', async (e) => {
+  if (e.submitter?.value !== 'ok') return;
+  e.preventDefault();
+  const spot = ALARM_SPOTS().find(([k]) => k === alarmWhere);
+  try {
+    const r = await api('alarm/ring', { where: spot ? spot[2] : '', text: $('#alarm-text').value });
+    state.alarms = r.alarms;
+    $('#alarm-dialog').close();
+    renderHome();
+    toast(L('🔔 Alle wurden alarmiert!', '🔔 Everyone has been alerted!', '🔔 Alla har larmats!'));
+  } catch (err) { toast(err.message); }
+});
+function renderAlarms() {
+  const el = $('#alarm-list');
+  if (!el) return;
+  const done = (a) => (a.replies || []).some((r) => r.kind === 'done');
+  const list = (state.alarms || []).filter((a) => Date.now() - a.at < (done(a) ? 6 : 24) * 3600e3);
+  const KINDS = { mine: ['🙈', L("Ich war's", 'It was me', 'Det var jag')], onit: ['🙋', L('Ich kümmere mich drum', "I'm on it", 'Jag fixar det')], done: ['✨', L('Erledigt', 'Done', 'Klart')] };
+  el.hidden = !list.length || !state.me;
+  el.innerHTML = list.map((a) => `<div class="alarm-card${done(a) ? ' handled' : ''}"><div><strong>🔔 ${esc(a.by)}${a.where ? ` · ${esc(tx(a.where, a.by))}` : ''}</strong> <span class="muted small">${ago(a.at)}</span>
+    ${a.text ? `<p>${esc(tx(a.text, a.by))}</p>` : ''}</div>
+    ${(a.replies || []).length ? `<div class="alarm-replies">${a.replies.map((r) => `<span class="pill">${KINDS[r.kind][0]} ${esc(r.by)}: ${KINDS[r.kind][1]}</span>`).join('')}</div>` : ''}
+    <div class="row alarm-actions">${Object.entries(KINDS).filter(([k]) => a.by !== state.me || k === 'done').map(([k, [i, t]]) => {
+      const on = (a.replies || []).some((r) => r.by === state.me && r.kind === k);
+      return `<button type="button" class="small${on ? '' : ' ghost'}" data-alarm-reply="${esc(a.id)}" data-kind="${k}" aria-pressed="${on}">${i} ${t}</button>`;
+    }).join('')}
+    ${a.by === state.me ? `<button type="button" class="ghost small" data-alarm-del="${esc(a.id)}" aria-label="${L('Löschen', 'Delete', 'Ta bort')}">✕</button>` : ''}</div></div>`).join('');
+}
+document.addEventListener('click', async (e) => {
+  const h = e.target.closest('[data-alarm-reply]');
+  const d = e.target.closest('[data-alarm-del]');
+  if (!h && !d) return;
+  try {
+    const undo = h?.getAttribute('aria-pressed') === 'true';
+    const r = h ? await api('alarm/reply', { id: h.dataset.alarmReply, kind: h.dataset.kind, undo }) : await api('alarm/delete', { id: d.dataset.alarmDel });
+    state.alarms = r.alarms;
+    renderAlarms();
+    if (h && !undo) toast(L('Danke! 💪', 'Thanks! 💪', 'Tack! 💪'));
+  } catch (err) { toast(err.message); }
+});

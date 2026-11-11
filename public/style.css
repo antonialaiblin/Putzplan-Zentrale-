@@ -305,7 +305,7 @@ html[data-theme="dark"] .poll .votes button[aria-pressed="true"].yes { backgroun
 
 /* WG-Meeting-Notizen */
 #notes-dialog h3 { margin: 16px 0 4px; font-size: 1rem; }
-#notes-dialog textarea { width: 100%; box-sizing: border-box; font: inherit; padding: 10px; border-radius: 10px; border: 1px solid var(--line, #ddd); background: var(--field, transparent); color: inherit; resize: vertical; }
+#notes-dialog textarea, .field textarea { width: 100%; box-sizing: border-box; font: inherit; padding: 10px; border-radius: 10px; border: 1px solid var(--line, #ddd); background: var(--field, transparent); color: inherit; resize: vertical; }
 #notes-dialog .row input { flex: 1; min-width: 0; }
 .topics { list-style: none; padding: 0; margin: 6px 0 8px; }
 .topics li { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 6px 0; border-bottom: 1px solid var(--line, #eee); }
@@ -630,3 +630,38 @@ body.guest #logout { display: none !important; }
 .rules-gate #rules-gate-body { overflow-y: auto; flex: 1; margin: 8px 0; }
 .rules-gate-actions { display: flex; flex-direction: column; gap: 8px; padding-top: 8px; border-top: 1px solid var(--line, #ddd); }
 .rules-gate-actions #rules-gate-ok { width: 100%; }
+
+/* Kopf: Alarmglocke + Regelbuch */
+.top-actions { display: flex; gap: 8px; flex: none; }
+button.rules-btn { cursor: pointer; padding: 0; color: inherit; font-family: inherit; }
+/* Alarmglocke */
+.alarm-list { display: flex; flex-direction: column; gap: 8px; margin-bottom: 12px; }
+.alarm-card { display: flex; flex-direction: column; gap: 6px; padding: 12px 14px; border-radius: 16px; background: #fde8e4; border: 1px solid #f3b7aa; color: #5b1d12; }
+.alarm-card p { margin: 4px 0 0; }
+.alarm-card .row { margin: 0; align-items: center; }
+.alarm-card.handled { background: var(--accent-soft); border-color: var(--line); color: var(--text); }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .alarm-card:not(.handled) { background: #3a1f1a; border-color: #6b3226; color: #ffd9cf; } }
+:root[data-theme="dark"] .alarm-card:not(.handled) { background: #3a1f1a; border-color: #6b3226; color: #ffd9cf; }
+/* Pflanzen */
+.pl-row, .pl-mini { display: flex; gap: 10px; align-items: center; padding: 8px 0; border-bottom: 1px solid var(--line); }
+.pl-mini { border: 0; padding: 4px 0; }
+.pl-main { flex: 1; min-width: 0; }
+.pl-actions { display: flex; flex-direction: column; gap: 4px; align-items: flex-end; }
+.pl-mini > span { flex: 1; min-width: 0; }
+.pl-photo { width: 44px; height: 44px; border-radius: 12px; object-fit: cover; flex: none; }
+.pl-emoji { display: grid; place-items: center; background: var(--accent-soft); font-size: 24px; }
+.pl-late { color: #c0392b; font-weight: 600; }
+.pl-due { color: var(--accent); font-weight: 600; }
+.pl-ok { color: var(--muted); }
+.pl-note { margin-top: 2px; }
+.pl-ask { margin: 4px 0; padding: 8px 10px; border-radius: 12px; background: var(--accent-soft); }
+.water-btn { white-space: nowrap; }
+.sit-card { padding: 10px 12px; border: 1px solid var(--line); border-radius: 14px; margin: 8px 0; }
+.sit-card p { margin: 2px 0; }
+.sit-card.ended { opacity: .75; }
+.sit-plants { margin: 6px 0; padding-left: 18px; font-size: 14px; }
+.plant-photo-preview img { max-width: 120px; border-radius: 12px; display: block; margin: 6px 0; }
+#sit-plants .check-row { display: flex; gap: 8px; align-items: center; margin: 4px 0; }
+.row.two { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.alarm-replies { display: flex; flex-wrap: wrap; gap: 6px; }
+.alarm-actions { flex-wrap: wrap; gap: 6px; }

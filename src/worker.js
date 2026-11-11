@@ -17,6 +17,22 @@ export const SCHEDULE = {
 };
 
 const fmtD = (d, lang = 'de') => dayLabel(d, lang);
+/** Wann ist eine Pflanze wieder dran? */
+const plantDue = (pl) => addDays(pl.last || pl.since, pl.every || 7);
+/** Wer gießt heute? Während einer Gießvertretung die, die zugesagt haben, sonst die Besitzer:in */
+function plantCarers(pl, sits, day) {
+  const helpers = [...new Set(sits.filter((s) => s.from <= day && s.to >= day && s.plants.includes(pl.id)).flatMap((s) => s.accepted))];
+  return helpers.length ? helpers : [pl.owner];
+}
+function plantDuties(plants, sits, day) {
+  const per = {};
+  for (const pl of plants) {
+    const due = plantDue(pl);
+    if (due > day || pl.last === day) continue;
+    for (const p of plantCarers(pl, sits, day)) (per[p] = per[p] || []).push({ plant: pl, late: due < day });
+  }
+  return per;
+}
 const GUEST_MODE = true; // Gastansicht an/aus (Antonia sagt Bescheid, wann sie wieder raus soll)
 const FEEDBACK_START = '2026-11-24'; // App-Umfrage: zwei Wochen nach dem Start, eine Woche lang
 /** Nächster Termin einer wiederkehrenden Ausgabe */
@@ -252,7 +268,7 @@ export class Putzplan extends DurableObject {
     const bdays = Object.fromEntries((await this.members()).map((m) => [m.name, m.birthday || '']));
     const doersOf = {};
     const bump = (p, k) => { per[p].sp[k] = (per[p].sp[k] || 0) + 1; };
-    const per = Object.fromEntries(PEOPLE.map((p) => [p, { tasks: 0, baths: 0, rescue: stats[p]?.rescue || 0, punctual: 0, bought: stats[p]?.bought || 0, fridge: 0, items: 0, itemsMonth: 0, likes: 0, sent: 0, paidCount: 0, days: 0, notes: stats[p]?.notes || 0, swaps: stats[p]?.swaps || 0, sp: {} }]));
+    const per = Object.fromEntries(PEOPLE.map((p) => [p, { tasks: 0, baths: 0, rescue: stats[p]?.rescue || 0, punctual: 0, bought: stats[p]?.bought || 0, fridge: 0, items: 0, itemsMonth: 0, likes: 0, sent: 0, paidCount: 0, days: 0, notes: stats[p]?.notes || 0, plants: stats[p]?.plants || 0, swaps: stats[p]?.swaps || 0, sp: {} }]));
     let weekDone = {};
     for (const w of weeks) {
       weekDone = {};
@@ -446,6 +462,14 @@ export class Putzplan extends DurableObject {
     }
     return { from: first, to: today, weeks: weeks.length, pastWeeks, fullWeeks, wgItems, people: PEOPLE, per };
   }
+  // ---------- Pflanzen ----------
+  async plants() { return (await this.ctx.storage.get('plants')) || []; }
+  async plantSits() {
+    const old = addDays(berlinNow().day, -21);
+    return ((await this.ctx.storage.get('plantsits')) || []).filter((s) => s.to >= old);
+  }
+  // ---------- Alarmglocke ----------
+  async alarms() { return ((await this.ctx.storage.get('alarms')) || []).filter((a) => Date.now() - a.at < 3 * 864e5); }
   async board() {
     const today = berlinNow().day;
     return ((await this.ctx.storage.get('board')) || []).filter((n) => !n.expires || n.expires >= today);
@@ -722,7 +746,7 @@ export class Putzplan extends DurableObject {
       return json({ error: 'bad request' }, 400);
     }
     // Neu in der WG: Account ist da, Person wird beim Beitreten angelegt
-    const open = path === '/calendar.ics' || path.startsWith('/photo/') || path.startsWith('/board/photo/') || path === '/vapid' || path === '/unsubscribe' || (path === '/_cron' && this.env.DEV_MODE);
+    const open = path === '/calendar.ics' || path.startsWith('/photo/') || path.startsWith('/board/photo/') || path.startsWith('/plants/photo/') || path === '/vapid' || path === '/unsubscribe' || (path === '/_cron' && this.env.DEV_MODE);
     if (path === '/members/join' && !acct) return json({ error: 'Bitte melde dich an.', auth: true }, 401);
     if (!me && !open && path !== '/members/join') return json({ error: 'Bitte melde dich an.', auth: true }, 401);
     if (me) {
@@ -769,7 +793,7 @@ export class Putzplan extends DurableObject {
     }
     if (path === '/push/prefs' && request.method === 'POST') {
       if (!me) return json({ error: 'Bitte melde dich an.', auth: true }, 401);
-      const CATS = ['plan', 'cleaner', 'swap', 'money', 'react', 'board', 'cal', 'people', 'translate'];
+      const CATS = ['plan', 'cleaner', 'swap', 'money', 'react', 'board', 'cal', 'people', 'plants', 'alarm', 'translate'];
       const all = (await this.ctx.storage.get('pushprefs')) || {};
       all[me] = Object.fromEntries(CATS.filter((c) => body.prefs?.[c] === false).map((c) => [c, false]));
       await this.ctx.storage.put('pushprefs', all);
@@ -784,7 +808,7 @@ export class Putzplan extends DurableObject {
       const from = validMonday(url.searchParams.get('from')) ? url.searchParams.get('from') : addDays(current, -7);
       const count = Math.min(Math.max(Number(url.searchParams.get('count')) || 12, 1), 30);
       const weeks = await this.weeks([...Array(count)].map((_, i) => addDays(from, i * 7)));
-      return json({ people: PEOPLE, members: await this.members(), absences: await this.absences(), events: await this.events(), polls: await this.polls(), surveys: await this.surveysFor(me), swapRequests: await this.swapRequests(), board: await this.board(), reactions: await this.reactions(), gami: await this.gami(), cleanerContact: await this.cleanerContact(), pushPrefs: ((await this.ctx.storage.get('pushprefs')) || {})[me] || {}, feedback: await this.feedbackFor(me), current, today: berlinNow().day, weeks });
+      return json({ people: PEOPLE, members: await this.members(), absences: await this.absences(), events: await this.events(), polls: await this.polls(), surveys: await this.surveysFor(me), swapRequests: await this.swapRequests(), board: await this.board(), reactions: await this.reactions(), gami: await this.gami(), cleanerContact: await this.cleanerContact(), pushPrefs: ((await this.ctx.storage.get('pushprefs')) || {})[me] || {}, feedback: await this.feedbackFor(me), plants: await this.plants(), plantSits: await this.plantSits(), alarms: await this.alarms(), current, today: berlinNow().day, weeks });
     }
 
     if (path === '/check' && request.method === 'POST') {
@@ -1126,8 +1150,8 @@ export class Putzplan extends DurableObject {
       await this.ctx.storage.put('members', list);
       return json({ ok: true, name, members: list });
     }
-    if ((path.startsWith('/photo/') || path.startsWith('/board/photo/')) && request.method === 'GET') {
-      const data = await this.ctx.storage.get(path.startsWith('/board/') ? `boardphoto:${decodeURIComponent(path.slice(13))}` : `photo:${decodeURIComponent(path.slice(7))}`);
+    if ((path.startsWith('/photo/') || path.startsWith('/board/photo/') || path.startsWith('/plants/photo/')) && request.method === 'GET') {
+      const data = await this.ctx.storage.get(path.startsWith('/board/') ? `boardphoto:${decodeURIComponent(path.slice(13))}` : path.startsWith('/plants/') ? `plantphoto:${decodeURIComponent(path.slice(14))}` : `photo:${decodeURIComponent(path.slice(7))}`);
       if (!data) return new Response('not found', { status: 404 });
       const [head, b64] = data.split(',');
       const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
@@ -1482,6 +1506,155 @@ export class Putzplan extends DurableObject {
       return json({ ok: true });
     }
 
+    // ---------- Pflanzen gießen & Gießvertretung ----------
+    if (path.startsWith('/plants/') && request.method === 'POST') {
+      if (!me) return json({ error: 'Bitte melde dich an.', auth: true }, 401);
+      const today = berlinNow().day;
+      const plants = await this.plants();
+      let sits = await this.plantSits();
+      const names = await this.names();
+      const nameList = (ids, l) => ids.map((id) => plants.find((p) => p.id === id)?.name).filter(Boolean).join(', ') || pick(l)('Pflanzen', 'plants', 'växter');
+      const save = async () => { await this.ctx.storage.put('plants', plants); await this.ctx.storage.put('plantsits', sits); return json({ plants, plantSits: sits }); };
+      if (path === '/plants/save') {
+        const name = str(body.title, 40); // „name“ wird vom Server auf die angemeldete Person gesetzt
+        if (!name) return json({ error: 'Bitte einen Namen für die Pflanze angeben.' }, 400);
+        let pl = body.id ? plants.find((p) => p.id === body.id) : null;
+        if (body.id && (!pl || pl.owner !== me)) return json({ error: 'Das ist nicht deine Pflanze.' }, 403);
+        if (!pl) {
+          if (plants.filter((p) => p.owner === me).length >= 60) return json({ error: 'Du hast schon sehr viele Pflanzen eingetragen.' }, 400);
+          pl = { id: rid(), owner: me, since: today, last: isDay(body.last) && body.last <= today ? body.last : today, lastBy: me };
+          plants.push(pl);
+        } else if (isDay(body.last) && body.last <= today) pl.last = body.last;
+        Object.assign(pl, { name, where: str(body.where, 40), note: str(body.note, 160), every: Math.max(1, Math.min(60, parseInt(body.every, 10) || 7)) });
+        if (body.photo === null) { await this.ctx.storage.delete(`plantphoto:${pl.id}`); delete pl.photo; }
+        else if (body.photo !== undefined) {
+          if (typeof body.photo !== 'string' || !/^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+/=]+$/.test(body.photo) || body.photo.length > 600_000) return json({ error: 'Das Foto ist zu groß oder kein Bild.' }, 400);
+          await this.ctx.storage.put(`plantphoto:${pl.id}`, body.photo);
+          pl.photo = Date.now();
+        }
+        return save();
+      }
+      if (path === '/plants/delete') {
+        const pl = plants.find((p) => p.id === body.id);
+        if (!pl || pl.owner !== me) return json({ error: 'Das ist nicht deine Pflanze.' }, 403);
+        plants.splice(plants.indexOf(pl), 1);
+        await this.ctx.storage.delete(`plantphoto:${pl.id}`);
+        sits = sits.map((s) => ({ ...s, plants: s.plants.filter((id) => id !== pl.id) }));
+        return save();
+      }
+      if (path === '/plants/water' || path === '/plants/undo') {
+        const pl = plants.find((p) => p.id === body.id);
+        if (!pl) return json({ error: 'Pflanze nicht gefunden.' }, 404);
+        if (path === '/plants/undo') {
+          if (pl.lastBy !== me || pl.last !== today || !pl.prev) return json({ error: 'Das kannst du nicht mehr rückgängig machen.' }, 400);
+          Object.assign(pl, pl.prev); delete pl.prev;
+          return save();
+        }
+        if (pl.last === today) return json({ error: `${pl.name} wurde heute schon gegossen${pl.lastBy ? ` (von ${pl.lastBy})` : ''}.` }, 400);
+        pl.prev = { last: pl.last, lastBy: pl.lastBy || null, lastAt: pl.lastAt || null };
+        Object.assign(pl, { last: today, lastBy: me, lastAt: Date.now() });
+        if (pl.owner !== me) {
+          await this.bump(me, 'plants');
+          await this.pushCat('plants', pl.owner, (l) => ({ title: pick(l)(`💧 ${me} hat deine ${pl.name} gegossen`, `💧 ${me} watered your ${pl.name}`, `💧 ${me} vattnade din ${pl.name}`), body: pick(l)('Danke-Reaktion nicht vergessen 🙏', "Don't forget to say thanks 🙏", 'Glöm inte att tacka 🙏'), url: '/#pflanzen' }));
+        }
+        return save();
+      }
+      if (path === '/plants/sit/ask') {
+        const from = isDay(body.from) ? body.from : null;
+        const to = isDay(body.to) ? body.to : null;
+        if (!from || !to || to < from) return json({ error: 'Bitte einen gültigen Zeitraum wählen.' }, 400);
+        if (to < today) return json({ error: 'Der Zeitraum liegt in der Vergangenheit.' }, 400);
+        const ids = (Array.isArray(body.plants) ? body.plants : []).filter((id) => plants.some((p) => p.id === id && p.owner === me));
+        if (!ids.length) return json({ error: 'Bitte mindestens eine Pflanze auswählen.' }, 400);
+        const asked = [...new Set((Array.isArray(body.asked) ? body.asked : []).filter((p) => names.includes(p) && p !== me))];
+        if (!asked.length) return json({ error: 'Bitte mindestens eine Person fragen.' }, 400);
+        const sit = { id: rid(), owner: me, from, to, plants: ids, asked, accepted: [], declined: [], note: str(body.note, 200), at: Date.now() };
+        sits.push(sit);
+        for (const p of asked) {
+          await this.pushCat('plants', p, async (l, who) => ({ title: pick(l)(`🪴 ${me} fragt: Kannst du Pflanzen gießen?`, `🪴 ${me} asks: can you water plants?`, `🪴 ${me} undrar: kan du vattna växter?`),
+            body: pick(l)(`${fmtD(from, 'de')} bis ${fmtD(to, 'de')}: ${nameList(ids, l)}`, `${fmtD(from, 'en')} to ${fmtD(to, 'en')}: ${nameList(ids, l)}`, `${fmtD(from, 'sv')} till ${fmtD(to, 'sv')}: ${nameList(ids, l)}`) + (sit.note ? ` · ${await this.trFor(sit.note, l, who)}` : ''), url: '/#pflanzen' }));
+        }
+        return save();
+      }
+      const sit = sits.find((s) => s.id === body.id);
+      if (!sit) return json({ error: 'Anfrage nicht gefunden.' }, 404);
+      if (path === '/plants/sit/answer') {
+        if (!sit.asked.includes(me)) return json({ error: 'Diese Anfrage ging nicht an dich.' }, 403);
+        const was = sit.accepted.includes(me);
+        sit.accepted = sit.accepted.filter((p) => p !== me);
+        sit.declined = sit.declined.filter((p) => p !== me);
+        (body.yes ? sit.accepted : sit.declined).push(me);
+        if (body.yes && !was) {
+          await this.pushCat('plants', sit.owner, (l) => ({ title: pick(l)(`🌱 ${me} gießt deine Pflanzen`, `🌱 ${me} will water your plants`, `🌱 ${me} vattnar dina växter`), body: pick(l)(`${fmtD(sit.from, 'de')} bis ${fmtD(sit.to, 'de')}: ${nameList(sit.plants, l)}`, `${fmtD(sit.from, 'en')} to ${fmtD(sit.to, 'en')}: ${nameList(sit.plants, l)}`, `${fmtD(sit.from, 'sv')} till ${fmtD(sit.to, 'sv')}: ${nameList(sit.plants, l)}`), url: '/#pflanzen' }));
+        } else if (!body.yes && (was || sit.declined.length === sit.asked.length)) {
+          const nobody = !sit.accepted.length;
+          await this.pushCat('plants', sit.owner, (l) => ({ title: pick(l)(`🪴 ${me} kann doch nicht gießen`, `🪴 ${me} can't water after all`, `🪴 ${me} kan inte vattna ändå`), body: nobody ? pick(l)('Gerade hat niemand zugesagt. Frag am besten noch jemanden.', 'Nobody has said yes right now. Better ask someone else.', 'Ingen har tackat ja just nu. Fråga gärna någon mer.') : pick(l)(`Es gießen: ${sit.accepted.join(', ')}`, `Watering: ${sit.accepted.join(', ')}`, `Vattnar: ${sit.accepted.join(', ')}`), url: '/#pflanzen' }));
+          if (!was) sit.declinedPushed = true;
+        }
+        return save();
+      }
+      if (sit.owner !== me) return json({ error: 'Das ist nicht deine Anfrage.' }, 403);
+      if (path === '/plants/sit/cancel') {
+        sits = sits.filter((s) => s !== sit);
+        for (const p of sit.accepted) await this.pushCat('plants', p, (l) => ({ title: pick(l)(`🪴 ${me} braucht doch keine Gießhilfe`, `🪴 ${me} no longer needs watering help`, `🪴 ${me} behöver ingen vattningshjälp längre`), body: pick(l)('Danke trotzdem! 💚', 'Thanks anyway! 💚', 'Tack ändå! 💚'), url: '/#pflanzen' }));
+        return save();
+      }
+      if (path === '/plants/sit/thank') {
+        if (sit.thanked) return json({ error: 'Du hast dich schon bedankt.' }, 400);
+        sit.thanked = Date.now();
+        const text = str(body.text, 200);
+        for (const p of sit.accepted) await this.pushCat('plants', p, async (l, who) => ({ title: pick(l)(`🙏 ${me} sagt Danke fürs Gießen!`, `🙏 ${me} says thanks for watering!`, `🙏 ${me} tackar för vattningen!`), body: text ? await this.trFor(text, l, who) : pick(l)('Die Pflanzen haben überlebt 🌿', 'The plants survived 🌿', 'Växterna överlevde 🌿'), url: '/#pflanzen' }));
+        return save();
+      }
+      return json({ error: 'bad request' }, 400);
+    }
+
+    // ---------- Alarmglocke ----------
+    if (path.startsWith('/alarm/') && request.method === 'POST') {
+      if (!me) return json({ error: 'Bitte melde dich an.', auth: true }, 401);
+      const all = (await this.ctx.storage.get('alarms')) || [];
+      if (path === '/alarm/ring') {
+        const text = str(body.text, 200);
+        const where = str(body.where, 30);
+        if (!text && !where) return json({ error: 'Schreib kurz dazu, was los ist.' }, 400);
+        const mine = all.filter((a) => a.by === me && Date.now() - a.at < 10 * 60e3);
+        if (mine.length) return json({ error: 'Du hast gerade erst geklingelt. Warte bitte ein paar Minuten.' }, 429);
+        const a = { id: rid(), by: me, where, text, at: Date.now(), handled: null };
+        const list = [a, ...all.filter((x) => Date.now() - x.at < 3 * 864e5)].slice(0, 20);
+        await this.ctx.storage.put('alarms', list);
+        for (const p of await this.names()) {
+          if (p === me) continue;
+          await this.pushCat('alarm', p, async (l, who) => ({ title: await (async () => { const wh = where ? `: ${await this.trFor(where, l, who)}` : ''; return pick(l)(`🔔 Alarm von ${me}${wh}`, `🔔 Alarm from ${me}${wh}`, `🔔 Larm från ${me}${wh}`); })(), body: text ? await this.trFor(text, l, who) : pick(l)('Hier sieht es aus wie im Saustall 🐷', 'It looks like a pigsty here 🐷', 'Det ser ut som en svinstia här 🐷'), url: '/#start' }));
+        }
+        await this.logAct('alarm', me, { where });
+        return json({ alarms: await this.alarms() });
+      }
+      const a = all.find((x) => x.id === body.id);
+      if (!a) return json({ error: 'Alarm nicht gefunden.' }, 404);
+      // Reaktion: „Ich war's“, „Ich kümmere mich drum“ oder „Erledigt“. Push nur an die Person, die geklingelt hat
+      if (path === '/alarm/reply') {
+        const kind = ['mine', 'onit', 'done'].includes(body.kind) ? body.kind : null;
+        if (!kind) return json({ error: 'bad request' }, 400);
+        a.replies = (a.replies || []).filter((r) => !(r.by === me && r.kind === kind));
+        if (!body.undo) a.replies.push({ by: me, kind, at: Date.now() });
+        await this.ctx.storage.put('alarms', all);
+        if (!body.undo && a.by !== me) {
+          await this.pushCat('alarm', a.by, (l) => {
+            const L = pick(l);
+            const title = { mine: L(`🙈 ${me}: Ich war's`, `🙈 ${me}: It was me`, `🙈 ${me}: Det var jag`), onit: L(`🙋 ${me} kümmert sich drum`, `🙋 ${me} is on it`, `🙋 ${me} tar hand om det`), done: L(`✨ ${me}: Erledigt!`, `✨ ${me}: Done!`, `✨ ${me}: Klart!`) }[kind];
+            return { title, body: a.where || a.text.slice(0, 80) || L('Dein Alarm', 'Your alarm', 'Ditt larm'), url: '/#start' };
+          });
+        }
+        return json({ alarms: await this.alarms() });
+      }
+      if (path === '/alarm/delete') {
+        if (a.by !== me) return json({ error: 'Nur wer geklingelt hat, kann den Alarm löschen.' }, 403);
+        await this.ctx.storage.put('alarms', all.filter((x) => x !== a));
+        return json({ alarms: await this.alarms() });
+      }
+      return json({ error: 'bad request' }, 400);
+    }
+
     // ---------- Pinnwand ----------
     if (path.startsWith('/board/') && request.method === 'POST') {
       let list = await this.board();
@@ -1700,6 +1873,19 @@ export class Putzplan extends DurableObject {
         const adm = (await this.ctx.storage.get('admin')) || 'Toni';
         const n = Object.keys(f.answers).length;
         done.push([adm, await this.pushToPerson(adm, (l) => ({ title: pick(l)('📊 App-Umfrage ist fertig', '📊 App survey is finished', '📊 Appenkäten är klar'), body: pick(l)(`${n} von ${names.length} haben geantwortet. Den Report findest du in den Einstellungen unter „App-Umfrage ansehen“.`, `${n} of ${names.length} answered. Find the report in Settings under "View app survey".`, `${n} av ${names.length} svarade. Rapporten finns i inställningarna under "Visa appenkät".`), url: '/#start' }))]);
+      }
+    }
+    // Pflanzen: um 18 Uhr an alle, die heute gießen müssen (Besitzer:in oder zugesagte Gießvertretung)
+    if (b.hour >= 18 && !(await this.ctx.storage.get(`sent:plants:${b.day}`))) {
+      await this.ctx.storage.put(`sent:plants:${b.day}`, Date.now());
+      const per = plantDuties(await this.plants(), await this.plantSits(), b.day);
+      for (const [p, list] of Object.entries(per)) {
+        const late = list.some((x) => x.late);
+        done.push([`plants:${p}`, await this.pushCat('plants', p, (l) => {
+          const L = pick(l);
+          const items = list.map((x) => x.plant.name + (x.plant.owner !== p ? ` (${x.plant.owner})` : '') + (x.late ? ' ⚠️' : '')).join(', ');
+          return { title: late ? L('💧 Pflanzen gießen, schon überfällig!', '💧 Water the plants, already overdue!', '💧 Vattna växterna, redan försenat!') : L('💧 Heute gießen', '💧 Water today', '💧 Vattna idag'), body: items, url: '/#pflanzen' };
+        })]);
       }
     }
     // Abgelaufene Pinnwand-Zettel samt Fotos abnehmen
