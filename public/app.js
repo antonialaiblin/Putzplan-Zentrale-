@@ -308,11 +308,13 @@ function showWelcome() {
   const again = setInterval(() => confetti(120), 2600);
   $('#welcome-go').onclick = async () => {
     clearInterval(again);
-    el.hidden = true;
-    document.body.classList.remove('welcoming');
     try { await api('auth/welcomed', {}); } catch { /* egal */ }
     if (state.account) state.account.welcomeNeeded = false;
-    maybeAskProfile();
+    // Danach Profil einrichten (Foto, Geburtstag), überspringbar; erst dann kommt die Übersicht
+    state.askedProfile = true;
+    $('#profile-dialog').addEventListener('close', () => { el.hidden = true; document.body.classList.remove('welcoming'); if ($('#profile-dialog').returnValue !== 'ok') store.set('profileSkip', '1'); }, { once: true });
+    openProfile(true, true);
+    if (!$('#profile-dialog').open) { el.hidden = true; document.body.classList.remove('welcoming'); }
   };
 }
 /** Am eigenen Geburtstag: Konfetti beim Öffnen und überall Geschenke 🎁 */
@@ -347,7 +349,7 @@ document.addEventListener('visibilitychange', () => { if (document.visibilitySta
 /** Wer noch keinen Geburtstag/kein Geschlecht eingetragen hat, wird einmal pro Besuch gefragt */
 function maybeAskProfile() {
   const me = memberOf(state.me);
-  if (me && (!me.birthday || !me.gender) && !state.askedProfile && !$('#profile-dialog').open) {
+  if (me && (!me.birthday || !me.gender) && !state.askedProfile && !store.get('profileSkip') && !$('#profile-dialog').open) {
     state.askedProfile = true;
     openProfile(true);
   }
@@ -2211,10 +2213,13 @@ const joinProfile = profileForm('join');
 joinProfile.preview(null, '?');
 const editProfile = profileForm('profile');
 
-function openProfile(intro = false) {
+function openProfile(intro = false, onboarding = false) {
   const m = memberOf(state.me);
   if (!m) return;
   $('#profile-intro').hidden = !intro;
+  $('#profile-form h2').textContent = onboarding ? L('Richte dein Profil ein 📸', 'Set up your profile 📸', 'Skapa din profil 📸') : L('Mein Profil', 'My profile', 'Min profil');
+  $('#profile-intro').textContent = onboarding ? L('Mit Foto und Geburtstag erkennen dich die anderen sofort, und an deinem Geburtstag gibt es eine Überraschung 🎂. Du kannst das auch überspringen und später in den Einstellungen machen.', "With a photo and your birthday the others recognise you right away, and there's a surprise on your birthday 🎂. You can also skip this and do it later in Settings.", 'Med foto och födelsedag känner de andra igen dig direkt, och på din födelsedag väntar en överraskning 🎂. Du kan också hoppa över och göra det senare i inställningarna.')
+    : L('Bitte ergänze kurz dein Profil, damit die WG deinen Geburtstag kennt und die App dich richtig anspricht.', 'Please quickly complete your profile so the flat knows your birthday and the app addresses you correctly.', 'Fyll i din profil så att kollektivet vet din födelsedag och appen tilltalar dig rätt.');
   $('#profile-form button[value=cancel]').textContent = intro ? L('Überspringen', 'Skip', 'Hoppa över') : L('Abbrechen', 'Cancel', 'Avbryt');
   $('#profile-name').value = m.name;
   $('#profile-birthday').value = m.birthday || '';
