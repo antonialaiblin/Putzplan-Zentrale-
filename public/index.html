@@ -495,6 +495,26 @@
       <div class="row end"><button value="cancel" class="ghost" formnovalidate id="laundry-close">Abbrechen</button><button value="ok" id="laundry-go">Starten</button></div>
     </form>
   </dialog>
+  <dialog id="meal-dialog">
+    <form method="dialog" id="meal-form">
+      <h2 id="meal-title">🍝 Essen &amp; Kochen</h2>
+      <div id="meal-list"></div>
+      <h3 class="add-h" id="meal-new-h">Neue Frage</h3>
+      <div class="seg two-seg" id="meal-kind" role="radiogroup">
+        <button type="button" role="radio" data-mkind="eat" aria-checked="true">🍝 Ich koche – wer isst mit?</button>
+        <button type="button" role="radio" data-mkind="cook" aria-checked="false">👩‍🍳 Wer kocht mit mir?</button>
+      </div>
+      <div id="meal-to-wrap" hidden><p class="small" id="meal-to-label">Wen fragst du?</p><div class="chips" id="meal-to"></div></div>
+      <p class="muted small" id="meal-hint"></p>
+      <div class="seg two-seg" id="meal-when" role="radiogroup">
+        <button type="button" role="radio" data-mwhen="now" aria-checked="true">⚡ Jetzt</button>
+        <button type="button" role="radio" data-mwhen="later" aria-checked="false">🕖 Später</button>
+      </div>
+      <label class="field" id="meal-time-wrap" hidden><span id="meal-time-label">Uhrzeit</span><input type="time" id="meal-time" value="19:00"></label>
+      <label class="field"><span id="meal-what-label">Was gibt's? (optional)</span><input id="meal-what" maxlength="120" placeholder="z.B. Spaghetti Bolognese"></label>
+      <div class="row end"><button value="cancel" class="ghost" formnovalidate id="meal-close">Schließen</button><button value="ok" id="meal-send">Fragen</button></div>
+    </form>
+  </dialog>
   <dialog id="parcel-dialog">
     <form method="dialog" id="parcel-form">
       <h2 id="parcel-title">📦 Pakete</h2>

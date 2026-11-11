@@ -716,3 +716,8 @@ body.welcoming { overflow: hidden; }
 .emoji-tile.alert .emoji-badge { background: var(--accent); color: #fff; }
 .laundry-status { margin-bottom: 12px; }
 .parcel-list { margin-bottom: 12px; padding-bottom: 6px; border-bottom: 1px solid var(--line); }
+.meal-row { padding: 8px 0 10px; border-bottom: 1px solid var(--line); }
+.meal-row p { margin: 4px 0; }
+#meal-list { margin-bottom: 6px; }
+.meal-note { flex: 1 1 100%; padding: 8px 10px; border: 1px solid var(--line); border-radius: 10px; background: var(--card, #fff); color: inherit; font: inherit; font-size: 14px; }
+#meal-when { margin: 6px 0 10px; }

@@ -480,6 +480,8 @@ export class Putzplan extends DurableObject {
     return ((await this.ctx.storage.get('plantsits')) || []).filter((s) => s.to >= old);
   }
   // ---------- Alarmglocke ----------
+  async meals() { const today = berlinNow().day; return ((await this.ctx.storage.get('meals')) || []).filter((x) => x.day >= today); }
+  async mealsFor(me) { return (await this.meals()).filter((m) => !m.to || m.by === me || m.to.includes(me)); }
   async parcels() { return ((await this.ctx.storage.get('parcels')) || []).filter((x) => Date.now() - x.at < 4 * 864e5); }
   async alarmSpots() {
     return (await this.ctx.storage.get('alarmspots')) || [['🍳', 'Küche'], ['🚿', 'Bad vorne'], ['🛁', 'Bad hinten'], ['🚪', 'Flur'], ['🛋️', 'Wohnzimmer'], ['🗑️', 'Müll'], ['🧊', 'Kühlschrank']].map(([icon, name]) => ({ icon, name }));
@@ -816,7 +818,7 @@ export class Putzplan extends DurableObject {
     }
     if (path === '/push/prefs' && request.method === 'POST') {
       if (!me) return json({ error: 'Bitte melde dich an.', auth: true }, 401);
-      const CATS = ['plan', 'cleaner', 'swap', 'money', 'react', 'board', 'cal', 'people', 'plants', 'alarm', 'laundry', 'parcel', 'translate'];
+      const CATS = ['plan', 'cleaner', 'swap', 'money', 'react', 'board', 'cal', 'people', 'plants', 'alarm', 'laundry', 'parcel', 'meal', 'smoke', 'translate'];
       const all = (await this.ctx.storage.get('pushprefs')) || {};
       all[me] = Object.fromEntries(CATS.filter((c) => body.prefs?.[c] === false).map((c) => [c, false]));
       await this.ctx.storage.put('pushprefs', all);
@@ -831,7 +833,7 @@ export class Putzplan extends DurableObject {
       const from = validMonday(url.searchParams.get('from')) ? url.searchParams.get('from') : addDays(current, -7);
       const count = Math.min(Math.max(Number(url.searchParams.get('count')) || 12, 1), 30);
       const weeks = await this.weeks([...Array(count)].map((_, i) => addDays(from, i * 7)));
-      return json({ people: PEOPLE, members: await this.members(), absences: await this.absences(), events: await this.events(), polls: await this.polls(), surveys: await this.surveysFor(me), swapRequests: await this.swapRequests(), board: await this.board(), reactions: await this.reactions(), gami: await this.gami(), cleanerContact: await this.cleanerContact(), pushPrefs: ((await this.ctx.storage.get('pushprefs')) || {})[me] || {}, feedback: await this.feedbackFor(me), plants: await this.plants(), plantSits: await this.plantSits(), alarms: await this.alarms(), alarmSpots: await this.alarmSpots(), activity: await this.activity(), laundry: await this.laundry(), parcels: await this.parcels(), wgInfo: me && !sandbox ? await this.wgInfo() : null, current, today: berlinNow().day, weeks });
+      return json({ people: PEOPLE, members: await this.members(), absences: await this.absences(), events: await this.events(), polls: await this.polls(), surveys: await this.surveysFor(me), swapRequests: await this.swapRequests(), board: await this.board(), reactions: await this.reactions(), gami: await this.gami(), cleanerContact: await this.cleanerContact(), pushPrefs: ((await this.ctx.storage.get('pushprefs')) || {})[me] || {}, feedback: await this.feedbackFor(me), plants: await this.plants(), plantSits: await this.plantSits(), alarms: await this.alarms(), alarmSpots: await this.alarmSpots(), activity: await this.activity(), laundry: await this.laundry(), parcels: await this.parcels(), meals: await this.mealsFor(me), wgInfo: me && !sandbox ? await this.wgInfo() : null, current, today: berlinNow().day, weeks });
     }
 
     if (path === '/check' && request.method === 'POST') {
@@ -1763,6 +1765,50 @@ export class Putzplan extends DurableObject {
         await this.ctx.storage.put('laundry', l);
       } else return json({ error: 'bad request' }, 400);
       return json({ laundry: await this.laundry() });
+    }
+    // ---------- Essen: Wer isst mit? / Wer kocht mit? ----------
+    if (path.startsWith('/meal/') && request.method === 'POST') {
+      if (!me) return json({ error: 'Bitte melde dich an.', auth: true }, 401);
+      let list = await this.meals();
+      if (path === '/meal/new') {
+        const kind = ['cook', 'smoke'].includes(body.kind) ? body.kind : 'eat';
+        const time = body.time === 'now' ? 'now' : /^([01]\d|2[0-3]):[0-5]\d$/.test(body.time || '') ? body.time : '19:00';
+        const what = str(body.what, 120);
+        const to = Array.isArray(body.to) ? PEOPLE.filter((p) => p !== me && body.to.includes(p)) : PEOPLE.filter((p) => p !== me);
+        if (!to.length) return json({ error: 'Bitte wähle mindestens eine Person.' }, 400);
+        const m = { id: rid(), kind, time, what, to, by: me, day: berlinNow().day, answers: {}, notes: {}, at: Date.now() };
+        list.push(m);
+        await this.ctx.storage.put('meals', list);
+        const cat = kind === 'smoke' ? 'smoke' : 'meal';
+        for (const x of to) await this.pushCat(cat, x, async (lang, who) => { const L = pick(lang);
+          const at = time === 'now' ? L('jetzt', 'now', 'nu') : L(`um ${time}`, `at ${time}`, `kl. ${time}`);
+          return {
+          title: kind === 'smoke' ? L(`🚬 ${me}: Lust auf eine Zigarette ${at}?`, `🚬 ${me}: fancy a cigarette ${at}?`, `🚬 ${me}: sugen på en cigarett ${at}?`)
+            : kind === 'eat' ? L(`🍝 ${me} kocht ${at} – isst du mit?`, `🍝 ${me} is cooking ${at} – joining for dinner?`, `🍝 ${me} lagar mat ${at} – äter du med?`) : L(`👩‍🍳 ${me} will ${at} kochen – kochst du mit?`, `👩‍🍳 ${me} wants to cook ${at} – cook together?`, `👩‍🍳 ${me} vill laga mat ${at} – lagar du med?`),
+          body: what ? await this.trFor(what, lang, who) : kind === 'cook' ? L('Hast du Vorschläge? Antworte in der App 🙂', 'Got ideas? Answer in the app 🙂', 'Har du förslag? Svara i appen 🙂') : L('Antworte kurz in der App 🙂', 'Answer quickly in the app 🙂', 'Svara snabbt i appen 🙂'), url: '/#start' }; });
+        if (kind !== 'smoke') await this.logAct('meal', me, { kind, time, title: what });
+      } else if (path === '/meal/answer') {
+        const m = list.find((x) => x.id === body.id);
+        if (!m) return json({ error: 'Nicht gefunden.' }, 404);
+        if (m.by === me || (m.to && !m.to.includes(me))) return json({ meals: await this.mealsFor(me) });
+        const yes = !!body.yes;
+        const before = m.answers[me];
+        const note = str(body.note, 120);
+        m.answers[me] = yes ? 'yes' : 'no';
+        m.notes = m.notes || {};
+        const noteNew = note && note !== m.notes[me];
+        if (note) m.notes[me] = note;
+        await this.ctx.storage.put('meals', list);
+        if (before !== m.answers[me] || noteNew) await this.pushCat(m.kind === 'smoke' ? 'smoke' : 'meal', m.by, async (lang, who) => { const L = pick(lang); return m.kind === 'smoke'
+          ? { title: yes ? L(`🚬 ${me} kommt mit`, `🚬 ${me} is in`, `🚬 ${me} är med`) : L(`${me} hat gerade keine Lust`, `${me} isn't up for it`, `${me} är inte sugen`), body: note ? await this.trFor(note, lang, who) : '', url: '/#start' }
+          : m.kind === 'eat'
+          ? { title: yes ? L(`🍝 ${me} isst mit`, `🍝 ${me} is joining`, `🍝 ${me} äter med`) : L(`${me} isst nicht mit`, `${me} won't join`, `${me} äter inte med`), body: L(`Bisher dabei: ${Object.values(m.answers).filter((a) => a === 'yes').length + 1} Personen mit dir`, `So far: ${Object.values(m.answers).filter((a) => a === 'yes').length + 1} people incl. you`, `Hittills: ${Object.values(m.answers).filter((a) => a === 'yes').length + 1} personer med dig`), url: '/#start' }
+          : { title: yes ? L(`👩‍🍳 ${me} kocht mit`, `👩‍🍳 ${me} will cook with you`, `👩‍🍳 ${me} lagar mat med dig`) : L(`${me} kocht nicht mit`, `${me} won't cook`, `${me} lagar inte med`), body: note ? `💡 ${await this.trFor(note, lang, who)}` : '', url: '/#start' }; });
+      } else if (path === '/meal/delete') {
+        list = list.filter((x) => !(x.id === body.id && x.by === me));
+        await this.ctx.storage.put('meals', list);
+      } else return json({ error: 'bad request' }, 400);
+      return json({ meals: await this.mealsFor(me) });
     }
     // ---------- Pakete ----------
     if (path.startsWith('/parcel/') && request.method === 'POST') {
