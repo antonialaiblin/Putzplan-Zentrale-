@@ -818,7 +818,7 @@ export class Putzplan extends DurableObject {
     }
     if (path === '/push/prefs' && request.method === 'POST') {
       if (!me) return json({ error: 'Bitte melde dich an.', auth: true }, 401);
-      const CATS = ['plan', 'cleaner', 'swap', 'money', 'react', 'board', 'cal', 'people', 'plants', 'alarm', 'laundry', 'parcel', 'meal', 'smoke', 'translate'];
+      const CATS = ['plan', 'cleaner', 'swap', 'money', 'react', 'board', 'cal', 'people', 'plants', 'alarm', 'laundry', 'parcel', 'meal', 'smoke', 'gym', 'translate'];
       const all = (await this.ctx.storage.get('pushprefs')) || {};
       all[me] = Object.fromEntries(CATS.filter((c) => body.prefs?.[c] === false).map((c) => [c, false]));
       await this.ctx.storage.put('pushprefs', all);
@@ -1771,22 +1771,24 @@ export class Putzplan extends DurableObject {
       if (!me) return json({ error: 'Bitte melde dich an.', auth: true }, 401);
       let list = await this.meals();
       if (path === '/meal/new') {
-        const kind = ['cook', 'smoke'].includes(body.kind) ? body.kind : 'eat';
+        const kind = ['cook', 'smoke', 'gym'].includes(body.kind) ? body.kind : 'eat';
+        const today = berlinNow().day;
+        const day = typeof body.day === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(body.day) && body.day >= today && body.day <= addDays(today, 7) ? body.day : today;
         const time = body.time === 'now' ? 'now' : /^([01]\d|2[0-3]):[0-5]\d$/.test(body.time || '') ? body.time : '19:00';
         const what = str(body.what, 120);
         const to = Array.isArray(body.to) ? PEOPLE.filter((p) => p !== me && body.to.includes(p)) : PEOPLE.filter((p) => p !== me);
         if (!to.length) return json({ error: 'Bitte wähle mindestens eine Person.' }, 400);
-        const m = { id: rid(), kind, time, what, to, by: me, day: berlinNow().day, answers: {}, notes: {}, at: Date.now() };
+        const m = { id: rid(), kind, time, what, to, by: me, day, answers: {}, notes: {}, at: Date.now() };
         list.push(m);
         await this.ctx.storage.put('meals', list);
-        const cat = kind === 'smoke' ? 'smoke' : 'meal';
+        const cat = ['smoke', 'gym'].includes(kind) ? kind : 'meal';
         for (const x of to) await this.pushCat(cat, x, async (lang, who) => { const L = pick(lang);
-          const at = time === 'now' ? L('jetzt', 'now', 'nu') : L(`um ${time}`, `at ${time}`, `kl. ${time}`);
+          const at = time === 'now' ? L('jetzt', 'now', 'nu') : (day !== today ? `${dayName(day, lang)} ` : '') + L(`um ${time}`, `at ${time}`, `kl. ${time}`);
           return {
-          title: kind === 'smoke' ? L(`🚬 ${me}: Lust auf eine Zigarette ${at}?`, `🚬 ${me}: fancy a cigarette ${at}?`, `🚬 ${me}: sugen på en cigarett ${at}?`)
+          title: kind === 'gym' ? L(`🏋️ ${me}: Kommst du ${at} mit ins Gym?`, `🏋️ ${me}: join the gym ${at}?`, `🏋️ ${me}: följer du med till gymmet ${at}?`) : kind === 'smoke' ? L(`🚬 ${me}: Lust auf eine Zigarette ${at}?`, `🚬 ${me}: fancy a cigarette ${at}?`, `🚬 ${me}: sugen på en cigarett ${at}?`)
             : kind === 'eat' ? L(`🍝 ${me} kocht ${at} – isst du mit?`, `🍝 ${me} is cooking ${at} – joining for dinner?`, `🍝 ${me} lagar mat ${at} – äter du med?`) : L(`👩‍🍳 ${me} will ${at} kochen – kochst du mit?`, `👩‍🍳 ${me} wants to cook ${at} – cook together?`, `👩‍🍳 ${me} vill laga mat ${at} – lagar du med?`),
           body: what ? await this.trFor(what, lang, who) : kind === 'cook' ? L('Hast du Vorschläge? Antworte in der App 🙂', 'Got ideas? Answer in the app 🙂', 'Har du förslag? Svara i appen 🙂') : L('Antworte kurz in der App 🙂', 'Answer quickly in the app 🙂', 'Svara snabbt i appen 🙂'), url: '/#start' }; });
-        if (kind !== 'smoke') await this.logAct('meal', me, { kind, time, title: what });
+        if (!['smoke', 'gym'].includes(kind)) await this.logAct('meal', me, { kind, time, title: what });
       } else if (path === '/meal/answer') {
         const m = list.find((x) => x.id === body.id);
         if (!m) return json({ error: 'Nicht gefunden.' }, 404);
@@ -1799,7 +1801,9 @@ export class Putzplan extends DurableObject {
         const noteNew = note && note !== m.notes[me];
         if (note) m.notes[me] = note;
         await this.ctx.storage.put('meals', list);
-        if (before !== m.answers[me] || noteNew) await this.pushCat(m.kind === 'smoke' ? 'smoke' : 'meal', m.by, async (lang, who) => { const L = pick(lang); return m.kind === 'smoke'
+        if (before !== m.answers[me] || noteNew) await this.pushCat(['smoke', 'gym'].includes(m.kind) ? m.kind : 'meal', m.by, async (lang, who) => { const L = pick(lang); return m.kind === 'gym'
+          ? { title: yes ? L(`🏋️ ${me} kommt mit ins Gym`, `🏋️ ${me} is coming to the gym`, `🏋️ ${me} följer med till gymmet`) : L(`${me} kann diesmal nicht`, `${me} can't make it`, `${me} kan inte den här gången`), body: note ? await this.trFor(note, lang, who) : '', url: '/#start' }
+          : m.kind === 'smoke'
           ? { title: yes ? L(`🚬 ${me} kommt mit`, `🚬 ${me} is in`, `🚬 ${me} är med`) : L(`${me} hat gerade keine Lust`, `${me} isn't up for it`, `${me} är inte sugen`), body: note ? await this.trFor(note, lang, who) : '', url: '/#start' }
           : m.kind === 'eat'
           ? { title: yes ? L(`🍝 ${me} isst mit`, `🍝 ${me} is joining`, `🍝 ${me} äter med`) : L(`${me} isst nicht mit`, `${me} won't join`, `${me} äter inte med`), body: L(`Bisher dabei: ${Object.values(m.answers).filter((a) => a === 'yes').length + 1} Personen mit dir`, `So far: ${Object.values(m.answers).filter((a) => a === 'yes').length + 1} people incl. you`, `Hittills: ${Object.values(m.answers).filter((a) => a === 'yes').length + 1} personer med dig`), url: '/#start' }
@@ -2230,6 +2234,11 @@ export class Putzplan extends DurableObject {
 
 const stub = (env) => env.PUTZPLAN.get(env.PUTZPLAN.idFromName('wg'));
 
+function dayName(day, lang) {
+  const d = new Date(`${day}T12:00:00Z`);
+  const loc = lang === 'en' ? 'en-GB' : lang === 'sv' ? 'sv-SE' : 'de-DE';
+  return d.toLocaleDateString(loc, { weekday: 'long', timeZone: 'UTC' });
+}
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);

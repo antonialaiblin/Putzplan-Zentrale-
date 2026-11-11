@@ -721,3 +721,5 @@ body.welcoming { overflow: hidden; }
 #meal-list { margin-bottom: 6px; }
 .meal-note { flex: 1 1 100%; padding: 8px 10px; border: 1px solid var(--line); border-radius: 10px; background: var(--card, #fff); color: inherit; font: inherit; font-size: 14px; }
 #meal-when { margin: 6px 0 10px; }
+#meal-when.three-seg { grid-template-columns: repeat(3, 1fr); }
+#meal-day { margin-bottom: 8px; }

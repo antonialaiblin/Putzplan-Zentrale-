@@ -1682,6 +1682,7 @@ const WIDGETS = {
   parcel: { de: 'Pakete', en: 'Parcels', sv: 'Paket', size: 's' },
   meal: { de: 'Wer isst mit?', en: 'Who is eating?', sv: 'Vem äter med?', size: 's' },
   smoke: { de: 'Zigarette?', en: 'Cigarette?', sv: 'Cigarett?', size: 's' },
+  gym: { de: 'Gym?', en: 'Gym?', sv: 'Gym?', size: 's' },
   plan: { de: 'Putzplan', en: 'Cleaning', sv: 'Städning', size: 's' },
   shop: { de: 'Einkauf', en: 'Shopping', sv: 'Handla', size: 's' },
   money: { de: 'Kasse', en: 'Money', sv: 'Kassa', size: 's' },
@@ -1707,7 +1708,7 @@ const SHORTCUTS = {
   note: { icon: '📌', de: 'Zettel anpinnen', en: 'Pin a note', sv: 'Sätt upp en lapp' },
   invite: { icon: '➕', de: 'Mitglied einladen', en: 'Invite member', sv: 'Bjud in medlem' },
 };
-const DEFAULT_HOME = ['week', 'ranking', 'badges', 'board', 'plan', 'shop', 'money', 'cal', 'laundry', 'parcel', 'plants', 'meal', 'smoke', 'meetings', 'activity'].map((id) => ({ id, size: WIDGETS[id].size }));
+const DEFAULT_HOME = ['week', 'ranking', 'badges', 'board', 'plan', 'shop', 'money', 'cal', 'laundry', 'parcel', 'plants', 'meal', 'smoke', 'gym', 'meetings', 'activity'].map((id) => ({ id, size: WIDGETS[id].size }));
 const widgetName = (id) => (id.startsWith('sc:') ? L(SHORTCUTS[id.slice(3)]?.de || id, SHORTCUTS[id.slice(3)]?.en || id, SHORTCUTS[id.slice(3)]?.sv || id) : L(WIDGETS[id]?.de || id, WIDGETS[id]?.en || id, WIDGETS[id]?.sv || id));
 function homeLayout() {
   if (state.homeDraft) return state.homeDraft;
@@ -1715,7 +1716,7 @@ function homeLayout() {
   const ok = Array.isArray(saved) ? saved.filter((x) => WIDGETS[x.id] || (x.id.startsWith('sc:') && SHORTCUTS[x.id.slice(3)])) : null;
   // Neue Pflanzen-Kachel einmalig auch in schon angepasste Übersichten einfügen
   let added = false;
-  for (const id of ['plants', 'activity', 'laundry', 'parcel', 'meal', 'smoke']) {
+  for (const id of ['plants', 'activity', 'laundry', 'parcel', 'meal', 'smoke', 'gym']) {
     if (ok && ok.length && !ok.some((x) => x.id === id) && !store.get(`${id}Tile`)) {
       store.set(`${id}Tile`, '1');
       // Pflanzen vor den Meetings, Aktivitäten ganz ans Ende
@@ -1723,7 +1724,8 @@ function homeLayout() {
       const act = ok.findIndex((x) => x.id === 'activity');
       const pi = ok.findIndex((x) => x.id === 'plants');
       const mi = ok.findIndex((x) => x.id === 'meal');
-      const i = id === 'smoke' && mi >= 0 ? mi + 1 : ['meal', 'smoke'].includes(id) ? (pi >= 0 ? pi + 1 : act >= 0 ? act : ok.length) : id === 'activity' ? ok.length : ['laundry', 'parcel'].includes(id) ? (act >= 0 ? act : ok.length) : (m >= 0 ? m : ok.length);
+      const si = ok.findIndex((x) => x.id === 'smoke');
+      const i = id === 'gym' && si >= 0 ? si + 1 : id === 'smoke' && mi >= 0 ? mi + 1 : id === 'gym' && mi >= 0 ? mi + 1 : ['meal', 'smoke'].includes(id) ? (pi >= 0 ? pi + 1 : act >= 0 ? act : ok.length) : id === 'activity' ? ok.length : ['laundry', 'parcel'].includes(id) ? (act >= 0 ? act : ok.length) : (m >= 0 ? m : ok.length);
       ok.splice(i, 0, { id, size: WIDGETS[id].size });
       added = true;
     }
@@ -1962,6 +1964,7 @@ function renderHome() {
   tiles.parcel = parcelTile();
   tiles.meal = mealTile();
   tiles.smoke = smokeTile();
+  tiles.gym = gymTile();
   renderAlarms();
   tiles.rules = `<a class="card __CLS__" href="#regeln"><h3>${L('Hausregeln', 'House rules', `Husregler`)}</h3><p>${L('Mission Haussegen 📜 Alles zum WG-Seelenfrieden', 'Mission Haussegen 📜 Everything for peace in the flat', `Mission Haussegen 📜 Allt för husfriden`)}</p></a>`;
   Object.assign(tiles, extraTiles(w));
@@ -2860,6 +2863,7 @@ function PUSH_CATS() { return [
   ['parcel', L('📦 Pakete', '📦 Parcels', '📦 Paket')],
   ['meal', L('🍝 Wer isst mit? / Wer kocht mit?', '🍝 Who is eating? / Who is cooking?', '🍝 Vem äter med? / Vem lagar med?')],
   ['smoke', L('🚬 Zigarette?', '🚬 Cigarette?', '🚬 Cigarett?')],
+  ['gym', L('🏋️ Mit ins Gym?', '🏋️ Gym together?', '🏋️ Gymma ihop?')],
 ]; }
 function renderPushPrefs() {
   if ($('#set-translate')) $('#set-translate').checked = state.pushPrefs?.translate !== false;
@@ -3491,8 +3495,9 @@ $('#parcel-form').addEventListener('submit', async (e) => {
   } catch (err) { toast(err.message); }
 });
 // ================= Essen (Wer isst mit? / Wer kocht mit?) & Zigarette =================
-const mealVisible = (m) => m.kind !== 'smoke' || Date.now() - m.at < 3 * 3600e3;
-const mealsOf = (mode) => (state.meals || []).filter((m) => (mode === 'smoke' ? m.kind === 'smoke' : m.kind !== 'smoke') && mealVisible(m));
+const mealVisible = (m) => m.kind === 'eat' || m.kind === 'cook' || m.time !== 'now' || Date.now() - m.at < 3 * 3600e3;
+const INVITE = ['smoke', 'gym'];
+const mealsOf = (mode) => (state.meals || []).filter((m) => (INVITE.includes(mode) ? m.kind === mode : !INVITE.includes(m.kind)) && mealVisible(m));
 function mealBadge(mode) {
   const me = state.me;
   const list = mealsOf(mode);
@@ -3508,32 +3513,40 @@ function smokeTile() {
   const [b, alert] = mealBadge('smoke');
   return emojiTile('smoke-card', 'data-meal-open="smoke"', '🚬', L('Zigarette?', 'Cigarette?', 'Cigarett?'), b, alert);
 }
+function gymTile() {
+  const [b, alert] = mealBadge('gym');
+  return emojiTile('gym-card', 'data-meal-open="gym"', '🏋️', L('Gym?', 'Gym?', 'Gym?'), b, alert);
+}
+let mealDay = '';
 let mealMode = 'food';
 let mealKind = 'eat';
 let mealWhen = 'now';
 let mealTo = new Set();
-const mealAt = (m) => (m.time === 'now' ? L(`jetzt (${clockOf(m.at)})`, `now (${clockOf(m.at)})`, `nu (${clockOf(m.at)})`) : m.time);
+const mealAt = (m) => (m.time === 'now' ? L(`jetzt (${clockOf(m.at)})`, `now (${clockOf(m.at)})`, `nu (${clockOf(m.at)})`) : (m.day !== state.today ? `${new Date(`${m.day}T12:00:00Z`).toLocaleDateString(locale(), { weekday: 'short', day: 'numeric', month: 'numeric', timeZone: 'UTC' })}, ` : '') + m.time);
 function renderMeals() {
   const me = state.me;
-  const smoke = mealMode === 'smoke';
+  const smoke = INVITE.includes(mealMode);
+  const gym = mealMode === 'gym';
   const list = mealsOf(mealMode).sort((a, b) => b.at - a.at);
-  $('#meal-title').textContent = smoke ? L('🚬 Zigarette?', '🚬 Cigarette?', '🚬 Cigarett?') : L('🍝 Essen & Kochen', '🍝 Eating & cooking', '🍝 Mat & matlagning');
+  $('#meal-title').textContent = gym ? L('🏋️ Mit ins Gym?', '🏋️ Gym together?', '🏋️ Gymma ihop?') : smoke ? L('🚬 Zigarette?', '🚬 Cigarette?', '🚬 Cigarett?') : L('🍝 Essen & Kochen', '🍝 Eating & cooking', '🍝 Mat & matlagning');
   $('#meal-list').innerHTML = list.length ? list.map((m) => {
     const yes = Object.entries(m.answers).filter(([, a]) => a === 'yes').map(([p]) => p);
     const no = Object.entries(m.answers).filter(([, a]) => a === 'no').map(([p]) => p);
     const notes = Object.entries(m.notes || {});
-    const head = m.kind === 'smoke'
+    const head = m.kind === 'gym'
+      ? L(`🏋️ <strong>${esc(m.by)}</strong> fragt: Mit ins Gym?`, `🏋️ <strong>${esc(m.by)}</strong> asks: gym together?`, `🏋️ <strong>${esc(m.by)}</strong> frågar: gymma ihop?`)
+      : m.kind === 'smoke'
       ? L(`🚬 <strong>${esc(m.by)}</strong> fragt: Lust auf eine?`, `🚬 <strong>${esc(m.by)}</strong> asks: fancy one?`, `🚬 <strong>${esc(m.by)}</strong> frågar: sugen på en?`)
       : m.kind === 'cook'
         ? L(`👩‍🍳 <strong>${esc(m.by)}</strong> will kochen – wer kocht mit?`, `👩‍🍳 <strong>${esc(m.by)}</strong> wants to cook – who joins?`, `👩‍🍳 <strong>${esc(m.by)}</strong> vill laga mat – vem lagar med?`)
         : L(`🍝 <strong>${esc(m.by)}</strong> kocht – wer isst mit?`, `🍝 <strong>${esc(m.by)}</strong> is cooking – who's eating?`, `🍝 <strong>${esc(m.by)}</strong> lagar mat – vem äter med?`);
     const mineA = m.answers[me];
-    const yesTxt = m.kind === 'smoke' ? L('🙋 Bin dabei', "🙋 I'm in", '🙋 Jag är med') : m.kind === 'cook' ? L('👩‍🍳 Ich koche mit', "👩‍🍳 I'll cook too", '👩‍🍳 Jag lagar med') : L('🙋 Ich esse mit', "🙋 I'm in", '🙋 Jag äter med');
+    const yesTxt = INVITE.includes(m.kind) ? L('🙋 Bin dabei', "🙋 I'm in", '🙋 Jag är med') : m.kind === 'cook' ? L('👩‍🍳 Ich koche mit', "👩‍🍳 I'll cook too", '👩‍🍳 Jag lagar med') : L('🙋 Ich esse mit', "🙋 I'm in", '🙋 Jag äter med');
     const btns = m.by === me
       ? `<button type="button" class="link small" data-meal-del="${esc(m.id)}">${L('Löschen', 'Delete', 'Ta bort')}</button>`
       : `${m.kind === 'cook' ? `<input class="meal-note" data-meal-note="${esc(m.id)}" maxlength="120" placeholder="${esc(L('Vorschlag? z.B. Curry', 'Suggestion? e.g. curry', 'Förslag? t.ex. curry'))}" value="${esc((m.notes || {})[me] || '')}">` : ''}<button type="button" class="small${mineA === 'yes' ? '' : ' ghost'}" data-meal-ans="${esc(m.id)}" data-yes="1">${yesTxt}</button><button type="button" class="small${mineA === 'no' ? '' : ' ghost'}" data-meal-ans="${esc(m.id)}" data-yes="0">${L('Nein danke', 'No thanks', 'Nej tack')}</button>`;
-    return `<div class="meal-row"><p>${head} · <strong>${esc(mealAt(m))}</strong>${m.day !== state.today ? ` <span class="muted small">(${fmtDay(m.day)})</span>` : ''}</p>${m.what ? `<p class="small">💬 ${esc(tx(m.what, m.by))}</p>` : ''}
-      ${m.kind === 'smoke' && m.by === me ? `<p class="small muted">${L('Gefragt', 'Asked', 'Frågade')}: ${(m.to || []).map(esc).join(', ')}</p>` : ''}
+    return `<div class="meal-row"><p>${head} · <strong>${esc(mealAt(m))}</strong></p>${m.what ? `<p class="small">💬 ${esc(tx(m.what, m.by))}</p>` : ''}
+      ${INVITE.includes(m.kind) && m.by === me ? `<p class="small muted">${L('Gefragt', 'Asked', 'Frågade')}: ${(m.to || []).map(esc).join(', ')}</p>` : ''}
       ${notes.map(([p, n]) => `<p class="small">💡 <strong>${esc(p)}</strong>: ${esc(tx(n, p))}</p>`).join('')}
       <p class="small muted">${yes.length ? `✅ ${yes.map(esc).join(', ')}` : L('Noch keine Zusagen', 'No one yet', 'Inga svar än')}${no.length ? ` · ❌ ${no.map(esc).join(', ')}` : ''}${m.kind === 'eat' ? ` · ${L(`${yes.length + 1} Portionen`, `${yes.length + 1} servings`, `${yes.length + 1} portioner`)}` : ''}</p>
       <div class="row tile-btns">${btns}</div></div>`;
@@ -3541,11 +3554,18 @@ function renderMeals() {
   $('#meal-kind').hidden = smoke;
   document.querySelectorAll('#meal-kind [data-mkind]').forEach((b) => b.setAttribute('aria-checked', b.dataset.mkind === mealKind));
   document.querySelectorAll('#meal-when [data-mwhen]').forEach((b) => b.setAttribute('aria-checked', b.dataset.mwhen === mealWhen));
-  $('#meal-time-wrap').hidden = mealWhen !== 'later';
+  $('#meal-time-wrap').hidden = mealWhen === 'now';
+  $('#meal-when [data-mwhen=week]').hidden = !gym;
+  $('#meal-when').classList.toggle('three-seg', gym);
+  $('#meal-day').hidden = mealWhen !== 'week';
+  if (mealWhen === 'week') {
+    if (!mealDay) mealDay = addDaysLocal(state.today, 1);
+    $('#meal-day').innerHTML = [1, 2, 3, 4, 5, 6, 7].map((n) => { const d = addDaysLocal(state.today, n); return `<button type="button" class="chip" data-mday="${d}" aria-pressed="${d === mealDay}">${new Date(`${d}T12:00:00Z`).toLocaleDateString(locale(), { weekday: 'short', day: 'numeric', month: 'numeric', timeZone: 'UTC' })}</button>`; }).join('');
+  }
   $('#meal-to-wrap').hidden = !smoke;
   $('#meal-to').innerHTML = state.people.filter((p) => p !== me).map((p) => `<button type="button" class="chip" data-mto="${esc(p)}" aria-pressed="${mealTo.has(p)}">${esc(p)}</button>`).join('');
-  $('#meal-what-label').textContent = smoke ? L('Nachricht (optional)', 'Message (optional)', 'Meddelande (valfritt)') : mealKind === 'cook' ? L('Was hast du vor? (optional)', 'What are you planning? (optional)', 'Vad planerar du? (valfritt)') : L("Was gibt's? (optional)", "What's cooking? (optional)", 'Vad blir det? (valfritt)');
-  $('#meal-what').placeholder = smoke ? L('z.B. auf dem Balkon', 'e.g. on the balcony', 't.ex. på balkongen') : mealKind === 'cook' ? L('z.B. irgendwas mit Nudeln, Ideen?', 'e.g. something with pasta, ideas?', 't.ex. något med pasta, idéer?') : L('z.B. Spaghetti Bolognese', 'e.g. spaghetti bolognese', 't.ex. spaghetti bolognese');
+  $('#meal-what-label').textContent = gym ? L('Nachricht (optional)', 'Message (optional)', 'Meddelande (valfritt)') : smoke ? L('Nachricht (optional)', 'Message (optional)', 'Meddelande (valfritt)') : mealKind === 'cook' ? L('Was hast du vor? (optional)', 'What are you planning? (optional)', 'Vad planerar du? (valfritt)') : L("Was gibt's? (optional)", "What's cooking? (optional)", 'Vad blir det? (valfritt)');
+  $('#meal-what').placeholder = gym ? L('z.B. Beine, danach Sauna', 'e.g. leg day, sauna after', 't.ex. ben, bastu efteråt') : smoke ? L('z.B. auf dem Balkon', 'e.g. on the balcony', 't.ex. på balkongen') : mealKind === 'cook' ? L('z.B. irgendwas mit Nudeln, Ideen?', 'e.g. something with pasta, ideas?', 't.ex. något med pasta, idéer?') : L('z.B. Spaghetti Bolognese', 'e.g. spaghetti bolognese', 't.ex. spaghetti bolognese');
   $('#meal-hint').textContent = smoke
     ? L('Nur die ausgewählten Personen bekommen eine Nachricht.', 'Only the people you pick get a notification.', 'Bara de du väljer får en notis.')
     : mealKind === 'eat'
@@ -3553,7 +3573,7 @@ function renderMeals() {
       : L('Alle bekommen eine Nachricht. Wer mitkochen will, sagt zu und kann Vorschläge machen.', 'Everyone gets a notification. Whoever wants to cook with you can say yes and suggest something.', 'Alla får en notis. Den som vill laga med kan svara och föreslå något.');
 }
 function openMeals(mode) {
-  mealMode = mode; mealKind = 'eat'; mealWhen = 'now'; mealTo = new Set();
+  mealMode = mode; mealKind = 'eat'; mealWhen = 'now'; mealTo = new Set(); mealDay = '';
   $('#meal-time').value = '19:00';
   $('#meal-what').value = '';
   renderMeals();
@@ -3576,16 +3596,17 @@ document.addEventListener('click', async (e) => {
 });
 $('#meal-kind').addEventListener('click', (e) => { const b = e.target.closest('[data-mkind]'); if (!b) return; mealKind = b.dataset.mkind; renderMeals(); });
 $('#meal-when').addEventListener('click', (e) => { const b = e.target.closest('[data-mwhen]'); if (!b) return; mealWhen = b.dataset.mwhen; renderMeals(); });
+$('#meal-day').addEventListener('click', (e) => { const b = e.target.closest('[data-mday]'); if (!b) return; mealDay = b.dataset.mday; renderMeals(); });
 $('#meal-to').addEventListener('click', (e) => { const b = e.target.closest('[data-mto]'); if (!b) return; const p = b.dataset.mto; if (mealTo.has(p)) mealTo.delete(p); else mealTo.add(p); renderMeals(); });
 $('#meal-form').addEventListener('submit', async (e) => {
   if (e.submitter?.value !== 'ok') return;
   e.preventDefault();
-  const smoke = mealMode === 'smoke';
+  const smoke = INVITE.includes(mealMode);
   if (smoke && !mealTo.size) { toast(L('Wen willst du fragen?', 'Who do you want to ask?', 'Vem vill du fråga?')); return; }
   try {
-    state.meals = (await api('meal/new', { kind: smoke ? 'smoke' : mealKind, time: mealWhen === 'now' ? 'now' : $('#meal-time').value, what: $('#meal-what').value, ...(smoke ? { to: [...mealTo] } : {}) })).meals;
+    state.meals = (await api('meal/new', { kind: smoke ? mealMode : mealKind, time: mealWhen === 'now' ? 'now' : $('#meal-time').value, day: mealWhen === 'week' ? mealDay : '', what: $('#meal-what').value, ...(smoke ? { to: [...mealTo] } : {}) })).meals;
     $('#meal-what').value = ''; mealTo = new Set(); renderMeals(); renderHome();
-    toast(smoke ? L('Gefragt 🚬', 'Asked 🚬', 'Frågat 🚬') : L('Alle wissen Bescheid 🍝', 'Everyone has been told 🍝', 'Alla har fått besked 🍝'));
+    toast(smoke ? L(`Gefragt ${mealMode === 'gym' ? '🏋️' : '🚬'}`, `Asked ${mealMode === 'gym' ? '🏋️' : '🚬'}`, `Frågat ${mealMode === 'gym' ? '🏋️' : '🚬'}`) : L('Alle wissen Bescheid 🍝', 'Everyone has been told 🍝', 'Alla har fått besked 🍝'));
   } catch (err) { toast(err.message); }
 });
 // Waschmaschinen-Restzeit aktuell halten

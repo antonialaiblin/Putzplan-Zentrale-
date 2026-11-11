@@ -509,7 +509,9 @@
       <div class="seg two-seg" id="meal-when" role="radiogroup">
         <button type="button" role="radio" data-mwhen="now" aria-checked="true">⚡ Jetzt</button>
         <button type="button" role="radio" data-mwhen="later" aria-checked="false">🕖 Später</button>
+        <button type="button" role="radio" data-mwhen="week" aria-checked="false" hidden>📅 Diese Woche</button>
       </div>
+      <div class="chips" id="meal-day" hidden></div>
       <label class="field" id="meal-time-wrap" hidden><span id="meal-time-label">Uhrzeit</span><input type="time" id="meal-time" value="19:00"></label>
       <label class="field"><span id="meal-what-label">Was gibt's? (optional)</span><input id="meal-what" maxlength="120" placeholder="z.B. Spaghetti Bolognese"></label>
       <div class="row end"><button value="cancel" class="ghost" formnovalidate id="meal-close">Schließen</button><button value="ok" id="meal-send">Fragen</button></div>
