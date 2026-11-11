@@ -3380,9 +3380,21 @@ function laundryRun() {
   const l = state.laundry || { run: null, queue: [] };
   return l.run && l.run.end > Date.now() - 60e3 ? l.run : null;
 }
+const WASHER_SVG = `<svg class="washer" viewBox="0 0 64 64" width="80" height="80" aria-hidden="true">
+  <rect x="8" y="4" width="48" height="56" rx="7" fill="#f4f6f8" stroke="#b9c2cc" stroke-width="2"/>
+  <rect x="8" y="4" width="48" height="13" rx="7" fill="#dfe5ea"/>
+  <rect x="8" y="12" width="48" height="5" fill="#dfe5ea"/>
+  <circle cx="17" cy="10.5" r="3" fill="#8fa1b3"/><circle cx="25" cy="10.5" r="2" fill="#5fbf7f"/>
+  <rect x="34" y="8" width="16" height="5" rx="2" fill="#2f3b48"/>
+  <circle cx="32" cy="38.5" r="16" fill="#cfd8e0" stroke="#9aa8b6" stroke-width="2"/>
+  <circle cx="32" cy="38.5" r="12" fill="#7cc4f2"/>
+  <g class="washer-drum"><path d="M20.5 41c4-3 8 2 12-1s8 2 11.5-1v1.5a12 12 0 0 1-23.5 1.5z" fill="#3d9be0"/>
+  <circle cx="27" cy="33" r="2.2" fill="#fff" opacity=".85"/><circle cx="35" cy="31" r="1.5" fill="#fff" opacity=".85"/><circle cx="37.5" cy="36" r="1.1" fill="#fff" opacity=".85"/></g>
+  <path d="M24 30a11 11 0 0 1 6-4" stroke="#fff" stroke-width="2" stroke-linecap="round" fill="none" opacity=".7"/>
+</svg>`;
 function laundryTile() {
   const run = laundryRun();
-  return emojiTile('laundry-card', 'data-laundry-open', '🧺', L('Waschmaschine', 'Washing machine', 'Tvättmaskin'), run ? `⏳ ${clockOf(run.end)}` : '', false);
+  return emojiTile(`laundry-card${run ? ' spinning' : ''}`, 'data-laundry-open', WASHER_SVG, L('Waschmaschine', 'Washing machine', 'Tvättmaskin'), run ? `⏳ ${clockOf(run.end)}` : '', false);
 }
 function laundryStatus() {
   const l = state.laundry || { run: null, queue: [] };

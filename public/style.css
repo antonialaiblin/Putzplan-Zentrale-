@@ -723,3 +723,8 @@ body.welcoming { overflow: hidden; }
 #meal-when { margin: 6px 0 10px; }
 #meal-when.three-seg { grid-template-columns: repeat(3, 1fr); }
 #meal-day { margin-bottom: 8px; }
+.emoji-big .washer { display: block; width: 96px; height: 96px; }
+.washer-drum { transform-origin: 32px 38.5px; transform-box: view-box; }
+.laundry-card.spinning .washer-drum { animation: washer-spin 2.4s linear infinite; }
+@keyframes washer-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .laundry-card.spinning .washer-drum { animation: none; } }
