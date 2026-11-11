@@ -227,6 +227,29 @@ document.addEventListener('click', (e) => {
   if (e.target.closest('#guest-try')) startGuest();
   if (e.target.closest('#guest-end')) endGuest();
 });
+/** Neue Accounts: WG-Regeln lesen und akzeptieren, bevor es weitergeht */
+function rulesGate() {
+  const d = $('#rules-gate');
+  const src = $('#tab-rules').cloneNode(true);
+  src.querySelector('.back')?.closest('p')?.remove();
+  src.querySelectorAll('[id]').forEach((e) => e.removeAttribute('id'));
+  $('#rules-gate-body').innerHTML = src.innerHTML;
+  $('#rules-gate-title').textContent = L('Willkommen! Bitte lies zuerst unsere WG-Regeln 📖', 'Welcome! Please read our house rules first 📖', 'Välkommen! Läs först våra husregler 📖');
+  $('#rules-gate-ok').textContent = L('✅ Ich habe die Regeln gelesen und akzeptiere sie', '✅ I have read and accept the rules', '✅ Jag har läst och godkänner reglerna');
+  $('#rules-gate-out').textContent = L('Abmelden', 'Log out', 'Logga ut');
+  d.oncancel = (e) => e.preventDefault();
+  if (!d.open) d.showModal();
+  return new Promise((resolve) => {
+    $('#rules-gate-ok').onclick = async () => {
+      try { await api('auth/rules', {}); } catch (err) { toast(err.message); return; }
+      d.close(); state.account.rulesNeeded = false; resolve(true);
+    };
+    $('#rules-gate-out').onclick = async () => {
+      await api('auth/logout', {}).catch(() => {});
+      store.set('token', ''); d.close(); location.reload(); resolve(false);
+    };
+  });
+}
 async function load() {
   if (!store.get('token') && !store.get('guest')) { state.account = null; await loadLogin(); return; }
   // Account prüfen: ist er schon mit einer Person verbunden?
@@ -237,6 +260,7 @@ async function load() {
   $('#guest-banner').hidden = !state.guest;
   state.admin = who.admin;
   state.account = who.account;
+  if (who.account?.rulesNeeded && !(await rulesGate())) return;
   state.pendingCount = who.pendingCount || 0;
   if (!who.account) store.set('token', '');
   if (!who.account?.person) { state.people = who.people; state.members = who.members; state.me = null; renderMe(); return; }

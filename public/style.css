@@ -623,3 +623,10 @@ body.guest #logout { display: none !important; }
 /* Regelbuch oben rechts */
 .rules-btn { flex: none; display: inline-flex; align-items: center; justify-content: center; width: 48px; height: 48px; border-radius: 14px; font-size: 28px; text-decoration: none; background: var(--card); border: 1px solid var(--line); box-shadow: 0 2px 8px rgba(0,0,0,.12); }
 .rules-btn:active { transform: scale(.94); }
+
+/* WG-Regeln akzeptieren (neue Accounts) */
+.rules-gate { max-height: 92vh; display: flex; flex-direction: column; }
+.rules-gate:not([open]) { display: none; }
+.rules-gate #rules-gate-body { overflow-y: auto; flex: 1; margin: 8px 0; }
+.rules-gate-actions { display: flex; flex-direction: column; gap: 8px; padding-top: 8px; border-top: 1px solid var(--line, #ddd); }
+.rules-gate-actions #rules-gate-ok { width: 100%; }

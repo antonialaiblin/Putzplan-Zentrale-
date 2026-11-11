@@ -566,7 +566,7 @@ export class Putzplan extends DurableObject {
       return json({
         people: PEOPLE, admin, guestMode: GUEST_MODE, guest: !!sandbox,
         members: members.map((m) => ({ name: m.name, photo: m.photo, gender: m.gender, lang: m.lang, claimed: taken.has(m.name) })),
-        account: acct ? { username: acct.username, person: me, pending: acct.pending ? { type: acct.pending.type, person: acct.pending.person || acct.pending.name } : null } : null,
+        account: acct ? { username: acct.username, person: me, rulesNeeded: acct.rules === false, pending: acct.pending ? { type: acct.pending.type, person: acct.pending.person || acct.pending.name } : null } : null,
         pendingCount: isAdmin ? (await accounts()).filter((a) => a.pending || a.forgot).length : 0,
       });
     }
@@ -579,7 +579,7 @@ export class Putzplan extends DurableObject {
       // Benutzername darf weder vergeben sein noch wie eine andere Person heißen
       if (all.some((a) => a.username.toLowerCase() === lower || a.person?.toLowerCase() === lower)) return json({ error: 'Diesen Namen gibt es schon. Bitte einen anderen wählen.' }, 400);
       const hint = typeof body.hint === 'string' ? body.hint.trim().slice(0, 100) : '';
-      await this.ctx.storage.put(acctKey(username), { username, ...(await hashPw(body.password)), person: null, hint: hint || null, at: Date.now() });
+      await this.ctx.storage.put(acctKey(username), { username, ...(await hashPw(body.password)), person: null, hint: hint || null, rules: false, at: Date.now() });
       return json({ token: await startSession(username), username });
     }
     if (path === '/auth/login' && request.method === 'POST') {
@@ -616,6 +616,13 @@ export class Putzplan extends DurableObject {
       return json({ ok: true, admin });
     }
     if (!acct && path.startsWith('/auth/')) return json({ error: 'Bitte melde dich an.', auth: true }, 401);
+    // Neue Accounts müssen zuerst die WG-Regeln akzeptieren
+    if (path === '/auth/rules' && request.method === 'POST') {
+      if (!acct) return json({ error: 'Bitte zuerst anmelden.' }, 401);
+      await this.ctx.storage.put(acctKey(acct.username), { ...acct, rules: Date.now() });
+      return json({ ok: true });
+    }
+    if ((path === '/auth/claim' || path === '/members/join') && request.method === 'POST' && acct?.rules === false) return json({ error: 'Bitte zuerst die WG-Regeln akzeptieren.' }, 403);
     if (path === '/auth/claim' && request.method === 'POST') {
       if (me) return json({ error: 'Dein Account ist schon mit einer Person verbunden.' }, 400);
       if (!PEOPLE.includes(body.person)) return json({ error: 'Mitglied nicht gefunden.' }, 404);
