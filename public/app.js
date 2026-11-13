@@ -771,7 +771,7 @@ function rankingHtml() {
     if (r.n !== last) { place = i + 1; last = r.n; }
     const medal = r.n ? ['🥇', '🥈', '🥉'][place - 1] || `${place}.` : '–';
     return `<li class="${r.p === state.me ? 'me' : ''}"><span class="rk">${medal}</span>${avatar(r.p, 'sm')}<span class="nm">${esc(r.p)}${r.p !== state.me ? ` ${streakChip(r.p)}` : ''}</span><span class="bar"><b style="width:${Math.round((r.n / max) * 100)}%"></b></span><span class="ct">${r.n}</span></li>`;
-  }).join('')}</ol><p class="muted small" style="margin:6px 0 0">${L('Punkte pro erledigtem Dienst: Wochendienst 4 (mit Putzkraft 2), Bad 1, Kühlschrankfach 1. 💛 Dienst übernehmen gibt +3 Bonus.', 'Points per finished duty: weekly duty 4 (2 with cleaner), bathroom 1, fridge shelf 1. 💛 Taking over a duty gives +3 bonus.', 'Poäng per klar tjänst: veckotjänst 4 (2 med städhjälp), badrum 1, kylskåpsfack 1. 💛 Ta över en tjänst ger +3 i bonus.')}</p>`;
+  }).join('')}</ol><p class="muted small" style="margin:6px 0 0">${L('Punkte pro erledigtem Dienst: Wochendienst 4 (mit Putzkraft 2), Bad 1, Kühlschrankfach 1. 💛 Übernommene Dienste zählen doppelt.', 'Points per finished duty: weekly duty 4 (2 with cleaner), bathroom 1, fridge shelf 1. 💛 Duties taken over count double.', 'Poäng per klar tjänst: veckotjänst 4 (2 med städhjälp), badrum 1, kylskåpsfack 1. 💛 Övertagna tjänster räknas dubbelt.')}</p>`;
 }
 document.addEventListener('click', (e) => {
   const b = e.target.closest('[data-rank]');
@@ -1029,7 +1029,7 @@ document.addEventListener('click', async (e) => {
   const giftUndo = e.target.closest('[data-gift-undo]');
   if (gift || giftUndo) {
     const t = state.weeks.get(state.view).tasks.find((x) => x.key === (gift || giftUndo).dataset[gift ? 'gift' : 'giftUndo']);
-    if (gift && !confirm(L(`„${T(t.title)}“ für ${t.person} übernehmen? Das ist kein Tausch: Dein eigener Dienst bleibt wie geplant. Dafür gibt's +3 Bonus-Punkte im Ranking 💛`, `Take over "${T(t.title)}" for ${t.person}? This is not a swap: your own duty stays as planned. You get +3 bonus points in the ranking 💛`, `Ta över "${T(t.title)}" åt ${t.person}? Det är inget byte: din egen tjänst är kvar. Du får +3 bonuspoäng i rankingen 💛`))) return;
+    if (gift && !confirm(L(`„${T(t.title)}“ für ${t.person} übernehmen? Das ist kein Tausch: Dein eigener Dienst bleibt wie geplant. Wenn du ihn erledigst, bekommst du doppelte Punkte im Ranking 💛`, `Take over "${T(t.title)}" for ${t.person}? This is not a swap: your own duty stays as planned. Once you finish it, you get double points in the ranking 💛`, `Ta över "${T(t.title)}" åt ${t.person}? Det är inget byte: din egen tjänst är kvar. När du är klar får du dubbla poäng i rankingen 💛`))) return;
     try {
       await api(gift ? 'swap/gift' : 'swap/gift-undo', { monday: state.view, task: t.key });
       await reloadWeeks();

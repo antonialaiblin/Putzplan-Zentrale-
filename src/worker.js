@@ -315,7 +315,8 @@ export class Putzplan extends DurableObject {
         doersOf[`${w.monday}:${t.key}`] = [...doers];
         // Ranking-Punkte für ganz erledigte Dienste: Bad 1, Wochendienst 4 (ohne Putzkraft) bzw. 2 (mit Putzkraft)
         if (all && t.key !== 'kuehlschrank' && doers.size) {
-          const pts = t.key === 'woche' ? (w.cleaner ? 2 : 4) : 1;
+          // Aus Nettigkeit übernommen: doppelte Punkte
+          const pts = (t.key === 'woche' ? (w.cleaner ? 2 : 4) : 1) * (t.gift ? 2 : 1);
           const cnt = {};
           for (const it of t.items) { const b = w.checks[`${t.key}:${it.id}`]?.by; if (per[b]) cnt[b] = (cnt[b] || 0) + 1; }
           const who = doers.has(t.person) ? t.person : Object.entries(cnt).sort((a, b) => b[1] - a[1])[0][0];
@@ -355,11 +356,10 @@ export class Putzplan extends DurableObject {
     for (const e of (await this.ctx.storage.list({ prefix: 'exp:' })).values()) if (e.kind !== 'settle' && !e.net && per[e.paidBy]) per[e.paidBy].paidCount++;
     // Treue Seele: Tage in der WG
     for (const m of await this.members()) if (per[m.name] && m.since) per[m.name].days = Math.max(0, Math.round((Date.parse(berlinNow().day) - Date.parse(m.since)) / 864e5));
-    // Bonus fürs Übernehmen aus Nettigkeit: +3 Punkte im Ranking
+    // Übernehmen aus Nettigkeit zählen (die doppelten Punkte gibt es oben beim erledigten Dienst)
     for (const a of (await this.ctx.storage.get('actlog')) || []) {
       if (a.type !== 'gift' || !per[a.by]) continue;
-      per[a.by].items += 3; per[a.by].gifts = (per[a.by].gifts || 0) + 1;
-      if (new Date(a.at).toISOString().slice(0, 7) === monthNow) per[a.by].itemsMonth += 3;
+      per[a.by].gifts = (per[a.by].gifts || 0) + 1;
     }
     // Persönlicher Streak: Wochen in Folge, in denen man alle eigenen Aufgaben erledigt hat.
     // Wochen ohne eigene Aufgabe (frei/weg) unterbrechen nicht. Die laufende Woche zählt, sobald sie fertig ist.
