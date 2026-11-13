@@ -71,8 +71,8 @@ export const INITIAL_MEMBERS = [
   { name: 'Mo', side: 'vorne' },
 ].map((m) => ({ ...m, since: CYCLE_START, until: null }));
 const INITIAL_QUEUES = {
-  woche: ['Mo', 'Leo', 'Toni', 'Johanna', 'Simon'],
-  vorne: ['Mo', 'Simon', 'Leo'],
+  woche: ['Simon', 'Leo', 'Toni', 'Johanna', 'Mo'],
+  vorne: ['Simon', 'Mo', 'Leo'],
   hinten: ['Toni', 'Johanna'],
 };
 export const ABSENT_MIN_DAYS = 7; // nur wer die ganze Woche (Mo–So) weg ist, wird übersprungen

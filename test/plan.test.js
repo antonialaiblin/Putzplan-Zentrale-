@@ -7,12 +7,12 @@ const person = (w, key) => w.tasks.find((t) => t.key === key).person;
 
 test('Wochendienst und Putzkraft wie in der Tabelle', () => {
   const expected = [
-    ['2026-11-09', false, 'Mo'], ['2026-11-16', true, 'Leo'], ['2026-11-23', false, 'Toni'],
-    ['2026-11-30', true, 'Johanna'], ['2026-12-07', false, 'Simon'], ['2026-12-14', true, 'Mo'],
+    ['2026-11-09', false, 'Simon'], ['2026-11-16', true, 'Leo'], ['2026-11-23', false, 'Toni'],
+    ['2026-11-30', true, 'Johanna'], ['2026-12-07', false, 'Mo'], ['2026-12-14', true, 'Simon'],
     ['2026-12-21', false, 'Leo'], ['2026-12-28', true, 'Toni'], ['2027-01-04', false, 'Johanna'],
-    ['2027-01-11', true, 'Simon'],
+    ['2027-01-11', true, 'Mo'],
     // danach wieder von oben
-    ['2027-01-18', false, 'Mo'], ['2027-01-25', true, 'Leo'],
+    ['2027-01-18', false, 'Simon'], ['2027-01-25', true, 'Leo'],
   ];
   for (const [monday, cleaner, who] of expected) {
     const w = computeWeek(monday);
@@ -24,8 +24,8 @@ test('Wochendienst und Putzkraft wie in der Tabelle', () => {
 
 test('Baddienst wie in der Tabelle, nie gleich Wochendienst in der Putzwoche', () => {
   const expected = [
-    ['2026-11-09', 'Simon', 'Toni'], ['2026-11-23', 'Mo', 'Johanna'], ['2026-12-07', 'Leo', 'Toni'],
-    ['2026-12-21', 'Simon', 'Johanna'], ['2027-01-04', 'Mo', 'Toni'], ['2027-01-18', 'Leo', 'Johanna'],
+    ['2026-11-09', 'Mo', 'Toni'], ['2026-11-23', 'Simon', 'Johanna'], ['2026-12-07', 'Leo', 'Toni'],
+    ['2026-12-21', 'Mo', 'Johanna'], ['2027-01-04', 'Simon', 'Toni'], ['2027-01-18', 'Leo', 'Johanna'],
   ];
   for (const [monday, vorne, hinten] of expected) {
     for (const m of [monday, monday.replace(/\d\d$/, (d) => String(+d + 7).padStart(2, '0'))]) {
@@ -70,17 +70,17 @@ test('Nachrichten', () => {
   const w = computeWeek('2026-11-16');
   const m = weeklyMessages(w);
   assert.match(m.Leo.body, /Wochendienst/);
-  assert.match(m.Simon.body, /Vorderes Bad \+ extra Klo: nur Klopapier/);
+  assert.match(m.Mo.body, /Vorderes Bad \+ extra Klo: nur Klopapier/);
   assert.match(m.Leo.body, /Putzkraft kommt Mi 18\.11\./);
   assert.equal(m.Johanna, undefined);
 
   const w2 = computeWeek('2026-11-09');
   w2.checks = { 'woche:muell': {}, 'bad-vorne:putzen': {} };
   const f = fridayMessages(w2);
-  assert.equal(f.Simon, undefined);
+  assert.equal(f.Mo, undefined);
   assert.match(f.Toni.body, /Hinteres Bad putzen/);
-  assert.doesNotMatch(f.Mo.body, /Müll/);
-  assert.match(f.Mo.body, /Pfand/);
+  assert.doesNotMatch(f.Simon.body, /Müll/);
+  assert.match(f.Simon.body, /Pfand/);
   assert.equal(itemsFor(w2, 'Johanna').length, 0);
 });
 
@@ -98,14 +98,14 @@ test('Putzkraft-Ausfall: Plan rutscht ab der Folgewoche um eine Woche', () => {
   assert.equal(person(w30, 'woche'), 'Toni');
   assert.equal(w30.cleaner, false);
   // Wochen davor unverändert
-  assert.equal(person(computeWeek('2026-11-09', {}, aus), 'woche'), 'Mo');
+  assert.equal(person(computeWeek('2026-11-09', {}, aus), 'woche'), 'Simon');
 });
 
 test('Ausfall-Nachricht', async () => {
   const { ausfallMessages } = await import('../src/messages.js');
   const m = ausfallMessages(computeWeek('2026-11-16', { ausfall: true }, ['2026-11-16']));
   assert.match(m.Leo.body, /Wochendienst inkl\. Küche/);
-  assert.match(m.Simon.body, /Vorderes Bad \+ extra Klo putzen/);
+  assert.match(m.Mo.body, /Vorderes Bad \+ extra Klo putzen/);
   assert.match(m.Johanna.body, /ändert sich diese Woche nichts/);
   assert.match(m.Leo.body, /Mi 18\.11\./);
 });
@@ -117,7 +117,7 @@ test('Urlaub: wer weg ist, wird übersprungen und ist danach dran', () => {
   const ctx = { absences };
   assert.equal(person(computeWeek('2026-11-23', {}, ctx), 'woche'), 'Johanna');
   assert.equal(person(computeWeek('2026-11-30', {}, ctx), 'woche'), 'Toni');
-  assert.equal(person(computeWeek('2026-12-07', {}, ctx), 'woche'), 'Simon');
+  assert.equal(person(computeWeek('2026-12-07', {}, ctx), 'woche'), 'Mo');
   const w = computeWeek('2026-11-23', {}, ctx);
   assert.deepEqual(w.away, ['Toni']);
   assert.ok(!w.tasks.find((t) => t.key === 'kuehlschrank').items.some((i) => i.person === 'Toni'));
@@ -125,16 +125,16 @@ test('Urlaub: wer weg ist, wird übersprungen und ist danach dran', () => {
 
 test('Neues Mitglied kommt in die Rotation, Ausgezogene fliegen raus', () => {
   const members = [
-    ...INITIAL_MEMBERS.map((m) => (m.name === 'Simon' ? { ...m, until: '2026-11-23' } : m)),
+    ...INITIAL_MEMBERS.map((m) => (m.name === 'Mo' ? { ...m, until: '2026-11-23' } : m)),
     { name: 'Lina', side: 'vorne', since: '2026-11-23', until: null },
   ];
   const ctx = { members };
   const seq = ['2026-11-23', '2026-11-30', '2026-12-07', '2026-12-14', '2026-12-21', '2026-12-28'].map((m) => person(computeWeek(m, {}, ctx), 'woche'));
-  assert.deepEqual(seq, ['Toni', 'Johanna', 'Mo', 'Leo', 'Lina', 'Toni']);
-  assert.ok(!computeWeek('2026-11-30', {}, ctx).people.includes('Simon'));
+  assert.deepEqual(seq, ['Toni', 'Johanna', 'Simon', 'Leo', 'Lina', 'Toni']);
+  assert.ok(!computeWeek('2026-11-30', {}, ctx).people.includes('Mo'));
   const vorne = ['2026-11-23', '2026-12-07', '2026-12-21', '2027-01-04'].map((m) => person(computeWeek(m, {}, ctx), 'bad-vorne'));
   assert.ok(vorne.includes('Lina'));
-  assert.ok(!vorne.includes('Simon'));
+  assert.ok(!vorne.includes('Mo'));
 });
 
 test('Kürzer als eine ganze Woche weg: kein Überspringen', () => {
