@@ -771,7 +771,7 @@ function rankingHtml() {
     if (r.n !== last) { place = i + 1; last = r.n; }
     const medal = r.n ? ['🥇', '🥈', '🥉'][place - 1] || `${place}.` : '–';
     return `<li class="${r.p === state.me ? 'me' : ''}"><span class="rk">${medal}</span>${avatar(r.p, 'sm')}<span class="nm">${esc(r.p)}${r.p !== state.me ? ` ${streakChip(r.p)}` : ''}</span><span class="bar"><b style="width:${Math.round((r.n / max) * 100)}%"></b></span><span class="ct">${r.n}</span></li>`;
-  }).join('')}</ol><p class="muted small" style="margin:6px 0 0">${L('Gezählt wird jede abgehakte Aufgabe. 💛 Dienst übernehmen gibt +3 Bonus.', 'Every ticked-off task counts. 💛 Taking over a duty gives +3 bonus.', 'Varje avbockad uppgift räknas. 💛 Ta över en tjänst ger +3 i bonus.')}</p>`;
+  }).join('')}</ol><p class="muted small" style="margin:6px 0 0">${L('Punkte pro erledigtem Dienst: Wochendienst 4 (mit Putzkraft 2), Bad 1, Kühlschrankfach 1. 💛 Dienst übernehmen gibt +3 Bonus.', 'Points per finished duty: weekly duty 4 (2 with cleaner), bathroom 1, fridge shelf 1. 💛 Taking over a duty gives +3 bonus.', 'Poäng per klar tjänst: veckotjänst 4 (2 med städhjälp), badrum 1, kylskåpsfack 1. 💛 Ta över en tjänst ger +3 i bonus.')}</p>`;
 }
 document.addEventListener('click', (e) => {
   const b = e.target.closest('[data-rank]');

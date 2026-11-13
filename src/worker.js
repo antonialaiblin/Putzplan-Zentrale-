@@ -279,10 +279,12 @@ export class Putzplan extends DurableObject {
         const doers = new Set(t.items.map((it) => w.checks[`${t.key}:${it.id}`]?.by).filter((p) => per[p]));
         for (const it of t.items) {
           const c = w.checks[`${t.key}:${it.id}`];
-          // Ranking: jede abgehakte Aufgabe zählt
+          // Ranking: Kühlschrankfach 1 Punkt pro Fach; ganze Dienste werden unten gewertet
           if (c?.by && per[c.by]) {
-            per[c.by].items++;
-            if (new Date(c.at).toISOString().slice(0, 7) === monthNow) per[c.by].itemsMonth++;
+            if (t.key === 'kuehlschrank') {
+              per[c.by].items++;
+              if (new Date(c.at).toISOString().slice(0, 7) === monthNow) per[c.by].itemsMonth++;
+            }
             // Geheime Abzeichen: besondere Tage und Uhrzeiten (Berliner Zeit)
             const z = berlinNow(new Date(c.at));
             const md = z.day.slice(5);
@@ -311,6 +313,16 @@ export class Putzplan extends DurableObject {
           if (c?.by && per[c.by] && t.key === 'kuehlschrank' && it.person === c.by) per[c.by].fridge++;
         }
         doersOf[`${w.monday}:${t.key}`] = [...doers];
+        // Ranking-Punkte für ganz erledigte Dienste: Bad 1, Wochendienst 4 (ohne Putzkraft) bzw. 2 (mit Putzkraft)
+        if (all && t.key !== 'kuehlschrank' && doers.size) {
+          const pts = t.key === 'woche' ? (w.cleaner ? 2 : 4) : 1;
+          const cnt = {};
+          for (const it of t.items) { const b = w.checks[`${t.key}:${it.id}`]?.by; if (per[b]) cnt[b] = (cnt[b] || 0) + 1; }
+          const who = doers.has(t.person) ? t.person : Object.entries(cnt).sort((a, b) => b[1] - a[1])[0][0];
+          const last = Math.max(...t.items.map((it) => w.checks[`${t.key}:${it.id}`].at));
+          per[who].items += pts;
+          if (new Date(last).toISOString().slice(0, 7) === monthNow) per[who].itemsMonth += pts;
+        }
         if (all && t.key !== 'kuehlschrank') for (const p of doers) (weekDone[p] = weekDone[p] || new Set()).add(t.key);
         // Blitzputz: ganzer Wochendienst schon am Montag erledigt
         if (all && t.key === 'woche' && t.items.every((it) => berlinNow(new Date(w.checks[`${t.key}:${it.id}`].at)).day === w.monday)) for (const p of doers) bump(p, 'blitz');
