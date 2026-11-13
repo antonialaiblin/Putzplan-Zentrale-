@@ -771,8 +771,16 @@ function rankingHtml() {
     if (r.n !== last) { place = i + 1; last = r.n; }
     const medal = r.n ? ['🥇', '🥈', '🥉'][place - 1] || `${place}.` : '–';
     return `<li class="${r.p === state.me ? 'me' : ''}"><span class="rk">${medal}</span>${avatar(r.p, 'sm')}<span class="nm">${esc(r.p)}${r.p !== state.me ? ` ${streakChip(r.p)}` : ''}</span><span class="bar"><b style="width:${Math.round((r.n / max) * 100)}%"></b></span><span class="ct">${r.n}</span></li>`;
-  }).join('')}</ol><p class="muted small" style="margin:6px 0 0">${L('Punkte pro erledigtem Dienst: Wochendienst 4 (mit Putzkraft 2), Bad 1, Kühlschrankfach 1. 💛 Übernommene Dienste zählen doppelt.', 'Points per finished duty: weekly duty 4 (2 with cleaner), bathroom 1, fridge shelf 1. 💛 Duties taken over count double.', 'Poäng per klar tjänst: veckotjänst 4 (2 med städhjälp), badrum 1, kylskåpsfack 1. 💛 Övertagna tjänster räknas dubbelt.')}</p>`;
+  }).join('')}</ol><p class="muted small rank-info" style="margin:6px 0 0"${state.rankInfo ? '' : ' hidden'}>${L('Punkte gibt es nur, wenn alle Haken eines Dienstes gesetzt sind. Punkte pro erledigtem Dienst: Wochendienst 4 (mit Putzkraft 2), Bad 1, Kühlschrankfach 1. 💛 Übernommene Dienste zählen doppelt.', 'Points only count once every box of a duty is ticked. Points per finished duty: weekly duty 4 (2 with cleaner), bathroom 1, fridge shelf 1. 💛 Duties taken over count double.', 'Poäng räknas först när alla rutor i en tjänst är avbockade. Poäng per klar tjänst: veckotjänst 4 (2 med städhjälp), badrum 1, kylskåpsfack 1. 💛 Övertagna tjänster räknas dubbelt.')}</p>`;
 }
+document.addEventListener('click', (e) => {
+  const b = e.target.closest('[data-rank-info]');
+  if (!b || state.editHome) return;
+  state.rankInfo = !state.rankInfo;
+  b.setAttribute('aria-expanded', state.rankInfo);
+  const box = b.closest('.ranking-card')?.querySelector('.rank-info');
+  if (box) box.hidden = !state.rankInfo;
+});
 document.addEventListener('click', (e) => {
   const b = e.target.closest('[data-rank]');
   if (!b) return;
@@ -1934,7 +1942,7 @@ function renderHome() {
       <div class="b-icons">${got.length ? got.map((b) => `<span title="${esc(b.name(me))}">${b.icon}${b.level > 1 ? `<sup>${b.level}</sup>` : ''}</span>`).join('') : `<span class="muted small">${L('Noch keine. Sei fleißig, dann kommt das erste!', 'None yet. Keep at it and the first will come!', 'Inga än. Var flitig så kommer det första!')}</span>`}</div>
       <p class="muted small">🔒 ${secretText(mine.length - got.length)}</p></div>`;
   }
-  if (state.gami) tiles.ranking = `<div class="card __CLS__ ranking-card"><div class="board-head"><h3>🏆 ${L('WG-Ranking', 'Flat ranking', 'Kollektivets ranking')}</h3>
+  if (state.gami) tiles.ranking = `<div class="card __CLS__ ranking-card"><div class="board-head"><h3>🏆 ${L('WG-Ranking', 'Flat ranking', 'Kollektivets ranking')}</h3><button type="button" class="info-btn" data-rank-info aria-label="${L('So gibt es Punkte', 'How points work', 'Så funkar poängen')}" aria-expanded="${!!state.rankInfo}">ℹ️</button>
       <div class="seg two-seg rank-seg" role="radiogroup">${['month', 'all'].map((k) => `<button type="button" role="radio" data-rank="${k}" aria-checked="${(state.rankMode || 'month') === k}">${k === 'month' ? L('Monat', 'Month', 'Månad') : L('Gesamt', 'All time', 'Totalt')}</button>`).join('')}</div></div>${rankingHtml()}</div>`;
   const sh = state.shop;
   tiles.shop = `<a class="card __CLS__" href="#einkauf"><h3>${L('Einkauf', 'Shopping', `Handla`)}</h3>${sh

@@ -734,3 +734,6 @@ body.welcoming { overflow: hidden; }
 #rules-read { height: 92vh; }
 .welcome-back { display: block; margin: 14px auto 0; color: #fff; opacity: .85; }
 .welcome button.welcome-back { background: transparent; box-shadow: none; border: 0; color: #fff; font-weight: 500; font-size: 15px; padding: 8px 12px; }
+.info-btn { background: transparent; border: 0; box-shadow: none; padding: 2px 6px; font-size: 17px; line-height: 1; margin: 0 auto 0 4px; cursor: pointer; }
+.info-btn[aria-expanded="true"] { opacity: .6; }
+.rank-info { background: var(--accent-soft); color: var(--text, inherit); padding: 8px 10px; border-radius: 10px; }
