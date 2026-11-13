@@ -313,10 +313,10 @@ export class Putzplan extends DurableObject {
           if (c?.by && per[c.by] && t.key === 'kuehlschrank' && it.person === c.by) per[c.by].fridge++;
         }
         doersOf[`${w.monday}:${t.key}`] = [...doers];
-        // Ranking-Punkte für ganz erledigte Dienste: Bad 1, Wochendienst 4 (ohne Putzkraft) bzw. 2 (mit Putzkraft)
+        // Ranking-Punkte für ganz erledigte Dienste: Bad 2, Wochendienst 4 (ohne Putzkraft) bzw. 2 (mit Putzkraft)
         if (all && t.key !== 'kuehlschrank' && doers.size) {
           // Aus Nettigkeit übernommen: doppelte Punkte
-          const pts = (t.key === 'woche' ? (w.cleaner ? 2 : 4) : 1) * (t.gift ? 2 : 1);
+          const pts = (t.key === 'woche' ? (w.cleaner ? 2 : 4) : 2) * (t.gift ? 2 : 1);
           const cnt = {};
           for (const it of t.items) { const b = w.checks[`${t.key}:${it.id}`]?.by; if (per[b]) cnt[b] = (cnt[b] || 0) + 1; }
           const who = doers.has(t.person) ? t.person : Object.entries(cnt).sort((a, b) => b[1] - a[1])[0][0];
