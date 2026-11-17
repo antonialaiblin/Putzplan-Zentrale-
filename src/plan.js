@@ -133,7 +133,7 @@ export function simulate(ctx = {}, until) {
       const woche = takeNext(q.woche, (n) => !away(n));
       for (const side of ['vorne', 'hinten']) {
         const gone = bath[side] && !names.includes(bath[side]);
-        if (e % 2 === 0 || gone || !bath[side]) bath[side] = takeNext(q[side], (n) => !awayBath(n) && n !== woche, !q[side].every((n) => awayBath(n)));
+        if (e % 2 === 0 || gone || !bath[side]) bath[side] = takeNext(q[side], (n) => !awayBath(n) && n !== woche, false) ?? takeNext(q[side], (n) => !awayBath(n), !q[side].every((n) => awayBath(n)));
       }
       a = { woche, vorne: bath.vorne, hinten: bath.hinten };
     }

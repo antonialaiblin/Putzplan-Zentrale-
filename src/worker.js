@@ -88,6 +88,10 @@ export class Putzplan extends DurableObject {
       }));
       await this.ctx.storage.put('events', ev);
     }
+    // Als „Termin“ eingetragener Urlaub (z. B. Titel „Vacation“) zählt als Urlaub, damit der Putzplan ihn kennt
+    let fixed = false;
+    for (const e of ev) if (e.type === 'sonstiges' && isVacationTitle(e.title)) { e.type = 'urlaub'; e.time = ''; fixed = true; }
+    if (fixed) await this.ctx.storage.put('events', ev);
     return ev;
   }
   /** Für den Putzplan: bestätigte Urlaube pro Person */
@@ -1276,7 +1280,8 @@ export class Putzplan extends DurableObject {
     const label = (t) => ({ urlaub: 'Urlaub', meeting: 'WG-Meeting', sonstiges: 'Termin', besuch: 'Besuch' }[t]);
 
     if (path === '/events/add' && request.method === 'POST') {
-      const type = TYPES.includes(body.type) ? body.type : 'sonstiges';
+      let type = TYPES.includes(body.type) ? body.type : 'sonstiges';
+      if (type === 'sonstiges' && isVacationTitle(body.title)) type = 'urlaub';
       const by = PEOPLE.includes(body.by) ? body.by : null;
       const from = body.from;
       const dayVisit = type === 'besuch' && !body.overnight;
@@ -2244,6 +2249,11 @@ export class Putzplan extends DurableObject {
     }
     return done;
   }
+}
+
+/** Klingt der Titel nach Urlaub? (de/en/sv) */
+function isVacationTitle(t) {
+  return typeof t === 'string' && /\b(urlaub|ferien|vacation|holidays?|semester|verreist)\b/i.test(t);
 }
 
 const stub = (env) => env.PUTZPLAN.get(env.PUTZPLAN.idFromName('wg'));
