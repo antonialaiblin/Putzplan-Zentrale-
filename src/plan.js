@@ -75,7 +75,8 @@ const INITIAL_QUEUES = {
   vorne: ['Simon', 'Mo', 'Leo'],
   hinten: ['Toni', 'Johanna'],
 };
-export const ABSENT_MIN_DAYS = 4; // wer mind. 4 Tage (Mo–So) weg ist, wird übersprungen und ist danach als Erstes dran
+export const ABSENT_MIN_DAYS = 4; // Wochendienst: wer mind. 4 Tage (Mo–So) weg ist, wird übersprungen und ist danach als Erstes dran
+export const BATH_ABSENT_MIN_DAYS = 7; // Baddienst: nur wer die ganze Woche weg ist
 
 /** An wie vielen Tagen (Mo–So) ist die Person in dieser Woche weg? */
 export function daysAway(name, monday, absences) {
@@ -122,6 +123,7 @@ export function simulate(ctx = {}, until) {
       for (const n of names) if (fits(n) && !q[key].includes(n)) q[key].push(n);
     }
     const away = (n) => daysAway(n, m, absences) >= ABSENT_MIN_DAYS;
+    const awayBath = (n) => daysAway(n, m, absences) >= BATH_ABSENT_MIN_DAYS;
     const shift = ausfaelle.filter((a) => a < m).length;
     const e = weekIndex(m) - shift;
     let a;
@@ -131,7 +133,7 @@ export function simulate(ctx = {}, until) {
       const woche = takeNext(q.woche, (n) => !away(n));
       for (const side of ['vorne', 'hinten']) {
         const gone = bath[side] && !names.includes(bath[side]);
-        if (e % 2 === 0 || gone || !bath[side]) bath[side] = takeNext(q[side], (n) => !away(n) && n !== woche, !q[side].every((n) => away(n)));
+        if (e % 2 === 0 || gone || !bath[side]) bath[side] = takeNext(q[side], (n) => !awayBath(n) && n !== woche, !q[side].every((n) => awayBath(n)));
       }
       a = { woche, vorne: bath.vorne, hinten: bath.hinten };
     }

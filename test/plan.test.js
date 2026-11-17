@@ -143,6 +143,14 @@ test('Ab 4 Tagen weg: wird übersprungen', () => {
   assert.equal(person(computeWeek('2026-11-30', {}, ctx), 'woche'), 'Toni');
 });
 
+test('4–6 Tage weg: Baddienst bleibt, nur Wochendienst rutscht', () => {
+  const ctx = { absences: [{ person: 'Johanna', from: '2026-11-23', to: '2026-11-27' }] }; // Mo–Fr
+  assert.equal(person(computeWeek('2026-11-23', {}, ctx), 'bad-hinten'), 'Johanna');
+  const ctx2 = { absences: [{ person: 'Johanna', from: '2026-11-30', to: '2026-12-04' }] };
+  assert.notEqual(person(computeWeek('2026-11-30', {}, ctx2), 'woche'), 'Johanna');
+  assert.equal(person(computeWeek('2026-12-07', {}, ctx2), 'woche'), 'Johanna');
+});
+
 test('Nur 3 Tage weg: kein Überspringen', () => {
   const ctx = { absences: [{ person: 'Toni', from: '2026-11-27', to: '2026-11-29' }] }; // Fr–So
   assert.equal(person(computeWeek('2026-11-23', {}, ctx), 'woche'), 'Toni');
