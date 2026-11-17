@@ -92,9 +92,11 @@ export class Putzplan extends DurableObject {
   }
   /** Für den Putzplan: bestätigte Urlaube pro Person */
   async absences() {
+    // Wer noch keinen Account hat, kann nicht bestätigen: dann zählt der Urlaub direkt
+    const linked = new Set([...(await this.ctx.storage.list({ prefix: 'acct:' })).values()].map((a) => a.person).filter(Boolean));
     return (await this.events())
       .filter((e) => e.type === 'urlaub')
-      .flatMap((e) => e.participants.filter((p) => p.ok).map((p) => ({ id: e.id, person: p.name, from: e.from, to: e.to, note: e.title })));
+      .flatMap((e) => e.participants.filter((p) => p.ok || !linked.has(p.name)).map((p) => ({ id: e.id, person: p.name, from: e.from, to: e.to, note: e.title })));
   }
   /** Wer stimmt die Termine mit der Putzkraft ab? (Standard: Mo) */
   async cleanerContact() {
