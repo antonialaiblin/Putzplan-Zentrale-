@@ -75,7 +75,7 @@ const INITIAL_QUEUES = {
   vorne: ['Simon', 'Mo', 'Leo'],
   hinten: ['Toni', 'Johanna'],
 };
-export const ABSENT_MIN_DAYS = 7; // nur wer die ganze Woche (Mo–So) weg ist, wird übersprungen
+export const ABSENT_MIN_DAYS = 4; // wer mind. 4 Tage (Mo–So) weg ist, wird übersprungen und ist danach als Erstes dran
 
 /** An wie vielen Tagen (Mo–So) ist die Person in dieser Woche weg? */
 export function daysAway(name, monday, absences) {

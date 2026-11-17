@@ -137,8 +137,14 @@ test('Neues Mitglied kommt in die Rotation, Ausgezogene fliegen raus', () => {
   assert.ok(!vorne.includes('Mo'));
 });
 
-test('Kürzer als eine ganze Woche weg: kein Überspringen', () => {
-  const ctx = { absences: [{ person: 'Toni', from: '2026-11-23', to: '2026-11-28' }] }; // Simon–Sa
+test('Ab 4 Tagen weg: wird übersprungen', () => {
+  const ctx = { absences: [{ person: 'Toni', from: '2026-11-26', to: '2026-11-29' }] }; // Do–So
+  assert.notEqual(person(computeWeek('2026-11-23', {}, ctx), 'woche'), 'Toni');
+  assert.equal(person(computeWeek('2026-11-30', {}, ctx), 'woche'), 'Toni');
+});
+
+test('Nur 3 Tage weg: kein Überspringen', () => {
+  const ctx = { absences: [{ person: 'Toni', from: '2026-11-27', to: '2026-11-29' }] }; // Fr–So
   assert.equal(person(computeWeek('2026-11-23', {}, ctx), 'woche'), 'Toni');
 });
 
