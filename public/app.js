@@ -451,6 +451,12 @@ function weekTitle(monday) {
   return diff > 0 ? L(`In ${diff} Wochen`, `In ${diff} weeks`, `Om ${diff} veckor`) : L(`Vor ${-diff} Wochen`, `${-diff} weeks ago`, `För ${-diff} veckor sedan`);
 }
 
+/** Nächste Woche nach `monday`, in der die Putzkraft regulär kommt (aus den geladenen Wochen). */
+function nextCleanerWeek(monday) {
+  return [...state.weeks.values()].filter((x) => x.monday > monday && x.plannedCleaner && !x.ausfall && !x.movedTo && x.sunday >= (state.today || ''))
+    .sort((a, b) => (a.monday < b.monday ? -1 : 1))[0] || null;
+}
+
 function renderWeek() {
   const w = state.weeks.get(state.view);
   if (!w) return;
@@ -476,8 +482,8 @@ function renderWeek() {
   } else if (w.plannedCleaner) {
     const isContact = state.me && state.me === contact;
     html += `<div class="banner"><p>${w.ausfall
-      ? L('⚠️ <strong>Putzkraft fällt aus.</strong> Diese Woche putzen wir selbst (Intensivputz). Ab nächster Woche ist der Plan eine Woche später dran.',
-        "⚠️ <strong>Cleaner cancelled.</strong> This week we clean ourselves (deep clean). From next week the rota moves back one week.", `⚠️ <strong>Städhjälpen är inställd.</strong> Den här veckan städar vi själva (storstäd). Från nästa vecka flyttas schemat en vecka framåt.`)
+      ? L('⚠️ <strong>Putzkraft fällt aus.</strong> In dieser Woche putzen wir selbst (Intensivputz). Ab der Woche danach ist der Plan eine Woche später dran.',
+        "⚠️ <strong>Cleaner cancelled.</strong> This week we clean ourselves (deep clean). From the week after, the rota moves back one week.", `⚠️ <strong>Städhjälpen är inställd.</strong> Den här veckan städar vi själva (storstäd). Från veckan efter flyttas schemat en vecka framåt.`)
       : L(`🧹 <strong>Putzkraft kommt ${cleanerWhen(w)}</strong>${w.cleanerConfirmed ? ' ✓' : ' <span class="muted">(laut Plan, noch nicht bestätigt)</span>'} und putzt Bäder, Böden und Müll.`,
         `🧹 <strong>The cleaner comes ${cleanerWhen(w)}</strong>${w.cleanerConfirmed ? ' ✓' : ' <span class="muted">(as planned, not confirmed yet)</span>'} and cleans bathrooms, floors and bins.`, `🧹 <strong>Städhjälpen kommer ${cleanerWhen(w)}</strong>${w.cleanerConfirmed ? ' ✓' : ' <span class="muted">(enligt plan, inte bekräftat än)</span>'} och städar badrum, golv och sopor.`)}</p>
       ${isContact && !w.ausfall && !w.cleanerConfirmed ? `<p class="small">${L('<strong>Du stimmst die Termine mit der Putzkraft ab:</strong> Kommt sie diese Woche? Dann trag bitte Tag und Uhrzeit ein.', '<strong>You arrange the dates with the cleaner:</strong> Is she coming this week? Then please enter the day and time.', `<strong>Du bokar tider med städhjälpen:</strong> Kommer hon den här veckan? Fyll i så fall i dag och tid.`)}</p>` : ''}
@@ -486,7 +492,8 @@ function renderWeek() {
       ${contactLine}</div>`;
   } else {
     html += `<div class="banner"><p>${L('🫧 <strong>Woche ohne Putzkraft.</strong> Wir putzen selbst.', '🫧 <strong>Week without the cleaner.</strong> We clean ourselves.', `🫧 <strong>Vecka utan städhjälp.</strong> Vi städar själva.`)}</p>
-      <div class="row"><button class="link" data-cleaner-add>${L('Putzkraft kommt diese Woche doch?', 'Cleaner coming this week after all?', `Kommer städhjälpen ändå den här veckan?`)}</button></div>${contactLine}</div>`;
+      <div class="row"><button class="link" data-cleaner-add>${L('Putzkraft kommt diese Woche doch?', 'Cleaner coming this week after all?', `Kommer städhjälpen ändå den här veckan?`)}</button>
+      ${nextCleanerWeek(w.monday) ? `<button class="link" data-ausfall="1" data-monday="${nextCleanerWeek(w.monday).monday}">${L(`Putzkraft fällt am ${cleanerWhen(nextCleanerWeek(w.monday))} aus?`, `Cleaner cancelled on ${cleanerWhen(nextCleanerWeek(w.monday))}?`, `Städhjälpen inställd den ${cleanerWhen(nextCleanerWeek(w.monday))}?`)}</button>` : ''}</div>${contactLine}</div>`;
   }
 
   if (w.away && w.away.length) {
@@ -1066,23 +1073,32 @@ document.addEventListener('click', async (e) => {
   }
   if (e.target.closest('[data-cleaner-contact]')) { openCleanerContact(); return; }
   const ausfall = e.target.closest('[data-ausfall]');
-  if (ausfall) {
-    const value = ausfall.dataset.ausfall === '1';
-    const msg = value
+  if (ausfall) { await setAusfall(ausfall.dataset.monday || state.view, ausfall.dataset.ausfall === '1'); }
+});
+
+/** Putzkraft-Ausfall für eine (auch zukünftige) Woche eintragen oder zurücknehmen. */
+async function setAusfall(monday, value) {
+  const w = state.weeks.get(monday);
+  const current = monday === state.current;
+  const when = w && w.cleanerDay ? cleanerWhen(w) : ddmm(monday);
+  const msg = value
+    ? (current
       ? L('Putzkraft fällt diese Woche aus?\n\nDann putzen wir diese Woche selbst (Küche, Flure, Bäder), ab nächster Woche rutscht der ganze Plan um eine Woche, und alle bekommen sofort eine Nachricht.',
         'Is the cleaner cancelled this week?\n\nThen we clean ourselves this week (kitchen, hallways, bathrooms), from next week the whole rota moves back one week, and everyone gets a notification right away.', `Är städhjälpen inställd den här veckan?\n\nDå städar vi själva den här veckan (kök, hallar, badrum), från nästa vecka flyttas hela schemat en vecka och alla får en notis direkt.`)
-      : L('Doch nicht ausgefallen? Der Plan rutscht dann wieder zurück.', 'Not cancelled after all? The rota then moves back again.', `Inte inställd ändå? Schemat flyttas då tillbaka igen.`);
-    if (!confirm(msg)) return;
-    try {
-      await api('ausfall', { monday: state.view, value });
-      state.weeks.clear(); // alle folgenden Wochen ändern sich
-      await load();
-      await ensureWeek(state.view);
-      renderWeek();
-      toast(value ? L('Eingetragen, alle wurden benachrichtigt', 'Saved, everyone has been notified', `Sparat, alla har fått en notis`) : L('Zurückgenommen', 'Undone', `Ångrat`));
-    } catch (err) { toast(err.message); }
-  }
-});
+      : L(`Putzkraft fällt am ${when} aus?\n\nDann putzen wir in der Woche ab ${ddmm(monday)} selbst (Küche, Flure, Bäder), ab der Woche danach rutscht der ganze Plan um eine Woche, und alle bekommen sofort eine Nachricht.`,
+        `Is the cleaner cancelled on ${when}?\n\nThen we clean ourselves in the week of ${ddmm(monday)} (kitchen, hallways, bathrooms), from the week after the whole rota moves back one week, and everyone gets a notification right away.`, `Är städhjälpen inställd den ${when}?\n\nDå städar vi själva veckan från ${ddmm(monday)} (kök, hallar, badrum), från veckan efter flyttas hela schemat en vecka och alla får en notis direkt.`))
+    : L('Doch nicht ausgefallen? Der Plan rutscht dann wieder zurück.', 'Not cancelled after all? The rota then moves back again.', `Inte inställd ändå? Schemat flyttas då tillbaka igen.`);
+  if (!confirm(msg)) return false;
+  try {
+    await api('ausfall', { monday, value });
+    state.weeks.clear(); // alle folgenden Wochen ändern sich
+    await load();
+    await ensureWeek(monday);
+    if (location.hash === '#plan') { state.view = monday; renderWeek(); } else render();
+    toast(value ? L('Eingetragen, alle wurden benachrichtigt', 'Saved, everyone has been notified', `Sparat, alla har fått en notis`) : L('Zurückgenommen', 'Undone', `Ångrat`));
+    return true;
+  } catch (err) { toast(err.message); return false; }
+}
 
 $('#lang-quick').onclick = (e) => { const b = e.target.closest('[data-flag]'); if (b) setLang(b.dataset.flag); };
 $('#set-lang').addEventListener('click', async (e) => {
@@ -1241,8 +1257,22 @@ function openCleaner(from = null, near = null) {
       ? L('Du kannst auch einen Tag in einer anderen Woche wählen. Der Putzplan passt sich an, und alle bekommen eine kurze Nachricht.', 'You can also pick a day in another week. The rota adjusts and everyone gets a short notification.', `Du kan också välja en dag i en annan vecka. Schemat anpassas och alla får en kort notis.`)
       : L('Für eine Woche, in der die Putzkraft sonst nicht kommt. Der Putzplan passt sich an, und alle bekommen eine kurze Nachricht.', 'For a week in which the cleaner would not come otherwise. The rota adjusts and everyone gets a short notification.', `För en vecka då städhjälpen annars inte kommer. Schemat anpassas och alla får en kort notis.`);
   };
-  sel.onchange = fill;
+  // Gewählten Termin als ausgefallen melden (geht auch für spätere Wochen)
+  let off = $('#cleaner-off');
+  if (!off) {
+    off = document.createElement('button');
+    off.type = 'button'; off.id = 'cleaner-off'; off.className = 'link'; off.style.margin = '0 0 12px';
+    $('#cleaner-week').after(off);
+  }
+  const fillOff = () => {
+    const w = sel.value && state.weeks.get(sel.value);
+    off.hidden = !w || !w.plannedCleaner || w.ausfall || !!w.extra;
+    if (w) off.textContent = L(`🚫 Putzkraft fällt am ${cleanerWhen(w)} aus`, `🚫 Cleaner cancelled on ${cleanerWhen(w)}`, `🚫 Städhjälpen inställd den ${cleanerWhen(w)}`);
+  };
+  off.onclick = async () => { const m = sel.value; dlg.close(); if (!(await setAusfall(m, true))) dlg.showModal(); };
+  sel.onchange = () => { fill(); fillOff(); };
   fill();
+  fillOff();
   $('#cleaner-form').onsubmit = async (e) => {
     if (e.submitter?.value !== 'ok') return;
     e.preventDefault();
@@ -3356,7 +3386,9 @@ function actText(a) {
         : ['📅', L(`${by} hat einen Termin eingetragen`, `${by} added an event`, `${by} lade in en händelse`) + (a.title ? `: ${q(a.title)}` : '') + ` (${range()})`];
     case 'gift': return ['💛', L(`${by} übernimmt ${q(T(a.task), null)} für ${esc(a.from)}, einfach so`, `${by} is covering ${q(T(a.task), null)} for ${esc(a.from)}, just because`, `${by} tar över ${q(T(a.task), null)} åt ${esc(a.from)}, bara så`)];
     case 'swap': return ['🔁', L(`${by} übernimmt ${q(T(a.task), null)} von ${esc(a.from)}`, `${by} takes over ${q(T(a.task), null)} from ${esc(a.from)}`, `${by} tar över ${q(T(a.task), null)} från ${esc(a.from)}`)];
-    case 'ausfall': return ['🚫', L(`${by} hat die Putzkraft für diese Woche abgesagt`, `${by} cancelled the cleaner this week`, `${by} ställde in städhjälpen den här veckan`)];
+    case 'ausfall': return ['🚫', a.monday && a.monday !== state.current
+      ? L(`${by} hat die Putzkraft für die Woche ab ${ddmm(a.monday)} abgesagt`, `${by} cancelled the cleaner for the week of ${ddmm(a.monday)}`, `${by} ställde in städhjälpen veckan från ${ddmm(a.monday)}`)
+      : L(`${by} hat die Putzkraft für diese Woche abgesagt`, `${by} cancelled the cleaner this week`, `${by} ställde in städhjälpen den här veckan`)];
     case 'cleaner': return ['🧹', L(`${by} hat den Putzkraft-Termin eingetragen: ${fmtDay(a.date)}${a.time ? ` ${a.time}` : ''}`, `${by} set the cleaner date: ${fmtDay(a.date)}${a.time ? ` ${a.time}` : ''}`, `${by} bokade städhjälpen: ${fmtDay(a.date)}${a.time ? ` ${a.time}` : ''}`)];
     case 'water': return ['💧', a.owner && a.owner !== a.by ? L(`${by} hat ${q(a.title, a.owner)} von ${esc(a.owner)} gegossen`, `${by} watered ${esc(a.owner)}'s ${q(a.title, a.owner)}`, `${by} vattnade ${esc(a.owner)}s ${q(a.title, a.owner)}`) : L(`${by} hat ${q(a.title)} gegossen`, `${by} watered ${q(a.title)}`, `${by} vattnade ${q(a.title)}`)];
     case 'sit': return ['🌱', L(`${by} gießt für ${esc(a.owner)} (${range()})`, `${by} is watering for ${esc(a.owner)} (${range()})`, `${by} vattnar åt ${esc(a.owner)} (${range()})`)];

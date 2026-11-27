@@ -1046,7 +1046,7 @@ export class Putzplan extends DurableObject {
       const flag = `sent:ausfall:${monday}`;
       if (ov.ausfall && !(await this.ctx.storage.get(flag))) {
         await this.ctx.storage.put(flag, Date.now());
-        for (const [p, m] of Object.entries(ausfallMessages(week, await this.langs()))) await this.pushCat('cleaner', p, m);
+        for (const [p, m] of Object.entries(ausfallMessages(week, await this.langs(), mondayOf(berlinNow().day)))) await this.pushCat('cleaner', p, m);
       }
       return json(week);
     }
