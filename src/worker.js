@@ -64,6 +64,13 @@ async function sha(s) {
   return [...new Uint8Array(h)].slice(0, 16).map((b) => b.toString(16).padStart(2, '0')).join('');
 }
 
+/** Ende einer Putzwoche: Montag danach 0 Uhr Berliner Zeit (in ms) */
+function weekEndMs(monday) {
+  const t = Date.parse(`${addDays(monday, 7)}T00:00:00Z`);
+  return t - (berlinNow(new Date(t)).hour === 1 ? 3600e3 : 7200e3);
+}
+const monthOf = (ms) => berlinNow(new Date(ms)).day.slice(0, 7);
+
 export class Putzplan extends DurableObject {
   // ---------- Daten ----------
   async overrides(monday) {
@@ -289,8 +296,11 @@ export class Putzplan extends DurableObject {
           if (c?.by && per[c.by]) {
             if (t.key === 'kuehlschrank') {
               per[c.by].items++;
-              if (new Date(c.at).toISOString().slice(0, 7) === monthNow) per[c.by].itemsMonth++;
+              if (monthOf(Math.min(c.at, weekEndMs(w.monday))) === monthNow) per[c.by].itemsMonth++;
             }
+          }
+          // Nachträglich abgehakt: zählt für Ranking und Streak, aber nicht für Uhrzeit-/Tages-Abzeichen
+          if (c?.by && per[c.by] && c.at <= weekEndMs(w.monday)) {
             // Geheime Abzeichen: besondere Tage und Uhrzeiten (Berliner Zeit)
             const z = berlinNow(new Date(c.at));
             const md = z.day.slice(5);
@@ -326,13 +336,14 @@ export class Putzplan extends DurableObject {
           const cnt = {};
           for (const it of t.items) { const b = w.checks[`${t.key}:${it.id}`]?.by; if (per[b]) cnt[b] = (cnt[b] || 0) + 1; }
           const who = doers.has(t.person) ? t.person : Object.entries(cnt).sort((a, b) => b[1] - a[1])[0][0];
-          const last = Math.max(...t.items.map((it) => w.checks[`${t.key}:${it.id}`].at));
+          // Monat: wann erledigt, nachträgliche Haken zählen höchstens bis zum Ende ihrer Woche
+          const last = Math.min(Math.max(...t.items.map((it) => w.checks[`${t.key}:${it.id}`].at)), weekEndMs(w.monday));
           per[who].items += pts;
-          if (new Date(last).toISOString().slice(0, 7) === monthNow) per[who].itemsMonth += pts;
+          if (monthOf(last) === monthNow) per[who].itemsMonth += pts;
         }
         if (all && t.key !== 'kuehlschrank') for (const p of doers) (weekDone[p] = weekDone[p] || new Set()).add(t.key);
         // Blitzputz: ganzer Wochendienst schon am Montag erledigt
-        if (all && t.key === 'woche' && t.items.every((it) => berlinNow(new Date(w.checks[`${t.key}:${it.id}`].at)).day === w.monday)) for (const p of doers) bump(p, 'blitz');
+        if (all && t.key === 'woche' && t.items.every((it) => !w.checks[`${t.key}:${it.id}`].late) && t.items.every((it) => berlinNow(new Date(w.checks[`${t.key}:${it.id}`].at)).day === w.monday)) for (const p of doers) bump(p, 'blitz');
         if (t.key === 'kuehlschrank') continue;
         for (const p of doers) {
           if (all) per[p].tasks++;
@@ -377,7 +388,14 @@ export class Putzplan extends DurableObject {
       const curOwn = cur ? ownDone(cur) : null;
       if (curOwn) s++;
       for (const w of weeks) { const d = ownDone(w); if (d === null) continue; if (d) b2 = Math.max(b2, ++r); else if (w.monday !== current) r = 0; }
-      streaks[p] = { streak: s, best: b2, current: !!curOwn };
+      // Offene eigene Aufgaben aus vergangenen Wochen (zum nachträglichen Abhaken)
+      const open = [];
+      for (const w of weeks) {
+        if (w.monday >= current) continue;
+        const n = keysOf(w).filter((x) => x.owner === p && !w.checks[x.k]).length;
+        if (n) open.push({ monday: w.monday, n });
+      }
+      streaks[p] = { streak: s, best: b2, current: !!curOwn, open: open.slice(-8).reverse() };
       if (per[p]) per[p].streakBest = b2;
     }
     return { streak, best, current: curDone, stats: per, streaks };
@@ -858,14 +876,16 @@ export class Putzplan extends DurableObject {
       const { monday, key, done, by } = body;
       if (!validMonday(monday) || typeof key !== 'string' || key.length > 60) return json({ error: 'bad request' }, 400);
       const k = `check:${monday}:${key}`;
-      if (done) await this.ctx.storage.put(k, { by: me || (PEOPLE.includes(by) ? by : null), at: Date.now() });
+      // Nachträglich: erst nach Ende der Woche (Sonntag 24 Uhr Berlin) abgehakt
+      const late = Date.now() > weekEndMs(monday);
+      if (done) await this.ctx.storage.put(k, { by: me || (PEOPLE.includes(by) ? by : null), at: Date.now(), ...(late ? { late: true } : {}) });
       else await this.ctx.storage.delete(k);
       const wk = await this.week(monday);
       // Aktivität: ganzer Dienst erledigt (einmal pro Woche und Dienst)
       const tk = wk.tasks.find((t) => key.startsWith(`${t.key}:`));
       if (done && tk && tk.items.every((it) => wk.checks[`${tk.key}:${it.id}`]) && !(await this.ctx.storage.get(`actdone:${monday}:${tk.key}`))) {
         await this.ctx.storage.put(`actdone:${monday}:${tk.key}`, 1);
-        await this.logAct('task', me, { task: tk.title, monday, key: tk.key });
+        await this.logAct('task', me, { task: tk.title, monday, key: tk.key, ...(late ? { late: true } : {}) });
       }
       return json({ ...wk, gami: await this.gami() });
     }
