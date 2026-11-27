@@ -495,6 +495,12 @@ function renderWeek() {
       `${names} ${w.away.length > 1 ? 'are' : 'is'} away this week and ${w.away.length > 1 ? 'were' : 'was'} skipped on the rota.`, `${names} är borta den här veckan och hoppas över i schemat.`)}</p></div>`;
   }
   if (w.monday === state.current && state.gami) html += `<p class="streak-line plan-streak">${streakLine()}</p>`;
+  html += pastOpenBanner(w.monday);
+  if (w.monday < state.current) {
+    html += `<div class="banner past-banner"><p>⏪ ${L('<strong>Vergangene Woche.</strong> Schon erledigt, aber vergessen abzuhaken? Hak es hier nachträglich ab. Es zählt für Ranking und Streak.',
+      '<strong>Past week.</strong> Done it but forgot to tick it off? Tick it off here afterwards. It counts for the ranking and your streak.',
+      '<strong>Tidigare vecka.</strong> Redan gjort men glömt att bocka av? Bocka av i efterhand här. Det räknas för rankingen och din streak.')}</p></div>`;
+  }
   const tasks = [...w.tasks].sort((a, b) => (b.person === state.me) - (a.person === state.me));
   for (const t of tasks) {
     const items = t.items;
@@ -508,7 +514,7 @@ function renderWeek() {
         const key = `${t.key}:${it.id}`;
         const c = w.checks[key];
         return `<label class="check${c ? ' done' : ''}"><input type="checkbox" data-check="${esc(key)}" ${c ? 'checked' : ''}>
-          <span>${esc(T(it.label))}${c?.by ? `<small>${L('erledigt von', 'done by', `klart av`)} ${esc(c.by)}</small>` : ''}</span></label>`;
+          <span>${esc(T(it.label))}${c?.by ? `<small>${L('erledigt von', 'done by', `klart av`)} ${esc(c.by)}${c.late ? ` · ${L('nachträglich abgehakt', 'ticked off later', 'avbockat i efterhand')}` : ''}</small>` : ''}</span></label>`;
       }).join('')}
       ${doneCount ? reactBar(`task:${w.monday}:${t.key}`, [...new Set(items.map((it) => w.checks[`${t.key}:${it.id}`]?.by).filter(Boolean))]) : ''}
       ${t.person ? (() => {
@@ -771,7 +777,7 @@ function rankingHtml() {
     if (r.n !== last) { place = i + 1; last = r.n; }
     const medal = r.n ? ['🥇', '🥈', '🥉'][place - 1] || `${place}.` : '–';
     return `<li class="${r.p === state.me ? 'me' : ''}"><span class="rk">${medal}</span>${avatar(r.p, 'sm')}<span class="nm">${esc(r.p)}${r.p !== state.me ? ` ${streakChip(r.p)}` : ''}</span><span class="bar"><b style="width:${Math.round((r.n / max) * 100)}%"></b></span><span class="ct">${r.n}</span></li>`;
-  }).join('')}</ol><p class="muted small rank-info" style="margin:6px 0 0"${state.rankInfo ? '' : ' hidden'}>${L('Punkte gibt es nur, wenn alle Haken eines Dienstes gesetzt sind. Punkte pro erledigtem Dienst: Wochendienst 4 (mit Putzkraft 2), Bad 2, Kühlschrankfach 1. 💛 Übernommene Dienste zählen doppelt.', 'Points only count once every box of a duty is ticked. Points per finished duty: weekly duty 4 (2 with cleaner), bathroom 2, fridge shelf 1. 💛 Duties taken over count double.', 'Poäng räknas först när alla rutor i en tjänst är avbockade. Poäng per klar tjänst: veckotjänst 4 (2 med städhjälp), badrum 2, kylskåpsfack 1. 💛 Övertagna tjänster räknas dubbelt.')}</p>`;
+  }).join('')}</ol><p class="muted small rank-info" style="margin:6px 0 0"${state.rankInfo ? '' : ' hidden'}>${L('Punkte gibt es nur, wenn alle Haken eines Dienstes gesetzt sind. Punkte pro erledigtem Dienst: Wochendienst 4 (mit Putzkraft 2), Bad 2, Kühlschrankfach 1. 💛 Übernommene Dienste zählen doppelt. Nachträglich abgehakte Dienste zählen auch (im Monat ihrer Woche).', 'Points only count once every box of a duty is ticked. Points per finished duty: weekly duty 4 (2 with cleaner), bathroom 2, fridge shelf 1. 💛 Duties taken over count double. Duties ticked off later count too (in the month of their week).', 'Poäng räknas först när alla rutor i en tjänst är avbockade. Poäng per klar tjänst: veckotjänst 4 (2 med städhjälp), badrum 2, kylskåpsfack 1. 💛 Övertagna tjänster räknas dubbelt. Tjänster som bockas av i efterhand räknas också (i månaden för sin vecka).')}</p>`;
 }
 document.addEventListener('click', (e) => {
   const b = e.target.closest('[data-rank-info]');
@@ -789,6 +795,29 @@ document.addEventListener('click', (e) => {
 });
 function streakOf(p) { return state.gami?.streaks?.[p] || { streak: 0, best: 0, current: false }; }
 function streakChip(p) { const s = streakOf(p).streak; return `<span class="strk${s ? '' : ' zero'}" title="${L('Streak', 'Streak', 'Streak')}">🔥${s}</span>`; }
+/** Eigene offene Aufgaben aus vergangenen Wochen: Hinweis mit Sprung in die Woche */
+function pastOpen() { return (state.me && streakOf(state.me).open) || []; }
+function pastOpenBanner(viewing) {
+  const list = pastOpen().filter((o) => o.monday !== viewing);
+  if (!list.length) return '';
+  const total = list.reduce((a, o) => a + o.n, 0);
+  return `<div class="banner past-open"><p>📋 ${L(`Aus vergangenen Wochen ${total === 1 ? 'ist noch <strong>1 Aufgabe</strong>' : `sind noch <strong>${total} Aufgaben</strong>`} von dir offen. Schon erledigt? Dann hak sie nachträglich ab:`,
+    `<strong>${total} ${total === 1 ? 'task' : 'tasks'}</strong> of yours from past weeks ${total === 1 ? 'is' : 'are'} still open. Already done? Tick ${total === 1 ? 'it' : 'them'} off afterwards:`,
+    `<strong>${total} ${total === 1 ? 'uppgift' : 'uppgifter'}</strong> från tidigare veckor är fortfarande öppna för dig. Redan gjort? Bocka av i efterhand:`)}</p>
+    <div class="row">${list.map((o) => `<button class="ghost small" data-goto-week="${o.monday}">${L(`Woche ab ${ddmm(o.monday)}`, `Week of ${ddmm(o.monday)}`, `Veckan från ${ddmm(o.monday)}`)} (${o.n})</button>`).join('')}</div></div>`;
+}
+document.addEventListener('click', async (e) => {
+  const b = e.target.closest?.('[data-goto-week]');
+  if (!b) return;
+  const target = b.dataset.gotoWeek;
+  try {
+    await ensureWeek(target);
+    state.view = target;
+    if (location.hash !== '#plan') location.hash = '#plan';
+    renderWeek();
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  } catch (err) { toast(err.message); }
+});
 function streakLine() {
   const me = state.me;
   if (!state.gami || !me) return '';
@@ -1928,6 +1957,7 @@ function renderHome() {
       ${me ? (mine.length ? `<div class="big">${mine.map(esc).join(', ')}</div>
         ${total ? `<p>${L(`${done} von ${total} erledigt`, `${done} of ${total} done`, `${done} av ${total} klart`)}</p><div class="progress"><b style="width:${Math.round((done / total) * 100)}%"></b></div>` : ''}`
         : `<div class="big">${L('Frei diese Woche 🎉', 'Free this week 🎉', `Ledig den här veckan 🎉`)}</div>`) : `<p>${L('Tipp oben auf deinen Namen.', 'Tap your name above.', `Tryck på ditt namn ovan.`)}</p>`}
+      ${me && pastOpen().length ? `<p class="muted small">📋 ${(() => { const n = pastOpen().reduce((a, o) => a + o.n, 0); return L(`${n} ${n === 1 ? 'Aufgabe' : 'Aufgaben'} aus vergangenen Wochen noch offen, nachträglich abhaken`, `${n} ${n === 1 ? 'task' : 'tasks'} from past weeks still open, tick off afterwards`, `${n} ${n === 1 ? 'uppgift' : 'uppgifter'} från tidigare veckor öppna, bocka av i efterhand`); })()}</p>` : ''}
 </a>`;
     const t = (k) => w.tasks.find((x) => x.key === k);
     tiles.plan = `<a class="card __CLS__" href="#plan"><h3>${L('Putzplan', 'Cleaning', `Städning`)}</h3>
@@ -3332,7 +3362,7 @@ function actText(a) {
   const money = () => new Intl.NumberFormat(locale(), { style: 'currency', currency: a.currency || 'EUR' }).format((a.amount || 0) / 100);
   const range = () => (a.from ? `${fmtDay(a.from)}${a.to && a.to !== a.from ? ` – ${fmtDay(a.to)}` : ''}` : '');
   switch (a.type) {
-    case 'task': return ['✅', L(`${by} hat ${q(T(a.task), null)} erledigt`, `${by} finished ${q(T(a.task), null)}`, `${by} har klarat ${q(T(a.task), null)}`)];
+    case 'task': return ['✅', L(`${by} hat ${q(T(a.task), null)} erledigt`, `${by} finished ${q(T(a.task), null)}`, `${by} har klarat ${q(T(a.task), null)}`) + (a.late && a.monday ? ` <span class="muted">(${L('nachträglich', 'afterwards', 'i efterhand')}, ${esc(weekOf(a.monday))})</span>` : '')];
     case 'join': return ['🎉', L(`${by} ist der Zentrale beigetreten`, `${by} joined the Zentrale`, `${by} gick med i Zentrale`)];
     case 'leave': return ['👋', L(`${by} zieht aus`, `${by} is moving out`, `${by} flyttar ut`)];
     case 'alarm': return ['🔔', L(`${by} hat Alarm ausgelöst`, `${by} rang the alarm`, `${by} slog larm`) + (a.where ? ` (${esc(tx(a.where, a.by))})` : '') + (a.title ? `: ${q(a.title)}` : '')];
