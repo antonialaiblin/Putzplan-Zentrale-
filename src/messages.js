@@ -63,12 +63,17 @@ export function fridayMessages(week, langs) {
 }
 
 /** Sofort-Nachricht an alle, wenn jemand einträgt, dass die Putzkraft ausfällt. */
-export function ausfallMessages(week, langs) {
+export function ausfallMessages(week, langs, current = week.monday) {
   const msgs = {};
+  const now = week.monday <= current;
   for (const person of week.people) {
     const lang = langOf(langs, person);
     const L = pick(lang);
     const when = L(`am ${cleanerWhen(week)}`, `on ${cleanerWhen(week, 'en')}`, `den ${cleanerWhen(week, 'sv')}`);
+    const wk = now ? L('Diese Woche', 'This week', 'Den här veckan') : L(`In der Woche ab ${ddmm(week.monday)}`, `In the week of ${ddmm(week.monday, "en")}`, `Veckan från ${ddmm(week.monday, "sv")}`);
+    const wkLow = now ? L('diese Woche', 'this week', 'den här veckan') : L('in der Woche', 'that week', 'den veckan');
+    const after = now ? L('Ab nächster Woche', 'From next week', 'Från nästa vecka') : L('Ab der Woche danach', 'From the week after', 'Från veckan efter');
+    const afterLow = now ? L('ab nächster Woche', 'from next week', 'från nästa vecka') : L('ab der Woche danach', 'from the week after', 'från veckan efter');
     const mine = [];
     for (const t of week.tasks) {
       if (t.person !== person) continue;
@@ -78,10 +83,10 @@ export function ausfallMessages(week, langs) {
     msgs[person] = {
       title: L('Putzkraft fällt aus ⚠️', 'Cleaner cancelled ⚠️', `Städhjälpen inställd ⚠️`),
       body: mine.length
-        ? L(`Hey ${person}, die Putzkraft kommt ${when} nicht. Diese Woche putzen wir selbst, du bist dran mit: ${mine.join(', ')}. Ab nächster Woche rutscht der Plan um eine Woche.`,
-          `Hey ${person}, the cleaner is not coming ${when}. This week we clean ourselves, you're on: ${mine.join(', ')}. From next week the rota moves back one week.`, `Hej ${person}, städhjälpen kommer inte ${when}. Den här veckan städar vi själva, du har: ${mine.join(', ')}. Från nästa vecka flyttas schemat en vecka.`)
-        : L(`Hey ${person}, die Putzkraft kommt ${when} nicht. Für dich ändert sich diese Woche nichts, aber ab nächster Woche rutscht der Plan um eine Woche.`,
-          `Hey ${person}, the cleaner is not coming ${when}. Nothing changes for you this week, but from next week the rota moves back one week.`, `Hej ${person}, städhjälpen kommer inte ${when}. För dig ändras inget den här veckan, men från nästa vecka flyttas schemat en vecka.`),
+        ? L(`Hey ${person}, die Putzkraft kommt ${when} nicht. ${wk} putzen wir selbst, du bist dran mit: ${mine.join(', ')}. ${after} rutscht der Plan um eine Woche.`,
+          `Hey ${person}, the cleaner is not coming ${when}. ${wk} we clean ourselves, you're on: ${mine.join(', ')}. ${after} the rota moves back one week.`, `Hej ${person}, städhjälpen kommer inte ${when}. ${wk} städar vi själva, du har: ${mine.join(', ')}. ${after} flyttas schemat en vecka.`)
+        : L(`Hey ${person}, die Putzkraft kommt ${when} nicht. Für dich ändert sich ${wkLow} nichts, aber ${afterLow} rutscht der Plan um eine Woche.`,
+          `Hey ${person}, the cleaner is not coming ${when}. Nothing changes for you ${wkLow}, but ${afterLow} the rota moves back one week.`, `Hej ${person}, städhjälpen kommer inte ${when}. För dig ändras inget ${wkLow}, men ${afterLow} flyttas schemat en vecka.`),
     };
   }
   return msgs;
